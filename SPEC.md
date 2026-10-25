@@ -68,7 +68,7 @@ states: { <state>: { .. } }
 assertions: [ { id, never: "<expression>", say, source } ]
 ```
 
-A flow is a statechart, and its meaning is a subset of SCXML's (W3C Recommendation, 2015). A transition in `on` is an SCXML transition with an event, `always` is a list of eventless transitions, a list of transitions is tried in document order, `invoke` and `type: final` mean what they mean in SCXML, a guard is a `cond` and an effect an `<assign>`; `DONE` and `FAIL.<class>` stand for SCXML's `done.invoke` and `error` events. A flow can therefore be written out as SCXML; that export is an open issue.
+A flow is a statechart, and its meaning is a subset of SCXML's (W3C Recommendation, 2015). A transition in `on` is an SCXML transition with an event, `always` is a list of eventless transitions, a list of transitions is tried in document order, `invoke` and `type: final` mean what they mean in SCXML, a guard is a `cond` and an effect an `<assign>`; `DONE` and `FAIL.<class>` stand for SCXML's `done.invoke` and `error` events. A flow can therefore be written out as SCXML; that export is [#9](https://github.com/delurio-labs/delurio/issues/9).
 
 ### Context
 
@@ -117,7 +117,7 @@ A configuration is a state together with a value for every context variable. The
 
 Each assertion is `never: <expression>`: it holds when no reachable configuration satisfies the expression. A violation is reported with the shortest event path from a starting situation. Under `--strict` a violated assertion exits 2.
 
-The checker does not yet fail on unreachable states, transitions no situation takes, or states with no way out; the page already shows them. That is an open issue. Paths that cover every transition are an open issue.
+The checker does not yet fail on unreachable states, transitions no situation takes, or states with no way out; the page already shows them. That is [#2](https://github.com/delurio-labs/delurio/issues/2). Paths that cover every transition are [#4](https://github.com/delurio-labs/delurio/issues/4).
 
 ### Several flows
 
@@ -177,7 +177,7 @@ rules: [ { id, rule } ]
 
 A `role` is a WAI-ARIA 1.2 role, and `name` is the accessible name that Accessible Name and Description Computation 1.2 gives the node; `kit check` reads both from the browser's accessibility tree.
 
-A node is shown in a state when the state is in `in`, not in `unless`, and `when` holds. `edges` records relations the page and the checks use: a node labelled by another, an action that leads to a state. `rules` are written but no tool reads them yet; checking them, together with dialogs, focus return, confirmation before a destructive action and events handled where shown, is an open issue.
+A node is shown in a state when the state is in `in`, not in `unless`, and `when` holds. `edges` records relations the page and the checks use: a node labelled by another, an action that leads to a state. `rules` are written but no tool reads them yet; checking them, together with dialogs, focus return, confirmation before a destructive action and events handled where shown, is [#3](https://github.com/delurio-labs/delurio/issues/3).
 
 ### Catalog
 
@@ -233,9 +233,9 @@ A capture may carry more words of its own on a field (`owner`, `note`, `editable
 
 **The API.** An action with a `route` (`METHOD /path`) is one OpenAPI 3.1 operation: its name is the `operationId`, `needs` its security requirement, `query` (a JSON Schema object) its query parameters, `body` its request body, `result` its response (`returns` an entity, a `redirect`, a `status`, or a JSON Schema), and each refusal one more response. When a refusal has a body, it is RFC 9457 problem details with the refusal code as its `type`. So a domain can be written out as an OpenAPI document, and an app that already publishes one names it at the top (`openapi: <file>`) and each action's operation by `operationId`, instead of copying them. An action with no route is a step inside the service. `needs`, `policies`, `sideEffects`, `refusals.<code>.redirect` and `invariants` are delurio's own: no standard says who may do what to which data, or what must always hold.
 
-This form was decided on 22 Oct 2026. Graphs captured before it may still give fields as `{ kind: text }`; they are converted when a tool first reads fields. The OpenAPI export and import are an open issue.
+This form was decided on 22 Oct 2026. Graphs captured before it may still give fields as `{ kind: text }`; they are converted when a tool first reads fields. The OpenAPI export and import are [#8](https://github.com/delurio-labs/delurio/issues/8).
 
-No tool checks a domain yet: the revision diff compares it and anchors lock its `source:` keys. Loading it with the flow and checking policies, secrets and `invoke` names is an open issue; generating it from Drizzle and Zod is an open issue; a registry that every API operation and route is covered by a graph is an open issue.
+No tool checks a domain yet: the revision diff compares it and anchors lock its `source:` keys. Loading it with the flow and checking policies, secrets and `invoke` names is [#5](https://github.com/delurio-labs/delurio/issues/5); generating it from Drizzle and Zod is [#6](https://github.com/delurio-labs/delurio/issues/6); a registry that every API operation and route is covered by a graph is [#7](https://github.com/delurio-labs/delurio/issues/7).
 
 ## 6. Navigation (`kind: nav`)
 
@@ -324,7 +324,7 @@ graphs/product/flow.yaml:88:7: note: step 2: CODE_CHANGED from developing, with 
 
 The same input gives the same bytes: no times, no random ids, results in a fixed order. Every file written is valid against the OASIS schema.
 
-There is no other machine format: no JSON of delurio's own, and nothing that only one CI reads. A converter for a CI that reads neither (GitLab's Code Quality report, Bitbucket's Code Insights) is written when a customer needs it, outside the checker. The public, pinned, offline CLI that gives both outputs is an open issue.
+There is no other machine format: no JSON of delurio's own, and nothing that only one CI reads. A converter for a CI that reads neither (GitLab's Code Quality report, Bitbucket's Code Insights) is written when a customer needs it, outside the checker. The public, pinned, offline CLI that gives both outputs is `@delurio/cli`, built from this repository; what its first release left out is [#1](https://github.com/delurio-labs/delurio/issues/1).
 
 ## 11. Writing a graph
 
