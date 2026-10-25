@@ -1,0 +1,305 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unpkg.com/@delurio/cli@0.2.0/schemas/domain.schema.json",
+  "title": "delurio domain graph (domain.yaml)",
+  "description": "The data and the API of a delurio-graph/0 graph (SPEC.md §5): entities whose fields are JSON Schema (2020-12) with delurio's keywords, actions that are OpenAPI 3.1 operations when they have a route, their refusals, the policies that say who may do what to which data, and the invariants that must always hold.",
+  "type": "object",
+  "required": ["schema", "kind", "id"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "$ref": "#/$defs/formatVersion" },
+    "kind": { "description": "The kind of graph file. A domain.yaml is `domain`.", "const": "domain" },
+    "id": { "$ref": "#/$defs/graphId", "description": "The domain's id; a flow names it with `domain:`.", "examples": ["qauth.authorize", "learning.api"] },
+    "title": { "type": "string", "description": "The domain in plain words, for people." },
+    "summary": { "type": "string", "description": "What the domain covers, in a few plain sentences." },
+    "status": { "$ref": "#/$defs/status" },
+    "source": { "$ref": "#/$defs/sourceAnchor" },
+    "openapi": { "type": "string", "description": "The OpenAPI document the app already publishes, relative to this file; each action then names its operation by `operationId` instead of copying it." },
+    "entities": {
+      "type": "object",
+      "description": "The data, by entity name. An entity is the JSON Schema `{ type: object, properties: <fields>, required: <required> }`.",
+      "additionalProperties": { "$ref": "#/$defs/entity" }
+    },
+    "policies": {
+      "type": "array",
+      "description": "Who may do what to which data (delurio's own: no standard says it).",
+      "items": { "$ref": "#/$defs/policy" }
+    },
+    "actions": {
+      "type": "object",
+      "description": "The API and the steps inside the service, by action name. An action with a `route` is one OpenAPI 3.1 operation whose operationId is its name; one with no route is a step inside the service. An action may be named before it is written (an empty value).",
+      "additionalProperties": { "$ref": "#/$defs/action" }
+    },
+    "invariants": {
+      "type": "array",
+      "description": "What must always hold (delurio's own: no standard says it).",
+      "items": { "$ref": "#/$defs/invariant" }
+    }
+  },
+  "$defs": {
+    "formatVersion": {
+      "description": "The format and its version. Every graph file starts with it.",
+      "const": "delurio-graph/0"
+    },
+    "status": {
+      "description": "`proposed`: written before or apart from the code, nobody has approved it. `captured`: read from existing code (capture mode, every element carries `source`). `approved`: the owner reviewed and accepted it.",
+      "enum": ["proposed", "captured", "approved"]
+    },
+    "graphId": {
+      "type": "string",
+      "description": "The id of a graph.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "sourceAnchor": {
+      "type": "string",
+      "description": "A source anchor (SPEC.md §9): `<repo-relative path>:<line>`, or a bare `<path>` for a whole file, naming the code that makes the element true. In capture mode every element carries one.",
+      "pattern": "^[^\\s:]+(:[0-9]+)?$",
+      "examples": ["src/db/schema.ts:42"]
+    },
+    "names": {
+      "type": "array",
+      "description": "Names, each once.",
+      "uniqueItems": true,
+      "items": { "type": "string" }
+    },
+    "entity": {
+      "type": "object",
+      "description": "An entity of the data.",
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "type": "object",
+          "description": "The entity's fields, by name, each a JSON Schema (2020-12) with delurio's keywords.",
+          "additionalProperties": { "$ref": "#/$defs/field" }
+        },
+        "required": { "$ref": "#/$defs/names", "description": "The fields that must be present." },
+        "key": { "$ref": "#/$defs/names", "description": "The fields that identify the entity; `[id]` when left out.", "examples": [["userId", "clientId"]] },
+        "lifecycle": {
+          "type": "array",
+          "description": "The entity's states, as `from -> to: why` sentences. Quote each: an unquoted item that contains `: ` is read as a map.",
+          "items": { "type": "string" },
+          "examples": [["none -> active: the first sign-in"]]
+        },
+        "source": { "$ref": "#/$defs/sourceAnchor" }
+      }
+    },
+    "field": {
+      "description": "A field: a JSON Schema (2020-12) with delurio's keywords (`references`, `unique`, `sensitivity`). `null` is a type like any other: an optional time is `{ type: [string, \"null\"], format: date-time }`.",
+      "$ref": "#/$defs/schemaObject"
+    },
+    "schema": {
+      "description": "A JSON Schema (2020-12) with delurio's keywords, or `true` (any value) or `false` (none).",
+      "anyOf": [{ "type": "boolean" }, { "$ref": "#/$defs/schemaObject" }]
+    },
+    "schemaObject": {
+      "type": "object",
+      "description": "A JSON Schema (2020-12) with delurio's keywords.",
+      "$ref": "#/$defs/keywords",
+      "unevaluatedProperties": false
+    },
+    "schemas": {
+      "type": "array",
+      "description": "JSON Schemas.",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/schema" }
+    },
+    "schemaMap": {
+      "type": "object",
+      "description": "JSON Schemas, by name.",
+      "additionalProperties": { "$ref": "#/$defs/schema" }
+    },
+    "typeName": {
+      "description": "A JSON type.",
+      "enum": ["string", "number", "integer", "boolean", "object", "array", "null"]
+    },
+    "nonNegative": { "type": "integer", "minimum": 0, "description": "A count, 0 or more." },
+    "keywords": {
+      "type": "object",
+      "description": "The keywords of JSON Schema 2020-12 (core, applicator, unevaluated, validation, meta-data, format and content vocabularies), and the keywords delurio adds, which a JSON Schema validator leaves alone.",
+      "properties": {
+        "$id": { "type": "string", "description": "JSON Schema: the schema's URI." },
+        "$schema": { "type": "string", "description": "JSON Schema: the dialect of the schema." },
+        "$ref": { "type": "string", "description": "JSON Schema: a reference to another schema." },
+        "$anchor": { "type": "string", "description": "JSON Schema: a plain-name fragment for this schema." },
+        "$dynamicRef": { "type": "string", "description": "JSON Schema: a reference resolved in the dynamic scope." },
+        "$dynamicAnchor": { "type": "string", "description": "JSON Schema: an anchor for `$dynamicRef`." },
+        "$defs": { "$ref": "#/$defs/schemaMap", "description": "JSON Schema: schemas kept for `$ref`, by name." },
+        "$comment": { "type": "string", "description": "JSON Schema: a comment for the schema's authors." },
+
+        "allOf": { "$ref": "#/$defs/schemas", "description": "JSON Schema: the value is valid against every one of these." },
+        "anyOf": { "$ref": "#/$defs/schemas", "description": "JSON Schema: the value is valid against at least one of these." },
+        "oneOf": { "$ref": "#/$defs/schemas", "description": "JSON Schema: the value is valid against exactly one of these." },
+        "not": { "$ref": "#/$defs/schema", "description": "JSON Schema: the value is not valid against this." },
+        "if": { "$ref": "#/$defs/schema", "description": "JSON Schema: when the value is valid against this, `then` applies, else `else`." },
+        "then": { "$ref": "#/$defs/schema", "description": "JSON Schema: applies when `if` holds." },
+        "else": { "$ref": "#/$defs/schema", "description": "JSON Schema: applies when `if` does not hold." },
+        "dependentSchemas": { "$ref": "#/$defs/schemaMap", "description": "JSON Schema: per property name, a schema that applies when the property is present." },
+        "prefixItems": { "$ref": "#/$defs/schemas", "description": "JSON Schema: the schemas of the first items, in order." },
+        "items": { "$ref": "#/$defs/schema", "description": "JSON Schema: the schema of every item (after `prefixItems`)." },
+        "contains": { "$ref": "#/$defs/schema", "description": "JSON Schema: at least one item is valid against this." },
+        "properties": { "$ref": "#/$defs/schemaMap", "description": "JSON Schema: the schema of each property, by name. delurio's keywords may be used on each." },
+        "patternProperties": { "$ref": "#/$defs/schemaMap", "description": "JSON Schema: per regular expression, the schema of the properties whose names match it." },
+        "additionalProperties": { "$ref": "#/$defs/schema", "description": "JSON Schema: the schema of the properties not named in `properties` or `patternProperties`." },
+        "propertyNames": { "$ref": "#/$defs/schema", "description": "JSON Schema: the schema every property name is valid against." },
+        "unevaluatedItems": { "$ref": "#/$defs/schema", "description": "JSON Schema: the schema of the items no other keyword evaluated." },
+        "unevaluatedProperties": { "$ref": "#/$defs/schema", "description": "JSON Schema: the schema of the properties no other keyword evaluated." },
+
+        "type": {
+          "description": "JSON Schema: the value's type, or a list of types. `null` is a type like any other.",
+          "anyOf": [
+            { "$ref": "#/$defs/typeName" },
+            { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/typeName" } }
+          ]
+        },
+        "const": { "description": "JSON Schema: the only value allowed." },
+        "enum": { "type": "array", "minItems": 1, "description": "JSON Schema: the values allowed. An enum that may be empty lists `null` among its values." },
+        "multipleOf": { "type": "number", "exclusiveMinimum": 0, "description": "JSON Schema: the number is a multiple of this." },
+        "maximum": { "type": "number", "description": "JSON Schema: the largest number allowed." },
+        "exclusiveMaximum": { "type": "number", "description": "JSON Schema: the number is less than this." },
+        "minimum": { "type": "number", "description": "JSON Schema: the smallest number allowed." },
+        "exclusiveMinimum": { "type": "number", "description": "JSON Schema: the number is greater than this." },
+        "maxLength": { "$ref": "#/$defs/nonNegative", "description": "JSON Schema: the longest string allowed, in characters." },
+        "minLength": { "$ref": "#/$defs/nonNegative", "description": "JSON Schema: the shortest string allowed, in characters." },
+        "pattern": { "type": "string", "description": "JSON Schema: a regular expression (ECMA-262) the string matches." },
+        "maxItems": { "$ref": "#/$defs/nonNegative", "description": "JSON Schema: the most items allowed." },
+        "minItems": { "$ref": "#/$defs/nonNegative", "description": "JSON Schema: the fewest items allowed." },
+        "uniqueItems": { "type": "boolean", "description": "JSON Schema: `true` when no two items may be equal." },
+        "maxContains": { "$ref": "#/$defs/nonNegative", "description": "JSON Schema: the most items valid against `contains`." },
+        "minContains": { "$ref": "#/$defs/nonNegative", "description": "JSON Schema: the fewest items valid against `contains`." },
+        "maxProperties": { "$ref": "#/$defs/nonNegative", "description": "JSON Schema: the most properties allowed." },
+        "minProperties": { "$ref": "#/$defs/nonNegative", "description": "JSON Schema: the fewest properties allowed." },
+        "required": { "$ref": "#/$defs/names", "description": "JSON Schema: the properties that must be present." },
+        "dependentRequired": {
+          "type": "object",
+          "description": "JSON Schema: per property name, the properties that must be present when it is.",
+          "additionalProperties": { "$ref": "#/$defs/names" }
+        },
+
+        "title": { "type": "string", "description": "JSON Schema: a short title." },
+        "description": { "type": "string", "description": "JSON Schema: what the value is, in words." },
+        "default": { "description": "JSON Schema: the value when none is given." },
+        "deprecated": { "type": "boolean", "description": "JSON Schema: `true` when the value should no longer be used." },
+        "readOnly": { "type": "boolean", "description": "JSON Schema: `true` when the value is set by the service, never by the caller." },
+        "writeOnly": { "type": "boolean", "description": "JSON Schema: `true` when the value is sent but never answered back." },
+        "examples": { "type": "array", "description": "JSON Schema: example values." },
+        "format": { "type": "string", "description": "JSON Schema: a format of the string.", "examples": ["date-time", "date", "email", "uri", "uuid", "hostname", "ipv4"] },
+        "contentEncoding": { "type": "string", "description": "JSON Schema: how the string encodes binary content.", "examples": ["base64"] },
+        "contentMediaType": { "type": "string", "description": "JSON Schema: the media type of the string's content.", "examples": ["text/calendar", "application/json"] },
+        "contentSchema": { "$ref": "#/$defs/schema", "description": "JSON Schema: the schema of the string's decoded content." },
+
+        "references": { "type": "string", "description": "delurio: the field holds the key of this other entity." },
+        "unique": {
+          "description": "delurio: no two entities have the same value: `true`, or `case-insensitive`.",
+          "enum": [true, "case-insensitive"]
+        },
+        "sensitivity": {
+          "description": "delurio: what may be shown, logged or kept. `credential`: never shown, logged or stored in clear. `personal`: data about a person. `internal`: never shown to users.",
+          "enum": ["credential", "personal", "internal"]
+        },
+        "owner": { "description": "delurio, capture only: a word the capture keeps on a field; no tool reads it." },
+        "note": { "description": "delurio, capture only: a word the capture keeps on a field; no tool reads it." },
+        "editableBy": { "description": "delurio, capture only: a word the capture keeps on a field; no tool reads it." },
+        "matching": { "description": "delurio, capture only: a word the capture keeps on a field (how values are compared, e.g. `exact`); no tool reads it." },
+        "opaque": { "description": "delurio, capture only: a word the capture keeps on a field (the value is passed on unread); no tool reads it." },
+        "source": { "$ref": "#/$defs/sourceAnchor" }
+      }
+    },
+    "action": {
+      "type": ["object", "null"],
+      "description": "An action. With a `route` it is one OpenAPI 3.1 operation: its name is the operationId, `needs` its security requirement, `query` its query parameters, `body` its request body, `result` its response, and each refusal one more response.",
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "type": "string",
+          "description": "`METHOD /path`: the HTTP method and the path of the operation. An action with no route is a step inside the service.",
+          "pattern": "^(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|TRACE) /\\S*$",
+          "examples": ["POST /authorize/consent", "GET /w/{workspace}/projects"]
+        },
+        "operationId": { "type": "string", "description": "The operation in the app's own OpenAPI document (named at the top with `openapi:`), when it is not this action's name." },
+        "summary": { "type": "string", "description": "OpenAPI: the operation in a few words." },
+        "description": { "type": "string", "description": "OpenAPI: what the operation or the step does, in words." },
+        "needs": { "type": "string", "description": "delurio: what the caller must hold (the operation's security requirement).", "examples": ["session"] },
+        "query": { "$ref": "#/$defs/schema", "description": "The query parameters: a JSON Schema object." },
+        "body": { "$ref": "#/$defs/schema", "description": "The request body: a JSON Schema." },
+        "result": { "$ref": "#/$defs/result" },
+        "refusals": {
+          "type": "object",
+          "description": "Each way the action refuses, by refusal code; each is one more response of the operation. A flow's `failures` sort the codes into classes.",
+          "additionalProperties": { "$ref": "#/$defs/refusal" }
+        },
+        "sideEffects": {
+          "type": "array",
+          "description": "delurio: what else the action does, each in words or as `<kind>:<event>`.",
+          "items": { "type": "string" },
+          "examples": [["audit:consent.decided"]]
+        },
+        "note": { "type": "string", "description": "The author's own words about the action, which no tool reads (SPEC.md §5)." },
+        "source": { "$ref": "#/$defs/sourceAnchor" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "description": "The action's response: `returns` an entity, a `redirect`, a `status`, or a JSON Schema.",
+      "$ref": "#/$defs/keywords",
+      "properties": {
+        "returns": { "type": "string", "description": "The entity the action returns." },
+        "redirect": { "type": "string", "description": "Where the response redirects, in words or as a path." },
+        "status": { "type": "integer", "minimum": 100, "maximum": 599, "description": "The HTTP status of the response." }
+      },
+      "unevaluatedProperties": false
+    },
+    "refusal": {
+      "type": "object",
+      "description": "A refusal: one more response of the operation.",
+      "additionalProperties": false,
+      "properties": {
+        "status": { "type": "integer", "minimum": 100, "maximum": 599, "description": "The HTTP status of the refusal." },
+        "redirect": {
+          "type": "string",
+          "description": "delurio: whether and where the refusal redirects, e.g. `never` (a page is shown), `error` (back to the caller with the error), `retry`, or a path.",
+          "examples": ["never", "error", "retry"]
+        },
+        "body": { "$ref": "#/$defs/schema", "description": "The refusal's body: RFC 9457 problem details whose `type` is the refusal code." },
+        "note": { "type": "string", "description": "The author's own words about the refusal, which no tool reads (SPEC.md §5)." },
+        "source": { "$ref": "#/$defs/sourceAnchor" }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "description": "Who may do what to which data.",
+      "required": ["actor"],
+      "additionalProperties": false,
+      "properties": {
+        "actor": { "type": "string", "description": "Who the policy is for.", "examples": ["end-user", "anyone", "agent"] },
+        "needs": { "type": "string", "description": "What the actor must hold.", "examples": ["session"] },
+        "where": { "type": "string", "description": "The condition under which it holds, in words." },
+        "read": { "$ref": "#/$defs/names", "description": "The entities the actor may read." },
+        "write": { "$ref": "#/$defs/names", "description": "The entities the actor may write." },
+        "do": { "$ref": "#/$defs/names", "description": "The actions the actor may invoke." },
+        "source": { "$ref": "#/$defs/sourceAnchor" }
+      }
+    },
+    "invariant": {
+      "type": "object",
+      "description": "Something that must always hold.",
+      "required": ["id", "rule"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "The invariant's id.", "examples": ["redirect-uri-exact"] },
+        "rule": { "type": "string", "description": "The rule, in words." },
+        "spec": { "type": "string", "description": "The standard and section it comes from, cited, never written again.", "examples": ["RFC 6749 §3.1.2.3"] },
+        "holds": { "type": "boolean", "default": true, "description": "`false` when the code does not keep the invariant: it is still written, as what should hold, with the `finding` that says where it does not. `true` when left out." },
+        "finding": { "type": "string", "description": "The finding that reports where the code breaks the invariant: its id in the graph's report. Required with `holds: false`.", "examples": ["MS-7"] },
+        "note": { "type": "string", "description": "The author's own words about the invariant, which no tool reads (SPEC.md §5)." },
+        "source": { "$ref": "#/$defs/sourceAnchor" }
+      },
+      "allOf": [
+        {
+          "$comment": "an invariant the code does not keep names the finding that reports it",
+          "if": { "properties": { "holds": { "const": false } }, "required": ["holds"] },
+          "then": { "required": ["finding"] }
+        }
+      ]
+    }
+  }
+}

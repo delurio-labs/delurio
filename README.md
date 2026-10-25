@@ -64,6 +64,34 @@ Given a folder of graphs instead, it writes the page of every graph under it, ea
 npx @delurio/cli page graphs --out viz
 ```
 
+## Write a graph in an editor
+
+The package ships a JSON Schema (2020-12) for each kind of graph file in `schemas/`: `flow`, `ui`, `nav` (also `nav.extracted.yaml`), `domain` and `catalog`. With them an editor completes keys, explains each one from SPEC.md on hover, and marks a typo, a value of the wrong kind, or a title cut short by a comma inside `{ }`. In VS Code, with the YAML extension, put this in `.vscode/settings.json`:
+
+```json
+{
+  "yaml.schemas": {
+    "https://unpkg.com/@delurio/cli@0.2.0/schemas/flow.schema.json": "**/flow.yaml",
+    "https://unpkg.com/@delurio/cli@0.2.0/schemas/ui.schema.json": "**/ui.yaml",
+    "https://unpkg.com/@delurio/cli@0.2.0/schemas/nav.schema.json": ["**/nav.yaml", "**/nav.extracted.yaml"],
+    "https://unpkg.com/@delurio/cli@0.2.0/schemas/domain.schema.json": "**/domain.yaml"
+  },
+  "json.schemas": [
+    { "fileMatch": ["**/catalog/*.json"], "url": "https://unpkg.com/@delurio/cli@0.2.0/schemas/catalog.schema.json" }
+  ]
+}
+```
+
+With the package installed, `./node_modules/@delurio/cli/schemas/<kind>.schema.json` works the same, offline. `check` reports the same as the editor, as errors of the rule `schema` that fail `--strict`, and finds what a schema cannot see, such as a state that does not exist or a catalog key that is missing.
+
+Next to the editor, keep the pages open and current:
+
+```sh
+npx @delurio/cli page graphs --serve      # http://127.0.0.1:4600/, written again and reloaded on every save
+```
+
+`--watch` writes the pages again on every change without serving them. `--serve` listens on 127.0.0.1 only and serves the written pages and nothing else; when a save leaves a graph that cannot be loaded, the open page says why until the next good save.
+
 ## What a revision changes, in words
 
 ```sh

@@ -1,0 +1,346 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unpkg.com/@delurio/cli@0.2.0/schemas/flow.schema.json",
+  "title": "delurio flow graph (flow.yaml)",
+  "description": "The behaviour of one flow in delurio-graph/0 (SPEC.md §2): states, events, transitions, a finite context, and the guarantees the checker proves. Its meaning is a subset of SCXML.",
+  "type": "object",
+  "required": ["schema", "kind", "id", "initial", "states"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "$ref": "#/$defs/formatVersion" },
+    "kind": { "description": "The kind of graph file. A flow.yaml is `flow`.", "const": "flow" },
+    "id": { "$ref": "#/$defs/graphId", "description": "The flow's id, by which other flows start it (`starts`) or wait for it (`invoke: { flow }`), and by which its ui.yaml names it.", "examples": ["qauth.authorize", "learning.enrollment"] },
+    "title": { "type": "string", "description": "The flow in plain words, for people, in the graph's language." },
+    "summary": { "type": "string", "description": "What the flow is for, in a few plain sentences." },
+    "status": { "$ref": "#/$defs/status" },
+    "source": { "$ref": "#/$defs/sourceAnchor" },
+    "domain": { "$ref": "#/$defs/graphId", "description": "The id of the domain graph (domain.yaml) this flow's `invoke` actions and refusal codes come from; a shared domain sits in its own directory." },
+    "ui": { "$ref": "#/$defs/graphId", "description": "The id of the UI graph (ui.yaml) of this flow's screens. A flow with no screen (an endpoint, a webhook, an MCP tool, a CI job) has none." },
+    "scope": { "$ref": "#/$defs/scope" },
+    "decisions": {
+      "type": "object",
+      "description": "The questions still open in this flow, by id (D1, D2, ...), each with a recommendation and the states it affects.",
+      "additionalProperties": { "$ref": "#/$defs/decision" }
+    },
+    "context": {
+      "type": "object",
+      "description": "The context: a set of variables, each with a finite list of values. Keep it small: a variable stands for the few cases that change behaviour, not for the data itself.",
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "additionalProperties": { "$ref": "#/$defs/contextVariable" }
+    },
+    "guards": {
+      "type": "object",
+      "description": "Named guards: each an expression (SPEC.md §3) that may name context variables, other guards and `state`.",
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "additionalProperties": { "$ref": "#/$defs/expression" }
+    },
+    "effects": {
+      "type": "object",
+      "description": "Named effects: each changes the context when a transition that lists it is taken.",
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "additionalProperties": { "$ref": "#/$defs/effect" }
+    },
+    "failures": {
+      "type": "object",
+      "description": "What each `FAIL.<class>` event stands for, per invoking state: the domain action it comes from, and per class the refusal codes of that action.",
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "additionalProperties": { "$ref": "#/$defs/failureClasses" }
+    },
+    "main": { "$ref": "#/$defs/main" },
+    "initial": { "$ref": "#/$defs/stateRef", "description": "The state the flow starts in." },
+    "states": {
+      "type": "object",
+      "description": "The states of the flow, by id. Nested, parallel and history states are not part of v0.",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "additionalProperties": { "$ref": "#/$defs/state" }
+    },
+    "assertions": {
+      "type": "array",
+      "description": "The guarantees the checker proves: each holds when no reachable configuration (a state and a value for every context variable) satisfies its `never` expression. Under --strict a violated assertion exits 2.",
+      "items": { "$ref": "#/$defs/assertion" }
+    }
+  },
+  "$defs": {
+    "formatVersion": {
+      "description": "The format and its version. Every graph file starts with it.",
+      "const": "delurio-graph/0"
+    },
+    "status": {
+      "description": "`proposed`: written before or apart from the code, nobody has approved it. `captured`: read from existing code (capture mode, every element carries `source`). `approved`: the owner reviewed and accepted it.",
+      "enum": ["proposed", "captured", "approved"]
+    },
+    "graphId": {
+      "type": "string",
+      "description": "The id of a graph.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "identifier": {
+      "type": "string",
+      "description": "An identifier of the graph: English camelCase (SPEC.md §1, Text).",
+      "pattern": "^[a-z][A-Za-z0-9]*$"
+    },
+    "stateRef": {
+      "type": "string",
+      "description": "The id of a state of this flow.",
+      "pattern": "^[a-z][A-Za-z0-9]*$"
+    },
+    "eventName": {
+      "type": "string",
+      "description": "An event: UPPER_SNAKE (SPEC.md §1). A state with `invoke` ends with `DONE` (success) or `FAIL.<class>`, the class being a key under `failures` for that state. `NAVIGATE` is the person leaving the page.",
+      "pattern": "^(FAIL\\.[a-z][A-Za-z0-9]*|[A-Z][A-Z0-9_]*)$",
+      "examples": ["DONE", "FAIL.server", "NAVIGATE", "ALLOW"]
+    },
+    "expression": {
+      "type": "string",
+      "description": "An expression of delurio's own language (SPEC.md §3), interpreted, never evaluated as code: or, and, not, ==, !=, in, not in, ( ), [lists], 'strings', numbers, true, false, null, and names (a context variable, a named guard or `state`).",
+      "minLength": 1,
+      "examples": ["prompt == 'none'", "not hasSession or (not fresh and prompt == 'login')", "state in ['login', 'consent']"]
+    },
+    "sourceAnchor": {
+      "type": "string",
+      "description": "A source anchor (SPEC.md §9): `<repo-relative path>:<line>`, or a bare `<path>` for a whole file, naming the code that makes the element true. In capture mode every element carries one; in create mode an element carries one when the code already exists.",
+      "pattern": "^[^\\s:]+(:[0-9]+)?$",
+      "examples": ["src/authorize/consent.ts:42", "app/page.tsx"]
+    },
+    "scalar": {
+      "description": "A value of a context variable: a string, a number or a boolean.",
+      "type": ["string", "number", "boolean"]
+    },
+    "scope": {
+      "type": "object",
+      "description": "What the view shows and how to read what it does not draw.",
+      "additionalProperties": false,
+      "properties": {
+        "shows": { "type": "string", "description": "What this view shows, in words." },
+        "world": {
+          "description": "`open`: what is not drawn is not ruled out; only `assertions` and `outOfView` are binding. `closed`: the flow is complete.",
+          "enum": ["open", "closed"]
+        },
+        "outOfView": { "type": "array", "description": "What this view leaves out, each in words.", "items": { "type": "string" } }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "description": "A question still open in this flow.",
+      "required": ["question", "recommend", "affects"],
+      "additionalProperties": false,
+      "properties": {
+        "question": { "type": "string", "description": "The question, in words." },
+        "recommend": { "type": "string", "description": "The recommended answer." },
+        "affects": { "type": "array", "description": "The states the decision affects.", "items": { "$ref": "#/$defs/stateRef" } }
+      }
+    },
+    "contextVariable": {
+      "type": "object",
+      "description": "A context variable with a finite list of values.",
+      "required": ["values", "initial"],
+      "additionalProperties": false,
+      "properties": {
+        "values": {
+          "type": "array",
+          "description": "Every value the variable can take: a finite list, so the checker can visit every reachable configuration.",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/scalar" }
+        },
+        "initial": {
+          "description": "`any` makes the checker start from every value; a fixed value (one of `values`) starts from that one.",
+          "type": ["string", "number", "boolean"],
+          "examples": ["any", false]
+        },
+        "say": {
+          "type": "object",
+          "description": "Each value in plain words, for the sentence that describes a starting situation; keyed by the value as text (\"true\", \"false\", ...).",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "effect": {
+      "type": "object",
+      "description": "A change to the context, made when a transition that lists this effect is taken.",
+      "additionalProperties": false,
+      "properties": {
+        "set": {
+          "type": "object",
+          "description": "Variables and the values they are given.",
+          "propertyNames": { "$ref": "#/$defs/identifier" },
+          "additionalProperties": { "$ref": "#/$defs/scalar" }
+        },
+        "havoc": {
+          "type": "array",
+          "description": "Variables that may take any value of their domain (the checker branches into each): a change made elsewhere that the flow cannot know in advance.",
+          "items": { "$ref": "#/$defs/identifier" }
+        }
+      }
+    },
+    "failureClasses": {
+      "type": "object",
+      "description": "The failure classes of one invoking state: `from` names the domain action, and each other key is a class (`FAIL.<class>`) listing the refusal codes of that action it stands for.",
+      "required": ["from"],
+      "properties": {
+        "from": { "type": "string", "description": "The domain action whose refusals the classes stand for." }
+      },
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "additionalProperties": {
+        "type": "array",
+        "description": "The refusal codes of the action that this class stands for.",
+        "items": { "type": "string" }
+      }
+    },
+    "main": {
+      "description": "The main story: the story the page tells first and the path a tutorial and a replay take by default. The events in order from the `given` start; a plain list of events means no `given`. Under --strict it fails when the events cannot be walked.",
+      "anyOf": [
+        { "$ref": "#/$defs/events" },
+        {
+          "type": "object",
+          "required": ["events"],
+          "additionalProperties": false,
+          "properties": {
+            "given": {
+              "type": "object",
+              "description": "The starting situation: a value for context variables whose `initial` is `any`.",
+              "propertyNames": { "$ref": "#/$defs/identifier" },
+              "additionalProperties": { "$ref": "#/$defs/scalar" }
+            },
+            "events": { "$ref": "#/$defs/events" }
+          }
+        }
+      ]
+    },
+    "events": {
+      "type": "array",
+      "description": "Events, in the order they happen.",
+      "items": { "$ref": "#/$defs/eventName" }
+    },
+    "state": {
+      "type": "object",
+      "description": "A state of the flow: a step, a screen or an exit.",
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "description": "The state in words; the id is used when it is missing." },
+        "description": { "type": "string", "description": "What happens in the state, in words." },
+        "by": {
+          "description": "Who does the step: `human`, `ai`, `agent` or `ci`. A server step with no actor has none.",
+          "enum": ["human", "ai", "agent", "ci"]
+        },
+        "goal": { "type": "boolean", "description": "`true` on the state the flow is for, the one it keeps returning to (for flows that never end)." },
+        "includes": { "type": "array", "description": "What the step covers beyond its title, each in words.", "items": { "type": "string" } },
+        "invoke": { "$ref": "#/$defs/invoke" },
+        "on": {
+          "type": "object",
+          "description": "Event to transition. Not on a final state.",
+          "propertyNames": { "$ref": "#/$defs/eventName" },
+          "additionalProperties": { "$ref": "#/$defs/transitionSpec" }
+        },
+        "always": {
+          "type": "array",
+          "description": "An ordered list of transitions taken at once, with no event (SCXML's eventless transitions). The first whose guard holds is taken; the list must cover every context, or the flow does not load. Not on a final state.",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/transition" }
+        },
+        "type": {
+          "description": "`final`: an exit; it has no transitions.",
+          "const": "final"
+        },
+        "redirect": {
+          "description": "On an exit of a web protocol flow: `success` redirects back with what it carries, `error` redirects with an error code, `never` shows a page and does not redirect.",
+          "enum": ["success", "error", "never"]
+        },
+        "code": { "type": "string", "description": "On an exit of a web protocol flow: the error code, or several separated by `|`.", "examples": ["access_denied", "login_required | consent_required"] },
+        "carries": { "type": "array", "description": "On a success exit of a web protocol flow: what it carries back.", "items": { "type": "string" }, "examples": [["code", "state"]] },
+        "leavesPage": { "type": "boolean", "description": "On an exit: `true` when the person left (closed the page, went elsewhere)." },
+        "response": { "$ref": "#/$defs/response" },
+        "source": { "$ref": "#/$defs/sourceAnchor" }
+      },
+      "allOf": [
+        {
+          "$comment": "an exit (type: final) has no transitions and runs nothing",
+          "if": { "properties": { "type": { "const": "final" } }, "required": ["type"] },
+          "then": { "properties": { "on": false, "always": false, "invoke": false } }
+        },
+        {
+          "$comment": "redirect, code, carries and leavesPage are only on an exit (type: final)",
+          "if": { "not": { "properties": { "type": { "const": "final" } }, "required": ["type"] } },
+          "then": { "properties": { "redirect": false, "code": false, "carries": false, "leavesPage": false } }
+        }
+      ]
+    },
+    "invoke": {
+      "$comment": "one of action, flow or external",
+      "type": "object",
+      "description": "The step runs something, and ends with `DONE` or `FAIL.<class>`: one of `action`, `flow` or `external`.",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "action": { "type": "string", "description": "An action of the flow's domain (domain.yaml)." },
+        "flow": { "$ref": "#/$defs/graphId", "description": "Another flow, by id: it runs and this one waits for its outcome." },
+        "external": { "type": "string", "description": "Something outside the graphs, by name." }
+      }
+    },
+    "transitionSpec": {
+      "description": "A transition: a target state id, a transition object, or a list of those, tried in document order (the first whose guard holds is taken).",
+      "anyOf": [
+        { "$ref": "#/$defs/stateRef" },
+        { "$ref": "#/$defs/transition" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": { "anyOf": [{ "$ref": "#/$defs/stateRef" }, { "$ref": "#/$defs/transition" }] }
+        }
+      ]
+    },
+    "transition": {
+      "type": "object",
+      "description": "A transition (an SCXML transition: a guard is a `cond`, an effect an `<assign>`).",
+      "required": ["target"],
+      "additionalProperties": false,
+      "properties": {
+        "target": { "$ref": "#/$defs/stateRef", "description": "The state the transition goes to." },
+        "guard": { "$ref": "#/$defs/expression", "description": "The transition is taken only when this holds: an expression, or the name of a guard." },
+        "effect": { "type": "array", "description": "The effects applied, in order, when the transition is taken.", "items": { "$ref": "#/$defs/identifier" } },
+        "say": { "type": "string", "description": "The transition in words." },
+        "starts": { "$ref": "#/$defs/starts" },
+        "source": { "$ref": "#/$defs/sourceAnchor" }
+      }
+    },
+    "starts": {
+      "type": "object",
+      "description": "This flow starts another one and does not wait for it (SPEC.md §2, Several flows). The checker finds the started flow by id among the graphs beside this one.",
+      "required": ["flow"],
+      "additionalProperties": false,
+      "properties": {
+        "flow": { "$ref": "#/$defs/graphId", "description": "The id of the flow started." },
+        "given": {
+          "type": "object",
+          "description": "What the started flow begins with: per variable of the started flow, an expression over this flow's context, read where the transition is taken, after its effects. A constant is quoted (`from: \"'repo'\"`).",
+          "additionalProperties": { "type": ["string", "number", "boolean"], "description": "An expression over this flow's context, or a constant (a number, a boolean, or a quoted string)." }
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "description": "On a step with no screen: what the outside world sees, as data: `status`, `code`, `redirect`, `headers`, `body`, or the fields of a tool's answer. The page shows it beside the step.",
+      "properties": {
+        "status": { "type": ["integer", "string"], "description": "The HTTP status." },
+        "code": { "type": "string", "description": "The error or refusal code answered." },
+        "redirect": { "type": "string", "description": "Where the answer redirects." },
+        "headers": { "type": "object", "description": "The headers of the answer.", "additionalProperties": { "type": "string" } },
+        "body": { "description": "The body of the answer: its words, or its fields." }
+      }
+    },
+    "assertion": {
+      "type": "object",
+      "description": "A guarantee the checker proves.",
+      "required": ["id", "never"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "The assertion's id, unique in the flow.", "examples": ["deny-never-issues"] },
+        "never": { "$ref": "#/$defs/expression", "description": "An expression that no reachable configuration may satisfy." },
+        "say": { "type": "string", "description": "The guarantee in words." },
+        "source": { "$ref": "#/$defs/sourceAnchor" }
+      }
+    }
+  }
+}

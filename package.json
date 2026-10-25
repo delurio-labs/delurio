@@ -1,11 +1,11 @@
 {
   "name": "@delurio/cli",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "The open checker and page of delurio-graph/0: check every graph in a project's own CI, offline, with GNU error lines and SARIF.",
   "license": "Apache-2.0",
   "type": "module",
   "bin": { "delurio": "dist/cli.js" },
-  "files": ["dist", "SPEC.md", "NOTICE"],
+  "files": ["dist", "schemas", "SPEC.md", "NOTICE", "CHANGELOG.md"],
   "engines": { "node": ">=22.18" },
   "repository": { "type": "git", "url": "git+https://github.com/delurio-labs/delurio.git" },
   "homepage": "https://delur.io",
@@ -17,6 +17,8 @@
     "test": "node src/cli.ts check examples --strict"
   },
   "dependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "elkjs": "0.12.0",
     "yaml": "2.9.1"
   },

@@ -26,3 +26,12 @@ jobs:
         run: node dist/cli.js check examples --strict
       - name: Write the examples' pages with the built package
         run: node dist/cli.js page examples --out "$RUNNER_TEMP/pages" --strict
+      - name: A graph that breaks its schema fails the check
+        run: |
+          cp -r examples/qauth-authorize "$RUNNER_TEMP/broken"
+          sed -i 's/left: { type: final, title: The user leaves, leavesPage: true }/left: { type: final, title: The user leaves, and nothing is sent, leavesPage: true }/' "$RUNNER_TEMP/broken/flow.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/broken" --strict > "$RUNNER_TEMP/broken.txt" || code=$?
+          cat "$RUNNER_TEMP/broken.txt"
+          test "$code" -eq 2
+          grep -F '[schema]' "$RUNNER_TEMP/broken.txt"

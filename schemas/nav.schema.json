@@ -1,0 +1,292 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unpkg.com/@delurio/cli@0.2.0/schemas/nav.schema.json",
+  "title": "delurio navigation graph (nav.yaml, nav.extracted.yaml)",
+  "description": "The pages of an app, the ways between them, and who may open them, in delurio-graph/0 (SPEC.md §6). A nav.yaml (`kind: nav`) may `extends` a generated nav.extracted.yaml (`kind: nav-extracted`), whose pages, guards and entries come first.",
+  "type": "object",
+  "required": ["kind"],
+  "properties": {
+    "kind": {
+      "description": "`nav` for a navigation graph (nav.yaml); `nav-extracted` for the file the extractor generates from the application source (nav.extracted.yaml), which a nav.yaml extends.",
+      "enum": ["nav", "nav-extracted"]
+    }
+  },
+  "if": { "properties": { "kind": { "const": "nav-extracted" } }, "required": ["kind"] },
+  "then": { "$ref": "#/$defs/extracted" },
+  "else": { "$ref": "#/$defs/nav" },
+  "$defs": {
+    "nav": {
+      "type": "object",
+      "description": "A navigation graph (nav.yaml).",
+      "required": ["schema", "kind", "id", "locale", "catalog", "frames", "personas"],
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "$ref": "#/$defs/formatVersion" },
+        "kind": { "description": "The kind of graph file. A nav.yaml is `nav`.", "const": "nav" },
+        "id": { "$ref": "#/$defs/graphId", "description": "The navigation graph's id.", "examples": ["shop-landing"] },
+        "title": { "type": "string", "description": "The app or the part of it this graph covers, in plain words." },
+        "summary": { "type": "string", "description": "What the graph shows, in a few plain sentences." },
+        "status": { "$ref": "#/$defs/status" },
+        "source": { "$ref": "#/$defs/graphSource" },
+        "extends": { "type": "string", "description": "A generated file this one extends, relative to it: its pages, guards and entries come first, and this file adds to them or overrides single fields of a page.", "examples": ["nav.extracted.yaml"] },
+        "extract": { "$ref": "#/$defs/extract" },
+        "locale": { "$ref": "#/$defs/locale", "description": "The locale of the catalog the page uses, a BCP 47 tag." },
+        "catalog": {
+          "type": "string",
+          "description": "The catalog of page titles and entry labels, relative to this file: `catalog/<locale>.json`.",
+          "pattern": "\\.json$",
+          "examples": ["catalog/tr.json"]
+        },
+        "frames": {
+          "type": "object",
+          "description": "The chrome around pages (a menu, a top bar), by id. An entry `from: frame:<f>` is on every page of that frame.",
+          "minProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/frame" }
+        },
+        "facts": {
+          "type": "object",
+          "description": "What is true of the person, not of the page, by name. Every persona gives a value for each fact.",
+          "additionalProperties": { "$ref": "#/$defs/fact" }
+        },
+        "sets": {
+          "type": "object",
+          "description": "Named lists of values, which a persona may give for a fact with `of`.",
+          "additionalProperties": { "type": "array", "description": "The values of the set.", "items": { "type": "string" } }
+        },
+        "guards": { "$ref": "#/$defs/guards" },
+        "personas": {
+          "type": "object",
+          "description": "Kinds of user, by id: each a fixed set of facts, so the tool works out each persona's view, menu and reachable pages with no search.",
+          "additionalProperties": { "$ref": "#/$defs/persona" }
+        },
+        "pages": { "$ref": "#/$defs/pages" },
+        "entries": { "$ref": "#/$defs/entries" },
+        "goals": {
+          "type": "array",
+          "description": "Things people come to do: each is checked for every persona it names (the page is reached within the clicks).",
+          "items": { "$ref": "#/$defs/goal" }
+        },
+        "notModeled": {
+          "type": "array",
+          "description": "What the graph leaves out, each in words. Quote an item that contains `: `.",
+          "items": { "type": "string" }
+        }
+      },
+      "allOf": [
+        {
+          "$comment": "without extends, the pages are all here: a page called start, and every page gives its route, kind and frame",
+          "if": { "not": { "required": ["extends"] } },
+          "then": {
+            "required": ["pages"],
+            "properties": {
+              "pages": {
+                "type": "object",
+                "required": ["start"],
+                "additionalProperties": { "type": "object", "required": ["route", "kind", "frame"] }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "extracted": {
+      "type": "object",
+      "description": "The generated half of a navigation graph (nav.extracted.yaml), written by `extract` from the application source; never by hand. A person reviews its diff when the application changes.",
+      "required": ["schema", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "schema": { "$ref": "#/$defs/formatVersion" },
+        "kind": { "description": "The kind of graph file. A nav.extracted.yaml is `nav-extracted`.", "const": "nav-extracted" },
+        "source": { "$ref": "#/$defs/graphSource" },
+        "guards": { "$ref": "#/$defs/guards" },
+        "pages": {
+          "type": "object",
+          "$ref": "#/$defs/pages",
+          "additionalProperties": { "type": "object", "required": ["route", "kind", "frame"] }
+        },
+        "entries": { "$ref": "#/$defs/entries" }
+      }
+    },
+    "formatVersion": {
+      "description": "The format and its version. Every graph file starts with it.",
+      "const": "delurio-graph/0"
+    },
+    "status": {
+      "description": "`proposed`: written before or apart from the code, nobody has approved it. `captured`: read from existing code (capture mode, every element carries `source`). `approved`: the owner reviewed and accepted it.",
+      "enum": ["proposed", "captured", "approved"]
+    },
+    "graphId": {
+      "type": "string",
+      "description": "The id of a graph.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "locale": {
+      "type": "string",
+      "description": "A BCP 47 language tag.",
+      "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$",
+      "examples": ["en", "tr", "pt-BR"]
+    },
+    "expression": {
+      "type": "string",
+      "description": "An expression of delurio's own language (SPEC.md §3) over facts: or, and, not, ==, !=, in, not in, ( ), [lists], 'strings', numbers, true, false, null, and names (a fact or a named guard).",
+      "minLength": 1,
+      "examples": ["role == 'admin'", "'course.edit' in held"]
+    },
+    "sourceAnchor": {
+      "type": "string",
+      "description": "A source anchor (SPEC.md §9): `<repo-relative path>:<line>`, or a bare `<path>` for a whole file, naming the code that makes the element true.",
+      "pattern": "^[^\\s:]+(:[0-9]+)?$",
+      "examples": ["app/(global)/hesap/page.tsx", "apps/nazar/features/shell/scope.ts:206"]
+    },
+    "graphSource": {
+      "type": "object",
+      "description": "Where the graph was read from: the repository, the commit, and the files that hold the pages, the menus and the words. The navigation page shows the repository and the commit.",
+      "properties": {
+        "repo": { "type": "string", "description": "The application's repository.", "examples": ["acme/shop"] },
+        "commit": { "type": "string", "description": "The commit the extractor read." },
+        "app": { "type": "string", "description": "The application's folder in the repository." },
+        "menu": { "type": "string", "description": "The file that holds the menus." },
+        "locales": { "type": "string", "description": "The application's translation files; `{locale}` stands for the locale." }
+      },
+      "additionalProperties": { "type": "string", "description": "Another file or folder of the application the graph was read from." }
+    },
+    "extract": {
+      "type": "object",
+      "description": "How the extractor reads the application: its adapter, the names it gives to pages that no menu entry names, the titles it takes, and the locales it copies into catalog/.",
+      "additionalProperties": false,
+      "properties": {
+        "adapter": { "type": "string", "description": "The extractor adapter for this application." },
+        "names": { "type": "object", "description": "Route to page id, for pages that no menu entry names.", "additionalProperties": { "type": "string", "description": "The page id." } },
+        "titles": { "type": "object", "description": "Page id to the catalog key of its title.", "additionalProperties": { "type": "string", "description": "The catalog key." } },
+        "locales": { "type": "array", "description": "The locales copied into catalog/, as BCP 47 tags.", "items": { "$ref": "#/$defs/locale" } }
+      }
+    },
+    "guards": {
+      "type": "object",
+      "description": "Named guards: each an expression over facts and other guards. A guard may not be written in both the extracted file and nav.yaml with different text.",
+      "additionalProperties": { "$ref": "#/$defs/expression" }
+    },
+    "frame": {
+      "type": "object",
+      "description": "The chrome drawn around a page.",
+      "required": ["title"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "description": "The frame in plain words." },
+        "menu": { "type": "string", "description": "The menu the frame carries, by name; a frame without one has none." },
+        "shows": {
+          "type": "object",
+          "description": "Its pages draw the menu of the frame that the person's fact names (a page outside any scope shows the menu of the scope the person lands in).",
+          "required": ["fact"],
+          "additionalProperties": false,
+          "properties": { "fact": { "type": "string", "description": "The fact whose value names the frame." } }
+        },
+        "source": { "$ref": "#/$defs/sourceAnchor" }
+      }
+    },
+    "fact": {
+      "type": "object",
+      "description": "A fact about the person.",
+      "additionalProperties": false,
+      "properties": {
+        "values": { "type": "array", "description": "The values the fact can take.", "minItems": 1, "items": { "type": ["string", "number", "boolean"] } },
+        "of": { "type": "array", "description": "The fact is a list, drawn from these values (permission codes held, for one); a persona gives a list or the name of a set.", "items": { "type": "string" } },
+        "say": { "type": "string", "description": "The fact in plain words." }
+      }
+    },
+    "persona": {
+      "type": "object",
+      "description": "A kind of user: a fixed set of facts.",
+      "required": ["title", "say", "facts"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "description": "The persona's name, in the graph's language." },
+        "say": { "type": "string", "description": "Who they are, in plain words." },
+        "facts": {
+          "type": "object",
+          "description": "A value for every fact: one of its `values`, or for a fact with `of` a list of its values or the name of a set.",
+          "additionalProperties": {
+            "description": "The persona's value of the fact.",
+            "type": ["string", "number", "boolean", "array"],
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "pages": {
+      "type": "object",
+      "description": "The pages of the app, by id. A page called `start` is required (in nav.yaml or the file it extends).",
+      "additionalProperties": { "$ref": "#/$defs/page" }
+    },
+    "page": {
+      "type": "object",
+      "description": "A page. In a nav.yaml that extends a generated file, a page of that file may give single fields to override.",
+      "additionalProperties": false,
+      "properties": {
+        "route": { "type": "string", "description": "The page's route; `{id}` stands for a path parameter.", "examples": ["/", "/ders/{id}/celseler"] },
+        "title": { "type": "string", "description": "The page's title: a catalog key, or plain words." },
+        "kind": {
+          "description": "`screen`, `placeholder` (says it is not ready), `missing` (the server answers not found), `redirect` or `external`.",
+          "enum": ["screen", "placeholder", "missing", "redirect", "external"]
+        },
+        "frame": { "type": "string", "description": "The frame drawn around the page." },
+        "opensFor": { "$ref": "#/$defs/expression", "description": "The guard under which the page opens; it refuses everyone else." },
+        "refusal": { "type": "string", "description": "How the page says no, in words." },
+        "pageCodes": { "type": "string", "description": "Generated: the name of the permission codes that open the page, as the application's permission table names them." },
+        "evidence": { "type": "string", "description": "The code that shows the page's kind or gate, in words." },
+        "source": { "$ref": "#/$defs/sourceAnchor" }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "description": "The ways from page to page.",
+      "items": { "$ref": "#/$defs/entry" }
+    },
+    "entry": {
+      "type": "object",
+      "description": "A way from page to page.",
+      "required": ["from", "to", "how"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "The entry's id; `<from>><to>#<line>` when left out." },
+        "from": {
+          "description": "The page it starts at, `frame:<frame>` for every page of a frame, or a list of those.",
+          "type": ["string", "array"],
+          "items": { "type": "string" },
+          "examples": ["start", "frame:site"]
+        },
+        "to": { "type": "string", "description": "The page it opens." },
+        "how": {
+          "description": "`auto` (a redirect, no click), `menu`, `picker` (a scope picker), `user` (the person row), `link` or `button`.",
+          "enum": ["auto", "menu", "picker", "user", "link", "button"]
+        },
+        "label": { "type": "string", "description": "Its words: a catalog key, or plain words. Every entry but an `auto` one has a label." },
+        "when": { "$ref": "#/$defs/expression", "description": "The guard under which the entry is offered." },
+        "clicks": { "type": "integer", "minimum": 0, "description": "How many clicks it takes; 0 for `auto`, else 1 when left out." },
+        "data": { "type": "boolean", "description": "`true` when it needs an item to exist (a row to click)." },
+        "back": { "type": "boolean", "description": "`true` for a way back." },
+        "source": { "$ref": "#/$defs/sourceAnchor" }
+      },
+      "allOf": [
+        {
+          "$comment": "every entry but an auto one has a label",
+          "if": { "not": { "properties": { "how": { "const": "auto" } } } },
+          "then": { "required": ["label"] }
+        }
+      ]
+    },
+    "goal": {
+      "type": "object",
+      "description": "Something people come to do.",
+      "required": ["id", "say", "page", "for", "within"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "The goal's id." },
+        "say": { "type": "string", "description": "The goal in plain words." },
+        "page": { "type": "string", "description": "The page that does it." },
+        "for": { "type": "array", "description": "The personas it is checked for.", "items": { "type": "string" } },
+        "within": { "type": "integer", "minimum": 0, "description": "The most clicks it may take from `start`." }
+      }
+    }
+  }
+}

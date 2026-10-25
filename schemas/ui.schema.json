@@ -1,0 +1,250 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unpkg.com/@delurio/cli@0.2.0/schemas/ui.schema.json",
+  "title": "delurio UI graph (ui.yaml)",
+  "description": "What each state of a flow shows, in delurio-graph/0 (SPEC.md §4): the nodes of the screen, their WAI-ARIA roles, accessible names, visible texts and the events they send. Every word a user sees comes from the catalog, by key.",
+  "type": "object",
+  "required": ["schema", "kind", "id", "catalog", "nodes"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "$ref": "#/$defs/formatVersion" },
+    "kind": { "description": "The kind of graph file. A ui.yaml is `ui`.", "const": "ui" },
+    "id": { "$ref": "#/$defs/graphId", "description": "The UI graph's id; its flow names it with `ui:`.", "examples": ["qauth.authorize"] },
+    "flow": { "$ref": "#/$defs/graphId", "description": "The id of the flow whose states the nodes are shown in." },
+    "title": { "type": "string", "description": "The UI graph in plain words, for people." },
+    "summary": { "type": "string", "description": "What the screens are, in a few plain sentences." },
+    "status": { "$ref": "#/$defs/status" },
+    "source": { "$ref": "#/$defs/sourceAnchor" },
+    "catalog": {
+      "type": "string",
+      "description": "The catalog the page uses, relative to this file: `catalog/<locale>.json`, a locale being a BCP 47 tag.",
+      "pattern": "\\.json$",
+      "examples": ["catalog/en.json", "catalog/tr.json"]
+    },
+    "locales": {
+      "type": "array",
+      "description": "The locales the UI is written in, as BCP 47 tags; each has a catalog beside `catalog`, named `<locale>.json`.",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/locale" },
+      "examples": [["en"], ["tr", "en"]]
+    },
+    "kit": { "type": "string", "description": "The kit the screens are drawn with (SPEC.md §8), relative to the graph; `--kit` wins.", "examples": ["../kit"] },
+    "samples": {
+      "type": "object",
+      "description": "Values for catalog parameters, on the page and in videos: `{client}` in a message is filled with `samples.client`.",
+      "additionalProperties": { "type": "string", "description": "The sample value." },
+      "examples": [{ "client": "Acme Notes" }]
+    },
+    "changes": {
+      "type": "object",
+      "description": "What the flow changes and what follows, in its users' own words: what is created, sent, charged or removed, who sees it, and whether it can be undone. Required under --strict when the flow's steps invoke a writing action of its domain.",
+      "required": ["key"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "$ref": "#/$defs/catalogKey", "description": "The catalog key of the note; every locale's catalog must have it.", "examples": ["Changes.note"] }
+      }
+    },
+    "nodes": {
+      "type": "object",
+      "description": "The nodes of the screens, by id. A node is shown in a state when the state is in `in`, not in `unless`, and `when` holds.",
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "additionalProperties": { "$ref": "#/$defs/node" }
+    },
+    "edges": {
+      "type": "array",
+      "description": "Relations the page and the checks use: a node labelled by another, an action that leads to a state.",
+      "items": { "$ref": "#/$defs/edge" }
+    },
+    "rules": {
+      "type": "array",
+      "description": "Rules the screens must keep, in words. Written but no tool reads them yet (#3).",
+      "items": {
+        "type": "object",
+        "description": "A rule of the screens.",
+        "required": ["id", "rule"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "The rule's id." },
+          "rule": { "type": "string", "description": "The rule, in words." }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "formatVersion": {
+      "description": "The format and its version. Every graph file starts with it.",
+      "const": "delurio-graph/0"
+    },
+    "status": {
+      "description": "`proposed`: written before or apart from the code, nobody has approved it. `captured`: read from existing code (capture mode, every element carries `source`). `approved`: the owner reviewed and accepted it.",
+      "enum": ["proposed", "captured", "approved"]
+    },
+    "graphId": {
+      "type": "string",
+      "description": "The id of a graph.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "identifier": {
+      "type": "string",
+      "description": "An identifier of the graph: English camelCase (SPEC.md §1, Text).",
+      "pattern": "^[a-z][A-Za-z0-9]*$"
+    },
+    "stateRef": {
+      "type": "string",
+      "description": "The id of a state of the flow.",
+      "pattern": "^[a-z][A-Za-z0-9]*$"
+    },
+    "nodeRef": {
+      "type": "string",
+      "description": "The id of a node of this UI graph.",
+      "pattern": "^[a-z][A-Za-z0-9]*$"
+    },
+    "states": {
+      "type": "array",
+      "description": "States of the flow, by id.",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/stateRef" }
+    },
+    "catalogKey": {
+      "type": "string",
+      "description": "A key of the catalog (catalog/<locale>.json).",
+      "minLength": 1,
+      "examples": ["Consent.title"]
+    },
+    "locale": {
+      "type": "string",
+      "description": "A BCP 47 language tag.",
+      "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$",
+      "examples": ["en", "tr", "pt-BR"]
+    },
+    "expression": {
+      "type": "string",
+      "description": "An expression of delurio's own language (SPEC.md §3) over the flow's context: or, and, not, ==, !=, in, not in, ( ), [lists], 'strings', numbers, true, false, null, and names (a context variable, a named guard of the flow, or `state`).",
+      "minLength": 1,
+      "examples": ["retryNote", "repo == 'behind'"]
+    },
+    "sourceAnchor": {
+      "type": "string",
+      "description": "A source anchor (SPEC.md §9): `<repo-relative path>:<line>`, or a bare `<path>` for a whole file, naming the code that draws the element.",
+      "pattern": "^[^\\s:]+(:[0-9]+)?$",
+      "examples": ["src/consent/ConsentPage.tsx:42"]
+    },
+    "label": {
+      "$comment": "exactly one of key, labelledBy, literal or oneOf",
+      "type": "object",
+      "description": "Words of a node, in one of these forms: `{ key, params }` from the catalog, `{ labelledBy: <node> }`, `{ literal }`, or `{ oneOf: [keys] }`.",
+      "additionalProperties": false,
+      "properties": {
+        "key": { "$ref": "#/$defs/catalogKey", "description": "The catalog key of the message." },
+        "params": {
+          "type": "object",
+          "description": "The data each `{param}` of the message stands for (e.g. `client: client.name`); the page fills it from `samples`.",
+          "additionalProperties": { "type": "string", "description": "The data the parameter stands for." }
+        },
+        "labelledBy": { "$ref": "#/$defs/nodeRef", "description": "The node whose text gives these words." },
+        "literal": { "type": "string", "description": "Words that are not translated (a product name, a code)." },
+        "oneOf": {
+          "type": "array",
+          "description": "Catalog keys of which one is shown, depending on the data.",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/catalogKey" }
+        }
+      },
+      "oneOf": [
+        { "required": ["key"] },
+        { "required": ["labelledBy"] },
+        { "required": ["literal"] },
+        { "required": ["oneOf"] }
+      ],
+      "allOf": [
+        {
+          "$comment": "params go with key or oneOf",
+          "if": { "anyOf": [{ "required": ["labelledBy"] }, { "required": ["literal"] }] },
+          "then": { "properties": { "params": false } }
+        }
+      ]
+    },
+    "node": {
+      "type": "object",
+      "description": "A node of a screen.",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "description": "What the node is.",
+          "enum": ["page", "text", "action", "field", "list", "status", "alert"]
+        },
+        "component": {
+          "description": "A kit-neutral component; a kit maps it to the product's own (SPEC.md §8). A `TextField`'s `text` is its label, and the field is named by it.",
+          "enum": ["Page", "Heading", "Text", "Button", "LinkButton", "TextField", "List", "ListItem", "Status", "Alert"]
+        },
+        "role": {
+          "description": "The WAI-ARIA 1.2 role the node exposes; `kit check` reads it from the browser's accessibility tree.",
+          "enum": [
+            "alert", "alertdialog", "application", "article", "banner", "blockquote", "button", "caption", "cell", "checkbox",
+            "code", "columnheader", "combobox", "complementary", "contentinfo", "definition", "deletion", "dialog", "directory",
+            "document", "emphasis", "feed", "figure", "form", "generic", "grid", "gridcell", "group", "heading", "img",
+            "insertion", "link", "list", "listbox", "listitem", "log", "main", "marquee", "math", "menu", "menubar", "menuitem",
+            "menuitemcheckbox", "menuitemradio", "meter", "navigation", "none", "note", "option", "paragraph", "presentation",
+            "progressbar", "radio", "radiogroup", "region", "row", "rowgroup", "rowheader", "scrollbar", "search", "searchbox",
+            "separator", "slider", "spinbutton", "status", "strong", "subscript", "superscript", "switch", "tab", "table",
+            "tablist", "tabpanel", "term", "textbox", "time", "timer", "toolbar", "tooltip", "tree", "treegrid", "treeitem"
+          ]
+        },
+        "intent": {
+          "description": "For actions: `confirm`, `dismiss` or `secondary`.",
+          "enum": ["confirm", "dismiss", "secondary"]
+        },
+        "name": { "$ref": "#/$defs/label", "description": "The accessible name (Accessible Name and Description Computation 1.2), kept apart from `text` so that \"the visible text is in the name\" (WCAG 2.5.3) is checkable." },
+        "text": { "$ref": "#/$defs/label", "description": "The visible text." },
+        "in": { "$ref": "#/$defs/states", "description": "The flow states the node is shown in." },
+        "unless": { "$ref": "#/$defs/states", "description": "The flow states the node is not shown in." },
+        "when": { "$ref": "#/$defs/expression", "description": "A guard or context flag of the flow that must hold for the node to show." },
+        "disabledIn": { "$ref": "#/$defs/states", "description": "The states where the node is shown but disabled." },
+        "emits": {
+          "type": "string",
+          "description": "The event the node sends when pressed: an event of the flow, UPPER_SNAKE.",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "initialFocus": { "$ref": "#/$defs/nodeRef", "description": "On a page: the node that has focus when it opens." },
+        "repeat": { "type": "string", "description": "The node is drawn once per item of this data.", "examples": ["request.scopes"] },
+        "frame": {
+          "description": "For a page: whether it may be framed; `never` (served with CSP frame-ancestors 'none').",
+          "const": "never"
+        },
+        "source": { "$ref": "#/$defs/sourceAnchor" }
+      },
+      "allOf": [
+        {
+          "$comment": "initialFocus and frame are only on a page",
+          "if": { "not": { "properties": { "type": { "const": "page" } } } },
+          "then": { "properties": { "initialFocus": false, "frame": false } }
+        }
+      ]
+    },
+    "edge": {
+      "type": "object",
+      "description": "A relation between nodes: `{ labelledBy: [node, labelNode] }` or `{ triggers: [node, state] }`.",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "labelledBy": {
+          "type": "array",
+          "description": "A node and the node that labels it.",
+          "prefixItems": [{ "$ref": "#/$defs/nodeRef" }, { "$ref": "#/$defs/nodeRef" }],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "triggers": {
+          "type": "array",
+          "description": "An action and the state it leads to.",
+          "prefixItems": [{ "$ref": "#/$defs/nodeRef" }, { "$ref": "#/$defs/stateRef" }],
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    }
+  }
+}

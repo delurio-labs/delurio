@@ -231,6 +231,8 @@ invariants:
 
 A capture may carry more words of its own on a field (`owner`, `note`, `editableBy`, `matching`, `opaque`). They are kept and compared, and no tool reads them.
 
+An action, a refusal and an invariant may carry `note`: the author's own words, which no tool reads. An invariant the code does not keep is still written, with `holds: false` and the `finding` that reports it: the finding's id in the graph's report, such as `MS-7`. A capture describes the code, so the invariant says what should hold and the finding says where it does not. Decided on 25 Oct 2026.
+
 **The API.** An action with a `route` (`METHOD /path`) is one OpenAPI 3.1 operation: its name is the `operationId`, `needs` its security requirement, `query` (a JSON Schema object) its query parameters, `body` its request body, `result` its response (`returns` an entity, a `redirect`, a `status`, or a JSON Schema), and each refusal one more response. When a refusal has a body, it is RFC 9457 problem details with the refusal code as its `type`. So a domain can be written out as an OpenAPI document, and an app that already publishes one names it at the top (`openapi: <file>`) and each action's operation by `operationId`, instead of copying them. An action with no route is a step inside the service. `needs`, `policies`, `sideEffects`, `refusals.<code>.redirect` and `invariants` are delurio's own: no standard says who may do what to which data, or what must always hold.
 
 This form was decided on 22 Oct 2026. Graphs captured before it may still give fields as `{ kind: text }`; they are converted when a tool first reads fields. The OpenAPI export and import are [#8](https://github.com/delurio-labs/delurio/issues/8).
@@ -329,7 +331,7 @@ There is no other machine format: no JSON of delurio's own, and nothing that onl
 ## 11. Writing a graph
 
 - Model the few cases that change behaviour; a guard over hundreds of permission codes is wrong.
-- Quote a YAML list item that contains `: `, or YAML reads it as a map.
+- Quote a YAML list item that contains `: `, or YAML reads it as a map. Quote a value inside `{ }` that contains `, ` too, or YAML cuts it there and reads the rest as a key: `{ type: final, title: "Paid, and sent" }`.
 - Say every rule that must hold as an assertion; do not leave it implied by the drawing.
 - In capture mode, describe what the code does today: no new feature, no fix. An invariant the code breaks is modelled as the code has it and reported, not written as an assertion that fails.
 - One process, one flow. A process that runs beside another starts it (`starts:`) or waits for it (`invoke: { flow }`).

@@ -14,6 +14,7 @@ import { checkStarts } from './starts.ts';
 import { checkChanges } from './changes.ts';
 import { KitError, resolveKit } from './kit.ts';
 import { checkGoals, findings, loadNav, viewOf } from './nav.ts';
+import { schemaKindOf, validateFile } from './schemas.ts';
 
 export const CHECK_USAGE = [
   '  node src/cli.ts check <graphs folder> [--strict] [--baseline <sarif>] [--format sarif --output <file>]',
@@ -55,6 +56,7 @@ interface Rule {
 const RULES: Rule[] = [
   { id: 'load', text: 'The graph cannot be loaded', level: 'error' },
   { id: 'format-newer', text: 'The graph is written for a newer format than this checker reads', level: 'error' },
+  { id: 'schema', text: "A graph file does not follow its kind's schema (SPEC.md)", level: 'error' },
   { id: 'assertion-violated', text: 'A guarantee of the flow is broken by a reachable situation', level: 'error' },
   { id: 'main-story-unwalkable', text: 'The declared main story cannot be walked', level: 'error' },
   { id: 'catalog-key-missing', text: 'A catalog key the screens use is missing', level: 'error' },
@@ -91,6 +93,17 @@ export function graphDirs(root: string, out: string[] = []): string[] {
     if (SKIP.has(name) || name.startsWith('.')) continue;
     const sub = join(root, name);
     if (statSync(sub).isDirectory()) graphDirs(sub, out);
+  }
+  return out;
+}
+
+// every file under root that a schema covers (flow, ui, nav, nav.extracted, domain, catalog), in path order
+function graphFiles(root: string, out: string[] = []): string[] {
+  for (const name of readdirSync(root).sort()) {
+    if (SKIP.has(name) || name.startsWith('.')) continue;
+    const path = join(root, name);
+    if (statSync(path).isDirectory()) graphFiles(path, out);
+    else if (schemaKindOf(path) !== null) out.push(path);
   }
   return out;
 }
@@ -259,6 +272,10 @@ export function checkMain(args: string[]): number {
       const linePos = (err as { linePos?: Array<{ line: number; col: number }> }).linePos?.[0];
       results.push(result('load', file, linePos === undefined ? { line: 1, column: 1 } : { line: linePos.line, column: linePos.col }, err.message.split('\n')[0], rel(d), 'load'));
     }
+  }
+  // every graph file against its kind's schema: what an editor with the schemas marks, check reports
+  for (const file of graphFiles(root)) {
+    for (const f of validateFile(file)) results.push(result('schema', file, f, f.message, f.graph ?? rel(file), f.element));
   }
   results.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column || a.rule.localeCompare(b.rule) || a.message.localeCompare(b.message));
 

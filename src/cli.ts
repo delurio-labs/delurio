@@ -19,14 +19,17 @@ import { DIFF_USAGE, diffMain } from './diff.ts';
 import { KitError, resolveKit } from './kit.ts';
 import { CHECK_USAGE, checkMain, count, graphDirs } from './check.ts';
 import { renderIndexPage } from './index-page.ts';
+import { watchPages } from './watch.ts';
 import type { IndexEntry } from './index-page.ts';
 
 const USAGE = [
   'usage:',
   CHECK_USAGE,
-  '  delurio page <graph dir | graphs folder> [--out <dir>] [--kit <kit>] [--locale <code>] [--strict]',
+  '  delurio page <graph dir | graphs folder> [--out <dir>] [--kit <kit>] [--locale <code>] [--strict] [--watch] [--serve [--port <n>]]',
   '    writes the graph\'s page: <out>/index.html and its diagram (default out: <graph dir>/viz); on a folder of graphs,',
-  '    the page of each at <out>/<its path> and an index of them all at <out>/index.html (default out: <folder>/viz)',
+  '    the page of each at <out>/<its path> and an index of them all at <out>/index.html (default out: <folder>/viz);',
+  '    --watch writes them again on every change under the folder; --serve also shows them at http://127.0.0.1:<port>/',
+  '    (default 4600) and reloads the open page after each write',
   DIFF_USAGE.replaceAll('node src/cli.ts', 'delurio'),
 ].join('\n').replaceAll('node src/cli.ts', 'delurio');
 
@@ -98,13 +101,13 @@ const isGraph = (dir: string): boolean => existsSync(join(dir, 'flow.yaml')) || 
 // every graph under the folder, each into <out>/<its path>, and the index of them all. A graph that cannot be loaded
 // is listed as such and the rest are still written: exit 1 when one cannot be loaded, else 2 under --strict when one
 // would fail on its own, else 0.
-async function treePages(root: string, args: string[]): Promise<number> {
+async function treePages(root: string, out: string, args: string[]): Promise<Written> {
   const dirs = graphDirs(root);
   if (dirs.length === 0) {
-    console.error(`error: ${root} is not a graph and holds none: there is no flow.yaml or nav.yaml in it or under it`);
-    return 1;
+    const message = `${root} is not a graph and holds none: there is no flow.yaml or nav.yaml in it or under it`;
+    console.error(`error: ${message}`);
+    return { code: 1, message };
   }
-  const out = resolve(flag(args, '--out') ?? join(root, 'viz'));
   const entries: IndexEntry[] = [];
   let broken = false;
   let failing = false;
@@ -116,7 +119,7 @@ async function treePages(root: string, args: string[]): Promise<number> {
       entries.push({ ...entry, path });
       failing ||= code !== 0;
     } catch (err) {
-      if (!(err instanceof GraphError || err instanceof ModelError || err instanceof KitError || (err instanceof Error && err.name === 'YAMLParseError'))) throw err;
+      if (!loadError(err)) throw err;
       broken = true;
       const message = err.message.split('\n')[0].replace(/:$/, '');
       console.error(`error: ${path}: ${message}`);
@@ -126,7 +129,32 @@ async function treePages(root: string, args: string[]): Promise<number> {
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, 'index.html'), renderIndexPage(basename(resolve(root)), entries));
   console.log(`wrote ${join(out, 'index.html')} and the pages of ${count(entries.length - entries.filter((e) => e.error !== null).length, 'graph')} under ${out}`);
-  return broken ? 1 : failing ? 2 : 0;
+  const firstError = entries.find((e) => e.error !== null);
+  return { code: broken ? 1 : failing ? 2 : 0, message: firstError === undefined ? '' : `${firstError.path}: ${firstError.error}` };
+}
+
+interface Written {
+  code: number;
+  message: string; // why a graph could not be loaded, when one could not
+}
+
+const loadError = (err: unknown): err is Error =>
+  err instanceof GraphError || err instanceof ModelError || err instanceof KitError || (err instanceof Error && err.name === 'YAMLParseError');
+
+// one graph's page, or the pages of every graph under the folder
+async function writePages(dir: string, out: string, args: string[]): Promise<Written> {
+  if (!isGraph(dir)) return treePages(dir, out, args);
+  try {
+    const flow = existsSync(join(dir, 'flow.yaml'));
+    const { code } = flow ? await flowPage(dir, out, args) : navPage(dir, out, args);
+    console.log(`wrote ${join(out, 'index.html')} and ${join(out, flow ? 'flow.mmd' : 'nav.mmd')}`);
+    return { code, message: '' };
+  } catch (err) {
+    if (!loadError(err)) throw err;
+    const message = err.message.split('\n')[0].replace(/:$/, '');
+    console.error(`error: ${message}`);
+    return { code: 1, message };
+  }
 }
 
 async function main(): Promise<number> {
@@ -135,7 +163,7 @@ async function main(): Promise<number> {
   if (args[0] === 'diff') return diffMain(args.slice(1));
   if (args[0] === 'page') {
     const rest = args.slice(1);
-    const withValue = ['--out', '--kit', '--locale'];
+    const withValue = ['--out', '--kit', '--locale', '--port'];
     const dir = rest.find((a, i) => !a.startsWith('--') && !withValue.includes(rest[i - 1] ?? ''));
     if (dir === undefined) {
       console.error(USAGE);
@@ -145,11 +173,24 @@ async function main(): Promise<number> {
       console.error(`error: ${dir} is not a folder`);
       return 1;
     }
-    if (!isGraph(dir)) return treePages(dir, rest);
     const out = resolve(flag(rest, '--out') ?? join(dir, 'viz'));
-    const { code } = existsSync(join(dir, 'flow.yaml')) ? await flowPage(dir, out, rest) : navPage(dir, out, rest);
-    console.log(`wrote ${join(out, 'index.html')} and ${join(out, existsSync(join(dir, 'flow.yaml')) ? 'flow.mmd' : 'nav.mmd')}`);
-    return code;
+    const first = await writePages(dir, out, rest);
+    const serve = rest.includes('--serve');
+    if (!serve && !rest.includes('--watch')) return first.code;
+    const port = Number(flag(rest, '--port') ?? 4600);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      console.error(`error: --port is a port number, not ${flag(rest, '--port')}`);
+      return 1;
+    }
+    return watchPages(
+      dir,
+      out,
+      async () => {
+        const again = await writePages(dir, out, rest);
+        return { ok: again.code !== 1, message: again.message };
+      },
+      serve ? port : null,
+    );
   }
   console.error(USAGE);
   return args.length === 0 || args.includes('--help') ? 0 : 1;

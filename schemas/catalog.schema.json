@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unpkg.com/@delurio/cli@0.2.0/schemas/catalog.schema.json",
+  "title": "delurio catalog (catalog/<locale>.json)",
+  "description": "The words of a UI graph in one locale (SPEC.md §4): a JSON object from key to an ICU MessageFormat message. The file is named by its BCP 47 locale (en.json, tr.json, pt-BR.json). A captured catalog is copied from the app as it is, so its keys may be in any form.",
+  "type": "object",
+  "propertyNames": { "minLength": 1 },
+  "additionalProperties": {
+    "type": "string",
+    "description": "An ICU MessageFormat message. Today the tools fill simple arguments: `{param}` is filled from the node's `params`, which name sample or data values.",
+    "examples": ["{client} wants access to your account"]
+  }
+}
