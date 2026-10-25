@@ -1,5 +1,6 @@
-# A tag vX.Y.Z publishes that version twice from one build: to npm with provenance (trusted publishing, no token), and
-# as a container image on GHCR, signed with cosign and attested.
+# A tag vX.Y.Z releases that version twice from one build. To npm it is staged with provenance (trusted publishing, no
+# token): it goes live only when a maintainer approves it on npmjs.com, with 2FA. As a container image it goes to GHCR,
+# signed with cosign and attested.
 name: release
 
 on:
@@ -22,15 +23,16 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
-      - name: npm with trusted publishing (11.5.1 or later)
-        run: npm install -g npm@11.6.2
+      - name: npm with staged publishing (11.15.0 or later)
+        run: npm install -g npm@11.21.0
       - run: npm ci
       - name: The tag is the package's version
         run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
       - run: npm run check
       - run: npm run build
       - run: node dist/cli.js check examples --strict
-      - run: npm publish --access public
+      - name: Stage it on npm; a maintainer approves it there, with 2FA
+        run: npm stage publish --access public
 
   image:
     needs: npm
