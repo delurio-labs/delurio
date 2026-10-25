@@ -5,6 +5,7 @@ While the version is 0.x, a release that can judge the same graphs differently (
 ## 0.3.0 (2026-10-25)
 
 - The modules a tool on top of delurio needs are importable, with their types: `@delurio/cli/graph`, `/model`, `/story`, `/wireframe`, `/kit`, `/edges`, `/html`, `/nav` and `/expr`. While the version is 0.x their API may change in any minor release; pin an exact version.
+- SPEC.md §7: a video's AI disclosure is its first card, which says that the whole video is made with AI, in place of a label people see throughout.
 
 ## 0.2.0 (2026-10-25)
 
