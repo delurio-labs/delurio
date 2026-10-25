@@ -1,0 +1,125 @@
+# QAuth authorize + consent: the UI graph, written before any markup.
+# `name` is the accessible name with its source ({key, params} | {labelledBy} | {literal}); `text` is the visible content, kept apart so WCAG 2.5.3 is checkable.
+# `component` is a kit-neutral type. The kit adapter (not chosen yet for QAuth) maps it to a real component and declares what that component guarantees.
+# `in` / `unless` name flow states; `when` names a flow guard or context flag; `disabledIn` lists the states where the control is disabled.
+# Locators: role + name by default. A node that cannot be found that way gets `locate:` entries, in order.
+schema: delurio-graph/0
+kind: ui
+id: qauth.authorize
+flow: qauth.authorize
+status: proposed
+catalog: catalog/en.json
+locales: [en]
+samples: { client: "Acme Notes", host: "notes.acme.example", email: "alex@example.com" }
+changes: { key: Changes.note }
+
+nodes:
+  page:
+    type: page
+    component: Page
+    role: main
+    name: { labelledBy: title }
+    in: [consent, deciding]
+    initialFocus: title # a heading made programmatically focusable. Never `allow`: a stray Enter must not consent.
+    frame: never # served with CSP frame-ancestors 'none' (invariant consent-not-frameable)
+  title:
+    type: text
+    component: Heading
+    role: heading
+    text: { key: Consent.title, params: { client: client.name } }
+    in: [consent, deciding]
+  redirectNote:
+    type: text
+    component: Text
+    text: { key: Consent.redirectsTo, params: { host: request.redirectHost } } # the host is shown so a look-alike client is noticeable
+    in: [consent, deciding]
+  account:
+    type: text
+    component: Text
+    text: { key: Consent.signedInAs, params: { email: session.email } }
+    in: [consent, deciding]
+  switchAccount:
+    type: action
+    component: LinkButton
+    role: button
+    intent: secondary
+    name: { key: Consent.switchLabel, params: { email: session.email } }
+    text: { key: Consent.switch }
+    in: [consent, deciding]
+    disabledIn: [deciding]
+    emits: SWITCH_ACCOUNT
+  scopesLabel:
+    type: text
+    component: Text
+    text: { key: Consent.scopesLabel, params: { client: client.name } }
+    in: [consent, deciding]
+  scopeList:
+    type: list
+    component: List
+    role: list
+    name: { labelledBy: scopesLabel }
+    in: [consent, deciding]
+  scopeItem:
+    type: text
+    component: ListItem
+    role: listitem
+    repeat: request.scopes
+    text: { oneOf: [Scope.openid, Scope.profile, Scope.email] } # one catalog key per scope; an unknown scope gets no screen
+    in: [consent, deciding]
+  allow:
+    type: action
+    component: Button
+    role: button
+    intent: confirm
+    name: { key: Consent.allowLabel, params: { client: client.name } }
+    text: { key: Consent.allow }
+    in: [consent, deciding]
+    disabledIn: [deciding] # a second press must not record a second decision
+    emits: ALLOW
+  deny:
+    type: action
+    component: Button
+    role: button
+    intent: dismiss
+    name: { key: Consent.denyLabel, params: { client: client.name } }
+    text: { key: Consent.deny }
+    in: [consent, deciding]
+    disabledIn: [deciding]
+    emits: DENY
+  working:
+    type: status
+    component: Status
+    role: status
+    text: { key: Consent.working }
+    in: [deciding]
+  retryAlert:
+    type: alert
+    component: Alert
+    role: alert # announced when it appears: the choice was not saved
+    text: { key: Consent.retry }
+    in: [consent]
+    when: retryNote
+
+  errorTitle:
+    type: text
+    component: Heading
+    role: heading
+    text: { key: Consent.error.title }
+    in: [errorPage]
+  errorBody:
+    type: text
+    component: Text
+    text: { key: Consent.error.body }
+    in: [errorPage]
+
+edges:
+  - { labelledBy: [page, title] }
+  - { labelledBy: [scopeList, scopesLabel] }
+  - { triggers: [allow, deciding] }
+  - { triggers: [deny, deciding] }
+  - { triggers: [switchAccount, login] }
+
+rules: # checked on this graph, with no code yet
+  - { id: no-default-allow, rule: "no page node has initialFocus pointing at an action with intent confirm" }
+  - { id: every-busy-control-disabled, rule: "every node that emits an event the flow ignores in a state lists that state in disabledIn" }
+  - { id: label-in-name, rule: "a node's visible text is contained in its accessible name (WCAG 2.5.3)" }

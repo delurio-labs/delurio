@@ -1,0 +1,27 @@
+{
+  "name": "@delurio/cli",
+  "version": "0.1.0",
+  "description": "The open checker and page of delurio-graph/0: check every graph in a project's own CI, offline, with GNU error lines and SARIF.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": { "delurio": "dist/cli.js" },
+  "files": ["dist", "SPEC.md", "NOTICE"],
+  "engines": { "node": ">=22.18" },
+  "repository": { "type": "git", "url": "git+https://github.com/delurio-labs/delurio.git" },
+  "homepage": "https://delur.io",
+  "bugs": "https://github.com/delurio-labs/delurio/issues",
+  "keywords": ["statechart", "graph", "spec", "checker", "sarif", "ci"],
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "node src/cli.ts check examples --strict"
+  },
+  "dependencies": {
+    "elkjs": "0.12.0",
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "7.0.2"
+  }
+}

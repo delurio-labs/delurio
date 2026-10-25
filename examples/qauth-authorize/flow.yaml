@@ -1,0 +1,145 @@
+# QAuth authorize + consent, graph first. Statechart in the shape ADR-021 uses (XState: states, on, always, final states).
+# Guards and effects are written over a finite context so the checker can enumerate it and prove the `assertions`.
+# Event names: FAIL.<class> is a refusal class listed under `failures` for the invoking state.
+schema: delurio-graph/0
+kind: flow
+id: qauth.authorize
+status: proposed # no implementation exists to my knowledge: this is the spec the code is written against
+domain: qauth.authorize
+ui: qauth.authorize
+title: Authorize and ask for consent
+summary: >-
+  A third-party app sends the user here to ask for access to their account. QAuth checks the request, signs the user in
+  if needed, asks for consent, and sends the user back to the app with a code, or with an error.
+
+decisions: # open, each with a recommendation
+  D1: { question: "Authorization code lifetime", recommend: "60 s, single use (the spec allows up to 10 min)", affects: [issuing] }
+  D2: { question: "May a first-party client skip the consent screen?", recommend: "yes when its scopes are all in allowedScopes and prompt is not consent; never for third parties", affects: [routing] }
+  D3: { question: "May the user narrow the requested scopes?", recommend: "no in v1: allow or deny only", affects: [consent] }
+
+context: # every variable has a finite domain; `any` means the checker tries every value as the starting point
+  prompt:
+    values: [unset, none, login, consent]
+    initial: any
+    say: { unset: "the request has no prompt", none: "the app asked for no UI (prompt=none)", login: "the app forces sign-in (prompt=login)", consent: "the app forces consent (prompt=consent)" }
+  hasSession:
+    values: [false, true]
+    initial: any
+    say: { "true": "the user is signed in", "false": "the user is not signed in" }
+  maxAgeExceeded: # the session is older than the request's max_age
+    values: [false, true]
+    initial: any
+    say: { "true": "the session is older than max_age", "false": "" }
+  grantCovers: # this user has already consented to these scopes for this client
+    values: [false, true]
+    initial: any
+    say: { "true": "consent for these scopes is already on file", "false": "no consent is on file" }
+  firstPartySkip: # D2
+    values: [false, true]
+    initial: any
+    say: { "true": "the app is first-party and may skip consent", "false": "" }
+  fresh: { values: [false, true], initial: false } # the user authenticated during this request
+  decision: { values: [none, allow, deny], initial: none }
+  consented: { values: [false, true], initial: false }
+  retryNote: { values: [false, true], initial: false }
+  redirectTrusted: { values: [true, false], initial: true } # false once a refusal says the redirect target cannot be trusted
+
+guards:
+  uiForbidden: "prompt == 'none'"
+  needsLogin: "not hasSession or (not fresh and (prompt == 'login' or maxAgeExceeded))"
+  needsConsent: "prompt == 'consent' or not (grantCovers or firstPartySkip)"
+  allowed: "decision == 'allow'"
+
+effects:
+  markFresh: { set: { hasSession: true, fresh: true, maxAgeExceeded: false }, havoc: [grantCovers] } # a different user may have signed in
+  forgetSession: { set: { hasSession: false, fresh: false, decision: none, consented: false, retryNote: false } } # a new user starts the decision over
+  chooseAllow: { set: { decision: allow, retryNote: false } }
+  chooseDeny: { set: { decision: deny, retryNote: false } }
+  markConsented: { set: { consented: true } }
+  showRetryNote: { set: { retryNote: true } }
+  redirectNotTrusted: { set: { redirectTrusted: false } }
+
+failures: # what each FAIL class stands for, per invoking state; the redirect rule of every refusal comes from the domain
+  validating:
+    from: validate
+    unsafe: [CLIENT_UNKNOWN, REDIRECT_URI_MISMATCH, UNAVAILABLE]
+    protocol: [invalid_request, unauthorized_client, unsupported_response_type, invalid_scope]
+  deciding:
+    from: decide
+    unsafe: [CSRF_MISMATCH, REQUEST_EXPIRED]
+    server: [server_error]
+  issuing:
+    from: issue
+    server: [server_error]
+
+initial: validating
+states:
+  validating:
+    title: Check the request
+    description: GET /authorize; the server checks the client, the redirect URI and the parameters. No UI.
+    invoke: { action: validate }
+    on:
+      DONE: routing
+      FAIL.unsafe: { target: errorPage, effect: [redirectNotTrusted], say: "the app or its redirect address can't be trusted" }
+      FAIL.protocol: { target: errorRedirect, say: "the request is malformed or not allowed" }
+
+  routing:
+    title: Decide what happens next
+    description: classification only, never shown
+    always:
+      - { guard: "uiForbidden and needsLogin", target: silentRedirect, say: "no UI allowed, but sign-in is needed" }
+      - { guard: "uiForbidden and needsConsent", target: silentRedirect, say: "no UI allowed, but consent is missing" }
+      - { guard: needsLogin, target: login, say: "sign-in is needed" }
+      - { guard: needsConsent, target: consent, say: "consent is needed" }
+      - { target: issuing, say: "nothing more is needed" }
+
+  login:
+    title: Sign in
+    description: the sign-in flow runs as its own graph; this flow only waits for its outcome
+    invoke: { flow: qauth.login }
+    on:
+      AUTHENTICATED: { target: routing, effect: [markFresh], say: "the user signed in" }
+      NAVIGATE: { target: left, say: "the user closes the page" }
+
+  consent:
+    title: Ask for consent
+    description: the consent page; allow or deny, or sign in as someone else
+    on:
+      ALLOW: { target: deciding, effect: [chooseAllow] }
+      DENY: { target: deciding, effect: [chooseDeny] }
+      SWITCH_ACCOUNT: { target: login, effect: [forgetSession] }
+      NAVIGATE: { target: left, say: "the user closes the page" }
+
+  deciding:
+    title: Save the choice
+    description: the choice is being recorded; both buttons are disabled
+    invoke: { action: decide }
+    on:
+      DONE:
+        - { guard: allowed, target: issuing, effect: [markConsented], say: "the user allowed" }
+        - { target: deniedRedirect, say: "the user denied" }
+      FAIL.unsafe: { target: errorPage, effect: [redirectNotTrusted], say: "the page expired, or the request was forged" }
+      FAIL.server: { target: consent, effect: [showRetryNote], say: "a server error: the user can try again" }
+
+  issuing:
+    title: Issue the code
+    description: the code is made and bound to client, redirect URI and challenge
+    invoke: { action: issue }
+    on:
+      DONE: codeIssued
+      FAIL.server: { target: errorRedirect, say: "a server error" }
+
+  codeIssued: { type: final, title: Send the code back to the app, redirect: success, carries: [code, state] }
+  deniedRedirect: { type: final, title: Tell the app it was denied, redirect: error, code: access_denied }
+  errorRedirect: { type: final, title: Tell the app about the error, redirect: error, code: "invalid_request | unauthorized_client | unsupported_response_type | invalid_scope | server_error" }
+  silentRedirect: { type: final, title: Tell the app that sign-in or consent is needed, redirect: error, code: "login_required | consent_required | interaction_required" } # prompt=none
+  errorPage: { type: final, title: Show an error page, redirect: never } # shown to the user, no redirect
+  left: { type: final, title: The user leaves, leavesPage: true }
+
+assertions: # `never` holds in every reachable (state, context); the checker enumerates them
+  - { id: silent-shows-no-ui, never: "prompt == 'none' and state in ['login', 'consent', 'deciding']", say: "When the app asks for no UI, no page is ever shown" }
+  - { id: login-makes-progress, never: "state == 'login' and fresh", say: "After signing in, the user is never sent to sign in again" }
+  - { id: no-code-without-session, never: "state == 'issuing' and not hasSession", say: "A code is never issued without a signed-in user" }
+  - { id: consent-forced, never: "state == 'issuing' and prompt == 'consent' and not consented", say: "When the app forces consent, the consent screen is always shown" }
+  - { id: deny-never-issues, never: "state == 'issuing' and decision == 'deny'", say: "Denying never leads to a code" }
+  - { id: redirect-only-when-trusted, never: "state in ['codeIssued', 'deniedRedirect', 'errorRedirect', 'silentRedirect'] and not redirectTrusted", say: "The app is only redirected to when its redirect address can be trusted" }

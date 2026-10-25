@@ -1,0 +1,20 @@
+{
+  "Consent.title": "{client} wants access to your account",
+  "Consent.redirectsTo": "After you decide, you will be sent to {host}.",
+  "Consent.signedInAs": "Signed in as {email}",
+  "Consent.switch": "Use a different account",
+  "Consent.switchLabel": "Use a different account, now signed in as {email}",
+  "Consent.scopesLabel": "{client} will be able to:",
+  "Consent.allow": "Allow",
+  "Consent.allowLabel": "Allow {client} to access your account",
+  "Consent.deny": "Deny",
+  "Consent.denyLabel": "Deny {client} access to your account",
+  "Consent.working": "Saving your choice",
+  "Consent.retry": "Something went wrong on our side and your choice was not saved. Try again.",
+  "Consent.error.title": "This request can't be completed",
+  "Consent.error.body": "Go back to the app you came from and start again.",
+  "Scope.openid": "Confirm who you are",
+  "Scope.profile": "See your name and profile picture",
+  "Scope.email": "See your email address",
+  "Changes.note": "Allowing gives the app access to what it asked for, in your name, and sends you back to it with a one-time code; it keeps that access until you take it back in your account. Denying sends you back with nothing."
+}

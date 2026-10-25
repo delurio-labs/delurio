@@ -1,0 +1,111 @@
+# QAuth authorize + consent, graph first: nothing here is implemented, every line is a proposal.
+# `spec:` pins are written from memory. Verify each against the Datatracker before it goes into a spec matrix.
+schema: delurio-graph/0
+kind: domain
+id: qauth.authorize
+
+entities: # each field is a JSON Schema (2020-12); `references`, `sensitivity`, `matching` and `opaque` are delurio keywords
+  Client:
+    fields:
+      id: { type: string }
+      name: { type: string, maxLength: 100 } # shown on the consent screen, so it is user-visible and untrusted
+      redirectUris: { type: array, items: { type: string, format: uri, pattern: "^https://" }, matching: exact }
+      firstParty: { type: boolean, default: false }
+      allowedScopes: { type: array, items: { type: string } }
+
+  AuthorizationRequest: # the query of GET /authorize, parsed
+    required: [codeChallenge, codeChallengeMethod]
+    fields:
+      clientId: { type: string, references: Client }
+      redirectUri: { type: string, format: uri }
+      responseType: { enum: [code] }
+      scope: { type: array, items: { type: string } }
+      state: { type: string, opaque: true } # echoed back unchanged on every redirect
+      codeChallenge: { type: string }
+      codeChallengeMethod: { enum: [S256] } # choice: S256 only, no `plain`
+      prompt: { enum: [none, login, consent, null] }
+      maxAge: { type: [integer, "null"] }
+
+  Consent:
+    fields:
+      userId: { type: string }
+      clientId: { type: string, references: Client }
+      scopes: { type: array, items: { type: string } }
+      grantedAt: { type: string, format: date-time }
+
+  AuthorizationCode:
+    fields:
+      value: { type: string, sensitivity: credential } # reaches the client through the redirect, never rendered, logged or stored in clear
+      clientId: { type: string, references: Client }
+      redirectUri: { type: string, format: uri }
+      codeChallenge: { type: string }
+      expiresAt: { type: string, format: date-time }
+      usedAt: { type: [string, "null"], format: date-time, sensitivity: internal }
+
+policies:
+  - actor: end-user
+    needs: session
+    where: Consent.userId = session.user
+    write: [Consent]
+    do: [decide]
+  - actor: anyone
+    do: [validate] # the request carries no credential yet; the client is checked by the action itself
+
+actions:
+  validate:
+    route: GET /authorize
+    result: { returns: ValidatedRequest }
+    refusals:
+      CLIENT_UNKNOWN: { redirect: never }
+      REDIRECT_URI_MISMATCH: { redirect: never }
+      invalid_request: { redirect: error }
+      unauthorized_client: { redirect: error }
+      unsupported_response_type: { redirect: error }
+      invalid_scope: { redirect: error }
+      UNAVAILABLE: { redirect: never } # the client could not be checked, so no redirect target is trusted
+  decide:
+    route: POST /authorize/consent
+    needs: session
+    body: { type: object, required: [decision, csrf], properties: { decision: { enum: [allow, deny] }, csrf: { type: string } } }
+    sideEffects: [audit:consent.decided]
+    refusals:
+      CSRF_MISMATCH: { redirect: never }
+      REQUEST_EXPIRED: { redirect: never }
+      server_error: { redirect: retry }
+  issue:
+    result: { returns: AuthorizationCode }
+    sideEffects: [audit:code.issued]
+    refusals:
+      server_error: { redirect: error }
+
+invariants:
+  - id: redirect-uri-exact
+    rule: the request's redirectUri equals one of Client.redirectUris by simple string comparison
+    spec: RFC 6749 §3.1.2.3
+  - id: no-redirect-on-bad-client
+    rule: CLIENT_UNKNOWN and REDIRECT_URI_MISMATCH are shown to the user and never redirected
+    spec: RFC 6749 §3.1.2.4
+  - id: state-echo
+    rule: when the request had `state`, every redirect carries it unchanged
+    spec: RFC 6749 §4.1.2, §4.1.2.1
+  - id: pkce-required
+    rule: no code is issued without a codeChallenge; the token endpoint later checks the verifier against it
+    spec: RFC 7636
+  - id: code-single-use
+    rule: a code is exchanged at most once; a second use is refused and revokes the tokens it produced
+    spec: RFC 6749 §4.1.2
+  - id: code-lifetime
+    rule: expiresAt - issuedAt <= 10 min by the spec; the proposed value is decision D1
+    spec: RFC 6749 §4.1.2
+  - id: code-bound
+    rule: a code is bound to its client, redirectUri and codeChallenge
+    spec: RFC 6749 §4.1.3, RFC 7636
+  - id: prompt-none-silent
+    rule: prompt=none never displays an authentication or consent page; it answers login_required, consent_required or interaction_required
+    spec: OIDC Core 1.0 §3.1.2.1
+  - id: consent-not-frameable
+    rule: the consent page cannot be embedded in a frame (clickjacking); sent as CSP frame-ancestors 'none'
+    spec: practice, no RFC
+  - id: decision-needs-csrf-token
+    rule: the consent POST carries a token bound to the session and to this request; a replay or a stale one is refused
+    spec: practice, no RFC
