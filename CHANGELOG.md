@@ -2,6 +2,10 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
+## 0.3.0 (2026-10-25)
+
+- The modules a tool on top of delurio needs are importable, with their types: `@delurio/cli/graph`, `/model`, `/story`, `/wireframe`, `/kit`, `/edges`, `/html`, `/nav` and `/expr`. While the version is 0.x their API may change in any minor release; pin an exact version.
+
 ## 0.2.0 (2026-10-25)
 
 - JSON Schemas (2020-12) for `flow`, `ui`, `nav` (and `nav.extracted.yaml`), `domain` and `catalog` files, shipped in `schemas/`, for editors: completion, hover help from SPEC.md, and errors such as a typo in a key or a title cut short by a comma inside `{ }`.

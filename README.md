@@ -100,6 +100,20 @@ npx @delurio/cli diff examples/qauth-authorize --base origin/main
 
 This prints Markdown for a pull request. It covers what the flow does differently (found by running both revisions) and what changed in the graph.
 
+## As a library
+
+A tool built on the format can use the same loader and checker the CLI uses:
+
+```ts
+import { load } from '@delurio/cli/graph';
+import { explore, Model } from '@delurio/cli/model';
+
+const g = load('graphs/billing/billing.payment');
+const configurations = explore(new Model(g.flow)).configs.length;
+```
+
+The entry points are `graph`, `model`, `story`, `wireframe`, `kit`, `edges`, `html`, `nav` and `expr`, each with its types. While the version is 0.x their API may change in any minor release: pin an exact version.
+
 ## Licence
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). The name "delurio" is not licensed with the code.
