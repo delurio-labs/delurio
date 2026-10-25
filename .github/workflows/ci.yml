@@ -24,3 +24,5 @@ jobs:
         run: npm run build
       - name: Check the examples with the built package
         run: node dist/cli.js check examples --strict
+      - name: Write the examples' pages with the built package
+        run: node dist/cli.js page examples --out "$RUNNER_TEMP/pages" --strict

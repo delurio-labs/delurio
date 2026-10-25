@@ -71,6 +71,8 @@ const RULES: Rule[] = [
 ];
 const LEVEL = new Map(RULES.map((r) => [r.id, r.level]));
 
+export const count = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 // the 1-based line and column of the first occurrence of `needle`, else the file's start
 function placeOf(abs: string, needle: string | null): { line: number; column: number } {
   if (needle === null || !existsSync(abs)) return { line: 1, column: 1 };
@@ -82,7 +84,8 @@ function placeOf(abs: string, needle: string | null): { line: number; column: nu
   return { line: 1, column: 1 };
 }
 
-function graphDirs(root: string, out: string[] = []): string[] {
+// every graph folder at or under root, in path order
+export function graphDirs(root: string, out: string[] = []): string[] {
   if (existsSync(join(root, 'flow.yaml')) || existsSync(join(root, 'nav.yaml'))) out.push(root);
   for (const name of readdirSync(root).sort()) {
     if (SKIP.has(name) || name.startsWith('.')) continue;
@@ -278,7 +281,6 @@ export function checkMain(args: string[]): number {
       for (const n of r.notes) console.log(`${n.file}:${n.line}:${n.column}: note: ${n.message}`);
     }
     const graphs = graphDirs(root).length;
-    const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
     const errors = results.filter((r) => r.level === 'error').length;
     const warnings = results.filter((r) => r.level === 'warning').length;
     console.error(`delurio check: ${count(graphs, 'graph')}, ${count(errors, 'error')}, ${count(warnings, 'warning')}; exit ${exitCode}`);

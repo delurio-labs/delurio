@@ -58,6 +58,12 @@ npx @delurio/cli page examples/qauth-authorize --out viz/qauth-authorize
 
 The page shows the flow in words: its main story, every way it ends, its guarantees and whether they hold, its screens as wireframes, and its diagram. `examples/qauth-authorize` is a small graph to try it on.
 
+Given a folder of graphs instead, it writes the page of every graph under it, each at its own path, and `index.html` listing them all with what their check found:
+
+```sh
+npx @delurio/cli page graphs --out viz
+```
+
 ## What a revision changes, in words
 
 ```sh
