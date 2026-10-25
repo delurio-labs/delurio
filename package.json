@@ -1,6 +1,6 @@
 {
   "name": "@delurio/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The open checker and page of delurio-graph/0: check every graph in a project's own CI, offline, with GNU error lines and SARIF.",
   "license": "Apache-2.0",
   "type": "module",

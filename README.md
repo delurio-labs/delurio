@@ -6,10 +6,17 @@ This package is the part a project's own CI runs: it reads graph files and nothi
 
 ## Install
 
-Pin an exact version:
+Run it once, without installing:
+
+```sh
+npx @delurio/cli@0.1.1 check graphs --strict
+```
+
+or pin an exact version in a project, after which the command is `delurio`:
 
 ```sh
 npm install --save-dev --save-exact @delurio/cli
+npx delurio check graphs --strict
 ```
 
 or the container image, pinned by its digest:
@@ -23,15 +30,15 @@ Node 22.18 or later.
 ## Check every graph
 
 ```sh
-npx delurio check graphs --strict
+npx @delurio/cli check graphs --strict
 ```
 
 - **Findings:** one line each, in the GNU error format that compilers, editors and CI logs read:
 
   ```
-  graphs/billing/payment/flow.yaml:176:7: error: restricted-only-when-retries-ran-out is broken: … [assertion-violated]
-  graphs/billing/payment/flow.yaml:176:7: note: start: role = manager, paid = false
-  graphs/billing/payment/flow.yaml:176:7: note: step 1: RETRIES_RAN_OUT
+  graphs/billing/billing.payment/flow.yaml:176:7: error: restricted-only-when-retries-ran-out is broken: … [assertion-violated]
+  graphs/billing/billing.payment/flow.yaml:176:7: note: start: role = manager, paid = false
+  graphs/billing/billing.payment/flow.yaml:176:7: note: step 1: RETRIES_RAN_OUT
   ```
 
 - **SARIF:** `--format sarif --output delurio.sarif` writes SARIF 2.1.0 for code scanning. The same input gives the same bytes.
@@ -46,7 +53,7 @@ npx delurio check graphs --strict
 ## A graph's page
 
 ```sh
-npx delurio page graphs/billing/payment --out viz/payment
+npx @delurio/cli page examples/qauth-authorize --out viz/qauth-authorize
 ```
 
 The page shows the flow in words: its main story, every way it ends, its guarantees and whether they hold, its screens as wireframes, and its diagram. `examples/qauth-authorize` is a small graph to try it on.
@@ -54,7 +61,7 @@ The page shows the flow in words: its main story, every way it ends, its guarant
 ## What a revision changes, in words
 
 ```sh
-npx delurio diff graphs/billing/payment --base origin/main
+npx @delurio/cli diff examples/qauth-authorize --base origin/main
 ```
 
 This prints Markdown for a pull request. It covers what the flow does differently (found by running both revisions) and what changed in the graph.

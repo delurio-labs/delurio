@@ -278,7 +278,10 @@ export function checkMain(args: string[]): number {
       for (const n of r.notes) console.log(`${n.file}:${n.line}:${n.column}: note: ${n.message}`);
     }
     const graphs = graphDirs(root).length;
-    console.error(`delurio check: ${graphs} graphs, ${results.filter((r) => r.level === 'error').length} errors, ${results.filter((r) => r.level === 'warning').length} warnings; exit ${exitCode}`);
+    const count = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+    const errors = results.filter((r) => r.level === 'error').length;
+    const warnings = results.filter((r) => r.level === 'warning').length;
+    console.error(`delurio check: ${count(graphs, 'graph')}, ${count(errors, 'error')}, ${count(warnings, 'warning')}; exit ${exitCode}`);
   }
   return exitCode;
 }
