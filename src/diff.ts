@@ -1,7 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
-import { parse } from 'yaml';
 import { GraphError, humanize, load } from './graph.ts';
 import type { Graph } from './graph.ts';
 import { loadNav } from './nav.ts';
@@ -10,6 +9,7 @@ import type { Change, Shift } from './compare.ts';
 import { flowBehaviour, flowSameBehaviour, flowStructure, runSide } from './diff-flow.ts';
 import type { FlowSide } from './diff-flow.ts';
 import { navBehaviour, navSameBehaviour, navStructure, runNav } from './diff-nav.ts';
+import { inReadingOrder, isDomainText, mayBeDomain, mergeDomain } from './domain.ts';
 
 // `node src/cli.ts diff`: what a revision of a graph changes, for a PR description. Each side is a graph directory on disk
 // or the same directory at a git revision (read with `git show <commit>:<path>`, nothing is checked out). No model, no
@@ -24,13 +24,15 @@ export const DIFF_USAGE = [
   '    fails, a goal newly fails or a problem is new',
 ].join('\n');
 
-// One side of the diff. `read` and `exists` take paths relative to the graph directory; every file read is kept, so the
-// header can say which files differ.
+// One side of the diff. `read`, `exists`, `peek` and `list` take paths relative to the graph directory; every file read
+// is kept, so the header can say which files differ, and a file only peeked at is not.
 interface Source {
   where: string; // the directory as given
   rev: string | null; // the revision as shown, null for the directory on disk
   read: (file: string) => string;
   exists: (file: string) => boolean;
+  peek: (file: string) => string;
+  list: (dir: string) => string[]; // the files (not directories) in a directory, by name; none when it does not exist
   texts: Map<string, string>;
 }
 
@@ -56,6 +58,11 @@ function dirSource(dir: string): Source {
       const text = readFileSync(path, 'utf8');
       texts.set(posix.normalize(file), text);
       return text;
+    },
+    peek: (file) => readFileSync(join(dir, file), 'utf8'),
+    list: (sub) => {
+      const path = join(dir, sub);
+      return existsSync(path) && statSync(path).isDirectory() ? readdirSync(path).filter((n) => statSync(join(path, n)).isFile()).sort() : [];
     },
   };
 }
@@ -95,18 +102,27 @@ function gitSource(rev: string, dir: string): Source {
       texts.set(posix.normalize(file), text);
       return text;
     },
+    peek: (file) => git(['show', `${commit}:${path(file)}`], top) ?? '',
+    list: (sub) => {
+      // blobs only: `ls-tree` names a directory a tree
+      const tree = git(['ls-tree', `${commit}:${path(sub)}`], top);
+      if (tree === null) return [];
+      return tree.split('\n').filter((l) => /^\d+ blob /.test(l)).map((l) => l.slice(l.indexOf('\t') + 1)).sort();
+    },
   };
 }
 
-// The API description of a flow: domain.yaml beside it, else the shared ../domain/domain.yaml of a capture layout,
-// else ../../domain/domain.yaml of graphs/ (graphs/<part>/<flow>). When the flow names its domain, the file must be that domain.
+// The API description of a flow: the domain beside it, else the shared ../domain/ of a capture layout, else
+// ../../domain/ of graphs/ (graphs/<part>/<flow>); all its files read as one (SPEC.md §5). When the flow names its
+// domain, the files must be that domain.
 function findDomain(src: Source, g: Graph): FlowSide['domain'] {
-  for (const file of ['domain.yaml', '../domain/domain.yaml', '../../domain/domain.yaml']) {
-    if (!src.exists(file)) continue;
-    const doc = parse(src.read(file)) as { id?: string } | null;
+  for (const dir of ['.', '../domain', '../../domain']) {
+    const files = inReadingOrder(src.list(dir).filter(mayBeDomain).map((n) => (dir === '.' ? n : `${dir}/${n}`))).filter((f) => isDomainText(src.peek(f)));
+    if (files.length === 0) continue;
+    const { id, doc } = mergeDomain(files.map((file) => ({ file, text: src.read(file) })));
     const named = (g.flow as unknown as { domain?: unknown }).domain;
-    if (typeof named === 'string' && doc?.id !== named) throw new GraphError(`flow.yaml names the domain ${named}, but ${file} is ${String(doc?.id)}`);
-    return { file, doc };
+    if (typeof named === 'string' && id !== named) throw new GraphError(`flow.yaml names the domain ${named}, but ${files.join(', ')} ${files.length === 1 ? 'is' : 'are'} ${String(id)}`);
+    return { file: files.join(', '), doc };
   }
   return null;
 }
@@ -157,7 +173,7 @@ const HEADINGS: Record<string, string> = {
   facts: 'Facts and conditions',
   notModeled: 'Not modeled',
   wording: 'Wording',
-  domain: 'The API it calls (domain.yaml)',
+  domain: 'The API it calls (its domain)',
   other: 'Other keys',
   citations: 'Source citations',
 };

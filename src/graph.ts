@@ -69,7 +69,7 @@ export interface Flow {
   assertions?: Array<{ id: string; never: string; say?: string }>;
   main?: string[] | { given?: Record<string, Scalar>; events: string[] }; // the main story as events, when no success exit gives one
   scope?: { shows?: string; world?: 'open' | 'closed'; outOfView?: string[] };
-  domain?: string; // the id of the domain.yaml its actions are in
+  domain?: string; // the id of the domain its actions are in
 }
 
 export interface Label {

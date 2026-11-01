@@ -1,11 +1,12 @@
 // `changes:` in ui.yaml (SPEC.md §4): a flow whose steps write something tells its users, in its own note, what it
 // changes and what follows. An action writes when its route is not a GET, when a policy lets someone `write` with it, or
 // when it is a step inside the service (no route) that returns an entity; all three are read from the flow's domain,
-// looked up by id among the graphs beside this one. A flow with no screens, or whose domain is not found, is not checked.
+// looked up by id among the graphs beside this one, all its files read as one (SPEC.md §5). A flow with no screens, or
+// whose domain is not found, is not checked.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { parse } from 'yaml';
 import type { Graph } from './graph.ts';
+import { inReadingOrder, isDomainText, mayBeDomain, mergeDomain } from './domain.ts';
 
 interface Domain {
   id?: string;
@@ -28,13 +29,16 @@ function rootOf(dir: string): string {
 }
 
 function domainUnder(root: string, id: string, depth = 4): Domain | null {
-  const file = join(root, 'domain.yaml');
-  if (existsSync(file)) {
-    const d = parse(readFileSync(file, 'utf8')) as Domain;
-    if (d?.id === id) return d;
+  const names = readdirSync(root);
+  const parts = inReadingOrder(names.filter((name) => mayBeDomain(name) && statSync(join(root, name)).isFile()))
+    .map((name) => ({ file: join(root, name), text: readFileSync(join(root, name), 'utf8') }))
+    .filter((p) => isDomainText(p.text));
+  if (parts.length > 0) {
+    const merged = mergeDomain(parts);
+    if (merged.id === id) return merged.doc as Domain;
   }
   if (depth === 0) return null;
-  for (const name of readdirSync(root)) {
+  for (const name of names) {
     if (SKIP.has(name)) continue;
     const sub = join(root, name);
     if (!statSync(sub).isDirectory()) continue;

@@ -1,0 +1,15 @@
+# The part of the notes domain that is generated from the code: the entities and their fields. A generator owns this
+# file; the hand-written part beside it only adds (SPEC.md §5).
+schema: delurio-graph/0
+kind: domain
+id: example.notes
+status: proposed
+title: Notes
+entities:
+  Note:
+    required: [id, ownerId, body]
+    fields:
+      id: { type: string, format: uuid }
+      ownerId: { type: string, format: uuid }
+      body: { type: string, maxLength: 10000 }
+      archivedAt: { type: [string, "null"], format: date-time }
