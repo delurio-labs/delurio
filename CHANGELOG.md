@@ -2,7 +2,7 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
-## Unreleased
+## 0.4.0 (2026-11-01)
 
 - An exit (`type: final`) may be named in snake_case, optionally followed by its cause: `signed_out`, `invalid_token.dpop_bound` (SPEC.md §1, Text). The `schema` rule accepts these names on exits only; every other state stays camelCase. `flow.mmd` writes such an id as `invalid_token__dpop_bound`, since Mermaid ids take no dot.
 
