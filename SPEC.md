@@ -21,14 +21,14 @@ id: learning.enrollment
 | `flow` | `flow.yaml` | the behaviour: states, events, transitions, a finite context, and guarantees the checker proves |
 | `ui` | `ui.yaml` | what each state shows: the nodes of the screen, their roles, names, texts and the events they send |
 | catalog | `catalog/<locale>.json` | the words of the UI, one file per locale |
-| `domain` | `domain.yaml` | the data and the API: entities, actions, refusals, policies, invariants |
+| `domain` | `domain.yaml`, and any other file of the domain's directory (§5) | the data and the API: entities, actions, refusals, policies, invariants |
 | `nav` | `nav.yaml` | the pages of an app, the ways between them, and who may open them |
 | `binding` | `binding.yaml` | how a flow maps onto a running app, for replay and recording |
 | `tutorial` | `tutorial.yaml` | an end-user video written against a flow |
 | `kit` | `kit.yaml` | how the UI components look in one product |
 | (generated) | `anchors.lock.yaml`, `viz/`, `video/` | written by the tools; never by hand |
 
-A flow directory holds `flow.yaml`; a flow with screens also holds `ui.yaml` and the catalog that `ui.yaml` names. It may hold `domain.yaml`, `binding.yaml` and `tutorial.yaml`. A domain shared by several flows sits in its own directory and each flow names it by id (`domain: learning.api`). A navigation graph is a directory with `nav.yaml` and its catalog.
+A flow directory holds `flow.yaml`; a flow with screens also holds `ui.yaml` and the catalog that `ui.yaml` names. It may hold `domain.yaml`, `binding.yaml` and `tutorial.yaml`. A domain shared by several flows sits in its own directory and each flow names it by id (`domain: learning.api`). A directory holds one domain and a domain sits in one directory, in `domain.yaml` or split across several files (§5). A navigation graph is a directory with `nav.yaml` and its catalog.
 
 A flow with no screen (an HTTP endpoint, a webhook, an MCP tool, a CI job) has no `ui.yaml`: it loads and is checked without one, and its page draws no screens. What such a step answers the outside world is written on its state as `response` (§2).
 
@@ -237,7 +237,15 @@ An action, a refusal and an invariant may carry `note`: the author's own words, 
 
 This form was decided on 22 Oct 2026. Graphs captured before it may still give fields as `{ kind: text }`; they are converted when a tool first reads fields. The OpenAPI export and import are [#8](https://github.com/delurio-labs/delurio/issues/8).
 
-No tool checks a domain yet: the revision diff compares it and anchors lock its `source:` keys. Loading it with the flow and checking policies, secrets and `invoke` names is [#5](https://github.com/delurio-labs/delurio/issues/5); generating it from Drizzle and Zod is [#6](https://github.com/delurio-labs/delurio/issues/6); a registry that every API operation and route is covered by a graph is [#7](https://github.com/delurio-labs/delurio/issues/7).
+**Several files.** A domain may be split across the files of its directory: every `*.yaml` there that says `kind: domain` is a part of it (a file named for another kind, such as `flow.yaml`, never is). Each part starts with `schema`, `kind` and the domain's `id`, and the parts are read as one domain, `domain.yaml` first and then the others by name:
+
+- maps merge key by key, at any depth: one file may give an entity's fields, and another add its actions or mark one of its fields `sensitivity: credential`;
+- the lists `policies` and `invariants` join, in that order; an invariant's `id` is given once;
+- any other value (a string, a number, `true`, a list such as `required` or `lifecycle`) is given in one file only.
+
+A value given in two files is an error of `check` at the second one's line (`domain-twice`); so is a file whose id is not its directory's domain, and a domain whose files sit in two directories (`domain-place`). A split keeps a large domain one entity per file, and lets a part generated from the code ([#6](https://github.com/delurio-labs/delurio/issues/6)) and a part written by hand sit side by side; how a generator marks the files it owns is decided there. Decided on 1 Nov 2026.
+
+`check` validates every file of a domain against its schema and reads its files as one, the `changes` rule (§4) reads its actions, the revision diff compares it, and anchors lock its `source:` keys. Loading it with the flow and checking policies, secrets and `invoke` names is [#5](https://github.com/delurio-labs/delurio/issues/5); generating it from Drizzle and Zod is [#6](https://github.com/delurio-labs/delurio/issues/6); a registry that every API operation and route is covered by a graph is [#7](https://github.com/delurio-labs/delurio/issues/7).
 
 ## 6. Navigation (`kind: nav`)
 
@@ -291,7 +299,7 @@ A kit says how the components of `ui.yaml` look in one product: `tokens` and `da
 |---|---|
 | 0 | the graph loads and, under `--strict`, nothing is wrong |
 | 1 | the graph cannot be loaded: a YAML error, an unknown state, an unknown name in an expression, a non-exhaustive `always`, an unsupported construct |
-| 2 | under `--strict`: an assertion is violated, a catalog key or a sample value is missing, a component has no renderer, the kit does not cover a component, or the main story cannot be walked |
+| 2 | under `--strict`: an assertion is violated, a catalog key or a sample value is missing, a component has no renderer, the kit does not cover a component, the main story cannot be walked, or a domain's files clash (§5) |
 
 **As text.** A finding is one line in the GNU error format, which compilers, editors and most CI logs read:
 

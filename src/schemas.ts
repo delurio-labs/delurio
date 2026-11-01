@@ -10,6 +10,7 @@ import type { ErrorObject, ValidateFunction } from 'ajv/dist/2020.js';
 import addFormatsModule from 'ajv-formats';
 import { isMap, isSeq, LineCounter, parse, parseDocument } from 'yaml';
 import type { Document, YAMLMap } from 'yaml';
+import { isDomainText, mayBeDomain } from './domain.ts';
 
 export type SchemaKind = 'flow' | 'ui' | 'domain' | 'nav' | 'catalog';
 
@@ -24,12 +25,14 @@ export interface SchemaFinding {
 const FORMAT = 'delurio-graph/0';
 const KINDS: SchemaKind[] = ['flow', 'ui', 'domain', 'nav', 'catalog'];
 
-// the kind of graph file, by its name: null for a file no schema covers (binding, tutorial, kit, anchors.lock)
+// the kind of graph file, by its name, and a domain also by its `kind` (a domain may be split across files, SPEC.md
+// §5): null for a file no schema covers (binding, tutorial, kit, anchors.lock)
 export function schemaKindOf(file: string): SchemaKind | null {
   const name = basename(file);
   if (name === 'flow.yaml' || name === 'ui.yaml' || name === 'domain.yaml') return name.slice(0, -'.yaml'.length) as SchemaKind;
   if (name === 'nav.yaml' || name === 'nav.extracted.yaml') return 'nav';
   if (name.endsWith('.json') && basename(dirname(file)) === 'catalog') return 'catalog';
+  if (mayBeDomain(name) && existsSync(file) && isDomainText(readFileSync(file, 'utf8'))) return 'domain';
   return null;
 }
 

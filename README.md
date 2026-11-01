@@ -74,7 +74,7 @@ The package ships a JSON Schema (2020-12) for each kind of graph file in `schema
     "https://unpkg.com/@delurio/cli@0.2.0/schemas/flow.schema.json": "**/flow.yaml",
     "https://unpkg.com/@delurio/cli@0.2.0/schemas/ui.schema.json": "**/ui.yaml",
     "https://unpkg.com/@delurio/cli@0.2.0/schemas/nav.schema.json": ["**/nav.yaml", "**/nav.extracted.yaml"],
-    "https://unpkg.com/@delurio/cli@0.2.0/schemas/domain.schema.json": "**/domain.yaml"
+    "https://unpkg.com/@delurio/cli@0.2.0/schemas/domain.schema.json": ["**/domain.yaml", "**/domain/*.yaml"]
   },
   "json.schemas": [
     { "fileMatch": ["**/catalog/*.json"], "url": "https://unpkg.com/@delurio/cli@0.2.0/schemas/catalog.schema.json" }
@@ -82,7 +82,7 @@ The package ships a JSON Schema (2020-12) for each kind of graph file in `schema
 }
 ```
 
-With the package installed, `./node_modules/@delurio/cli/schemas/<kind>.schema.json` works the same, offline. `check` reports the same as the editor, as errors of the rule `schema` that fail `--strict`, and finds what a schema cannot see, such as a state that does not exist or a catalog key that is missing.
+A domain may be split across the files of its directory (SPEC.md §5); `**/domain/*.yaml` covers them in a directory named `domain`, and a file elsewhere names its schema on its first line: `# yaml-language-server: $schema=<the domain schema's URL>`. With the package installed, `./node_modules/@delurio/cli/schemas/<kind>.schema.json` works the same, offline. `check` reports the same as the editor, as errors of the rule `schema` that fail `--strict`, and finds what a schema cannot see, such as a state that does not exist or a catalog key that is missing.
 
 Next to the editor, keep the pages open and current:
 

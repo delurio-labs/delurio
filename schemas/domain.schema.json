@@ -8,7 +8,7 @@
   "additionalProperties": false,
   "properties": {
     "schema": { "$ref": "#/$defs/formatVersion" },
-    "kind": { "description": "The kind of graph file. A domain.yaml is `domain`.", "const": "domain" },
+    "kind": { "description": "The kind of graph file. A domain file is `domain`: `domain.yaml`, or any other file of a domain split across its directory.", "const": "domain" },
     "id": { "$ref": "#/$defs/graphId", "description": "The domain's id; a flow names it with `domain:`.", "examples": ["qauth.authorize", "learning.api"] },
     "title": { "type": "string", "description": "The domain in plain words, for people." },
     "summary": { "type": "string", "description": "What the domain covers, in a few plain sentences." },

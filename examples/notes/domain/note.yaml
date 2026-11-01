@@ -1,0 +1,22 @@
+# The hand-written part of the notes domain: what the code does not declare. It marks a field and adds the actions,
+# the policy and an invariant; it gives no value the generated part gives (SPEC.md §5).
+schema: delurio-graph/0
+kind: domain
+id: example.notes
+entities:
+  Note:
+    fields:
+      body: { sensitivity: personal }
+    lifecycle: ["none -> active: written", "active -> archived: archiveNote"]
+policies:
+  - { actor: person, needs: session, where: "the note is their own", write: [Note], do: [archiveNote] }
+actions:
+  archiveNote:
+    route: POST /notes/{id}/archive
+    needs: session
+    result: { returns: Note }
+    sideEffects: [archivedAt = now]
+    refusals:
+      NOT_FOUND: { status: 404 }
+invariants:
+  - { id: archived-stays-readable, rule: "an archived note is still read by its owner" }

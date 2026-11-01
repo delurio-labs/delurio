@@ -1,0 +1,25 @@
+# Archiving a note over HTTP: a flow with no screen whose action comes from a domain split across two files
+# (../domain/domain.yaml, generated, and ../domain/note.yaml, written by hand), read as one (SPEC.md §5).
+schema: delurio-graph/0
+kind: flow
+id: example.archiveNote
+status: proposed
+title: Archive a note
+summary: An app asks to archive one of the user's notes.
+domain: example.notes
+
+failures:
+  archiving:
+    from: archiveNote
+    gone: [NOT_FOUND]
+
+initial: archiving
+states:
+  archiving:
+    title: Archive the note
+    invoke: { action: archiveNote }
+    on:
+      DONE: archived
+      FAIL.gone: { target: not_found, say: "the note does not exist, or is not the user's" }
+  archived: { type: final, title: Archived, response: { status: 200 } }
+  not_found: { type: final, title: No such note, response: { status: 404 } }

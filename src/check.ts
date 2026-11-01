@@ -4,7 +4,7 @@
 // is found under --strict (and, with --baseline, new since that run).
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { GraphError, load } from './graph.ts';
 import { checkAssertions, explore, Model, ModelError } from './model.ts';
@@ -15,6 +15,7 @@ import { checkChanges } from './changes.ts';
 import { KitError, resolveKit } from './kit.ts';
 import { checkGoals, findings, loadNav, viewOf } from './nav.ts';
 import { schemaKindOf, validateFile } from './schemas.ts';
+import { inReadingOrder, mergeDomain } from './domain.ts';
 
 export const CHECK_USAGE = [
   '  node src/cli.ts check <graphs folder> [--strict] [--baseline <sarif>] [--format sarif --output <file>]',
@@ -57,6 +58,8 @@ const RULES: Rule[] = [
   { id: 'load', text: 'The graph cannot be loaded', level: 'error' },
   { id: 'format-newer', text: 'The graph is written for a newer format than this checker reads', level: 'error' },
   { id: 'schema', text: "A graph file does not follow its kind's schema (SPEC.md)", level: 'error' },
+  { id: 'domain-twice', text: 'A value of a domain is given in two of its files (SPEC.md §5)', level: 'error' },
+  { id: 'domain-place', text: 'A domain file is not with the rest of its domain (SPEC.md §1)', level: 'error' },
   { id: 'assertion-violated', text: 'A guarantee of the flow is broken by a reachable situation', level: 'error' },
   { id: 'main-story-unwalkable', text: 'The declared main story cannot be walked', level: 'error' },
   { id: 'catalog-key-missing', text: 'A catalog key the screens use is missing', level: 'error' },
@@ -168,6 +171,30 @@ function checkFlow(dir: string): CheckResult[] {
   return out;
 }
 
+// the domains under root, each the domain files of one directory read as one (SPEC.md §5): a value given in two of
+// them, a file whose id is not its directory's, and a domain whose files sit in two directories
+function checkDomains(files: string[]): CheckResult[] {
+  const byDir = new Map<string, string[]>();
+  for (const f of files) if (schemaKindOf(f) === 'domain') byDir.set(dirname(f), [...(byDir.get(dirname(f)) ?? []), f]);
+  const out: CheckResult[] = [];
+  const dirsOf = new Map<string, string[]>(); // a domain's id -> the directories that hold it
+  for (const [dir, list] of byDir) {
+    const merged = mergeDomain(inReadingOrder(list).map((file) => ({ file, text: readFileSync(file, 'utf8') })));
+    for (const p of merged.problems) {
+      const notes: Note[] = p.first === undefined ? [] : [{ file: rel(p.first.file), line: p.first.line, column: p.first.column, message: 'given first here' }];
+      out.push(result(p.rule, p.file, p, p.message, merged.id ?? rel(dir), p.element, notes));
+    }
+    if (merged.id !== null) dirsOf.set(merged.id, [...(dirsOf.get(merged.id) ?? []), dir]);
+  }
+  for (const [id, dirs] of dirsOf) {
+    for (const dir of dirs.slice(1)) {
+      const file = inReadingOrder(byDir.get(dir) ?? [])[0];
+      out.push(result('domain-place', file, placeOf(file, 'id:'), `the domain ${id} is in ${rel(dirs[0])}/ too: a domain sits in one directory, so every flow that names it reads all of it (SPEC.md §1)`, id, `${basename(file)}#/id`));
+    }
+  }
+  return out;
+}
+
 function checkNav(dir: string): CheckResult[] {
   const file = join(dir, 'nav.yaml');
   const { g, warnings } = loadNav(dir, undefined);
@@ -274,9 +301,11 @@ export function checkMain(args: string[]): number {
     }
   }
   // every graph file against its kind's schema: what an editor with the schemas marks, check reports
-  for (const file of graphFiles(root)) {
+  const files = graphFiles(root);
+  for (const file of files) {
     for (const f of validateFile(file)) results.push(result('schema', file, f, f.message, f.graph ?? rel(file), f.element));
   }
+  results.push(...checkDomains(files));
   results.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column || a.rule.localeCompare(b.rule) || a.message.localeCompare(b.message));
 
   if (baseline !== undefined) {
