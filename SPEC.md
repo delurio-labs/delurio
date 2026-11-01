@@ -219,7 +219,7 @@ invariants:
   - { id: redirect-uri-exact, rule: "...", spec: RFC 6749 §3.1.2.3 }
 ```
 
-**The data.** An entity's `fields` give each field as a JSON Schema (2020-12), and `required` lists the fields that must be present: an entity is the JSON Schema `{ type: object, properties: <fields>, required: <required> }`. `null` is a type like any other: an optional time is `{ type: [string, "null"], format: date-time }`, and an enum that may be empty lists `null` among its values. A `body` or a `result` written out is a JSON Schema too. delurio adds these keywords, which a JSON Schema validator leaves alone:
+**The data.** An entity's `fields` give each field as a JSON Schema (2020-12), and `required` lists the fields that must be present: an entity is the JSON Schema `{ type: object, properties: <fields>, required: <required> }`. `null` is a type like any other: an optional time is `{ type: [string, "null"], format: date-time }`, and an enum that may be empty lists `null` among its values. A `body` or a `result` written out is a JSON Schema too. An entity may carry `examples`, JSON Schema's own keyword: records of it as the app keeps them, each an object of its fields (decided on 1 Nov 2026). delurio adds these keywords, which a JSON Schema validator leaves alone:
 
 | Keyword | On | Meaning |
 |---|---|---|

@@ -80,6 +80,12 @@
           "items": { "type": "string" },
           "examples": [["none -> active: the first sign-in"]]
         },
+        "examples": {
+          "type": "array",
+          "description": "Records of the entity as the app keeps them, each an object of its fields: JSON Schema's own `examples`. Pages, docs and generated tests show these instead of made-up values.",
+          "items": { "type": "object" },
+          "examples": [[{ "userId": "0199f9a0-11aa-7b22-8c33-4d44e55f6601", "clientId": "0199f9b2-3c4d-7e5f-8a6b-7c8d9e0f1a2b", "scopes": ["openid"] }]]
+        },
         "source": { "$ref": "#/$defs/sourceAnchor" }
       }
     },
