@@ -1,0 +1,32 @@
+# Signing out over HTTP: a flow with no screen, so each exit says what the caller is answered (`response`). Its exits
+# are named as the caller is told, in snake_case, and after the cause when several give the same answer (SPEC.md §1).
+schema: delurio-graph/0
+kind: flow
+id: example.signOut
+status: proposed
+title: Sign out
+summary: An app asks to end the user's session with the access token it holds.
+
+context:
+  token:
+    values: [valid, expired, boundElsewhere]
+    initial: any
+    say: { valid: "the token is valid", expired: "the token has expired", boundElsewhere: "the token is bound to another key (DPoP)" }
+  hasCookie:
+    values: [false, true]
+    initial: any
+    say: { "true": "the browser still holds the session cookie", "false": "" }
+
+initial: checking
+states:
+  checking:
+    title: Check the access token
+    always:
+      - { target: invalid_token.expired, guard: "token == 'expired'" }
+      - { target: invalid_token.dpop_bound, guard: "token == 'boundElsewhere'" }
+      - { target: signed_out.cookie_cleared, guard: hasCookie }
+      - { target: signed_out }
+  signed_out: { type: final, title: Signed out, response: { status: 204 } }
+  signed_out.cookie_cleared: { type: final, title: Signed out and the cookie cleared, response: { status: 204, headers: { Set-Cookie: "session=; Max-Age=0" } } }
+  invalid_token.expired: { type: final, title: The token has expired, response: { status: 401, code: invalid_token } }
+  invalid_token.dpop_bound: { type: final, title: The token belongs to another key, response: { status: 401, code: invalid_token } }

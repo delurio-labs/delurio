@@ -52,7 +52,20 @@
       "type": "object",
       "description": "The states of the flow, by id. Nested, parallel and history states are not part of v0.",
       "minProperties": 1,
-      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "propertyNames": { "$ref": "#/$defs/stateName" },
+      "patternProperties": {
+        "[_.]": {
+          "type": "object",
+          "allOf": [
+            { "$ref": "#/$defs/state" },
+            {
+              "$comment": "a state named in snake_case, or `<error>.<cause>`, is an exit (type: final); every other state is camelCase",
+              "if": true,
+              "then": { "properties": { "type": { "const": "final" } }, "required": ["type"] }
+            }
+          ]
+        }
+      },
       "additionalProperties": { "$ref": "#/$defs/state" }
     },
     "assertions": {
@@ -80,10 +93,15 @@
       "description": "An identifier of the graph: English camelCase (SPEC.md §1, Text).",
       "pattern": "^[a-z][A-Za-z0-9]*$"
     },
+    "stateName": {
+      "type": "string",
+      "description": "The id of a state: English camelCase, or for an exit (type: final) what the outside world is told, in snake_case, optionally followed by its cause: `signed_out`, `invalid_token.dpop_bound` (SPEC.md §1, Text).",
+      "pattern": "^([a-z][A-Za-z0-9]*|[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?)$"
+    },
     "stateRef": {
       "type": "string",
       "description": "The id of a state of this flow.",
-      "pattern": "^[a-z][A-Za-z0-9]*$"
+      "pattern": "^([a-z][A-Za-z0-9]*|[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?)$"
     },
     "eventName": {
       "type": "string",

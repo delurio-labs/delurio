@@ -42,7 +42,7 @@ A flow with no screen (an HTTP endpoint, a webhook, an MCP tool, a CI job) has n
 
 ### Text
 
-The graph is written in one language, given by the project. Titles, `say` sentences, descriptions and assertion sentences are in that language. Every word a user of the product sees lives in a catalog, one file per locale; the graph refers to it by key. Identifiers (states, events, guards, effects, nodes, catalog keys) are English camelCase; events are UPPER_SNAKE.
+The graph is written in one language, given by the project. Titles, `say` sentences, descriptions and assertion sentences are in that language. Every word a user of the product sees lives in a catalog, one file per locale; the graph refers to it by key. Identifiers (states, events, guards, effects, nodes, catalog keys) are English camelCase; events are UPPER_SNAKE. An exit (a final state) may instead be named after what the outside world is told, in snake_case, followed by its cause when several exits tell the same thing: `signed_out`, `invalid_token.dpop_bound`, `invalid_token.expired`. A protocol's errors are snake_case, so its exits read as its errors do.
 
 ## 2. Flow (`kind: flow`)
 
@@ -91,7 +91,7 @@ An effect changes the context when a transition is taken: `set` gives variables 
 | `invoke` | the step runs something: `{ action: <domain action> }`, `{ flow: <flow id> }` (another flow runs and this one waits for its outcome), or `{ external: <name> }` |
 | `on` | event → transition (below) |
 | `always` | an ordered list of transitions taken at once, with no event. The first whose guard holds is taken; the list must cover every context (the checker fails otherwise) |
-| `type: final` | an exit; it has no transitions |
+| `type: final` | an exit; it has no transitions. Its id may be `<snake_case>` or `<error>.<cause>` (§1, Text) |
 | `redirect`, `code`, `carries` | on an exit of a web protocol flow: `redirect: success \| error \| never`, the error `code`s, and what a success carries back |
 | `leavesPage: true` | on an exit: the person left (closed the page, went elsewhere) |
 | `response` | on a step with no screen: what the outside world sees, as data: `status`, `code`, `redirect`, `headers`, `body`, or the fields of a tool's answer. The page shows it beside the step, and a replay over HTTP will read it |
