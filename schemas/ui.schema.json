@@ -93,7 +93,7 @@
     "stateRef": {
       "type": "string",
       "description": "The id of a state of the flow.",
-      "pattern": "^[a-z][A-Za-z0-9]*$"
+      "pattern": "^([a-z][A-Za-z0-9]*|[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)?)$"
     },
     "nodeRef": {
       "type": "string",
