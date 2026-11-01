@@ -7,6 +7,7 @@ While the version is 0.x, a release that can judge the same graphs differently (
 - A domain may be split across the files of its directory (SPEC.md §5): every `*.yaml` there that says `kind: domain`, read as one, `domain.yaml` first and then the others by name. Maps merge key by key at any depth, `policies` and `invariants` join, and any other value is given in one file only. `check` (the `schema` and `changes` rules), `diff` and `page` read the merged domain; before, a domain file not named `domain.yaml` was read by none of them.
 - New rules of `check`, which fail `--strict`: `domain-twice`, a value or an invariant given in two files of a domain, at the second one's line with a note at the first; `domain-place`, a file whose id is not its directory's domain, or a domain whose files sit in two directories.
 - `diff` heads the domain's changes "The API it calls (its domain)", and names every file of it it compared.
+- An entity may carry `examples` (SPEC.md §5): records of it, each an object of its fields, as JSON Schema's own keyword. The `schema` rule refused it before.
 
 ## 0.4.0 (2026-11-01)
 
