@@ -2,6 +2,10 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
+## 0.5.1 (2026-11-03)
+
+- `check`, `diff` and `page` explore a large flow about four times faster and in a third of the memory, and judge every graph exactly as before: the same situations in the same order, the same shortest paths and the same findings. On QAuth's consent flow (5.4 million situations from 580,608 starts) `check` took 122 s and 2.9 GB, and now takes 34 s and 1 GB. A situation is kept as a number instead of a string; guards, assertions and effects are read once instead of at every situation; and an assertion is not tested in the states where the state alone rules it out.
+
 ## 0.5.0 (2026-11-01)
 
 - A domain may be split across the files of its directory (SPEC.md §5): every `*.yaml` there that says `kind: domain`, read as one, `domain.yaml` first and then the others by name. Maps merge key by key at any depth, `policies` and `invariants` join, and any other value is given in one file only. `check` (the `schema` and `changes` rules), `diff` and `page` read the merged domain; before, a domain file not named `domain.yaml` was read by none of them.
