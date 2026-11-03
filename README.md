@@ -56,7 +56,7 @@ npx @delurio/cli check graphs --strict
 npx @delurio/cli page examples/qauth-authorize --out viz/qauth-authorize
 ```
 
-The page shows the flow in words: its main story, every way it ends, its guarantees and whether they hold, its screens as wireframes, and its diagram. `examples/qauth-authorize` is a small graph to try it on.
+The page shows the flow in words: its main story, every way it ends, its guarantees and whether they hold, its screens as wireframes, and its diagram, which opens fitted to the window and moves like a design tool's canvas (drag to move, Ctrl or ⌘ + scroll or a pinch to zoom, Shift+1 to fit). `examples/qauth-authorize` is a small graph to try it on.
 
 Given a folder of graphs instead, it writes the page of every graph under it, each at its own path, and `index.html` listing them all with what their check found:
 

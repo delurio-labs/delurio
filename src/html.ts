@@ -8,6 +8,7 @@ import type { Story } from './story.ts';
 import { kitCss } from './kit.ts';
 import type { Kit } from './kit.ts';
 import type { HandOver } from './starts.ts';
+import { PAN_CSS, PAN_SCRIPT } from './pan.ts';
 
 const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const code = (s: string): string => `<code>${esc(s)}</code>`;
@@ -182,7 +183,7 @@ export function renderPage(p: PageInput): string {
   const heading = g.flow.title ?? humanize(g.flow.id);
   const out: string[] = [];
   out.push('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">');
-  out.push(`<title>${esc(heading)}</title><style>${CSS}${kit === null ? '' : kitCss(kit, 'page')}</style></head><body><main>`);
+  out.push(`<title>${esc(heading)}</title><style>${CSS}${PAN_CSS}${kit === null ? '' : kitCss(kit, 'page')}</style></head><body><main>`);
   out.push(`<p class="eyebrow">${g.flow.status === undefined ? '' : `<span class="tag">${esc(g.flow.status)}</span> `}<span class="mono">${esc(g.flow.id)}</span></p>`);
   out.push(`<h1>${esc(heading)}</h1>`);
   if (g.flow.summary !== undefined) out.push(`<p class="lede">${esc(g.flow.summary.trim())}</p>`);
@@ -203,8 +204,8 @@ export function renderPage(p: PageInput): string {
   }
 
   out.push('<h2>The flow</h2>');
-  out.push('<div class="views"><input type="checkbox" id="show-all"><label for="show-all">Show failure paths and “the user closes the page” <span class="muted">(wider: scrolls sideways)</span></label>');
-  out.push(`<div class="scroll panel-main">${p.spineMain}</div><div class="scroll panel-full">${p.spineFull}</div></div>`);
+  out.push('<div class="views pz-host"><input type="checkbox" id="show-all"><label for="show-all">Show failure paths and “the user closes the page”</label>');
+  out.push(`<div class="scroll panel-main pz">${p.spineMain}</div><div class="scroll panel-full pz">${p.spineFull}</div></div>`);
   out.push(legend(g, ex, main !== null));
   const covers = Object.entries(g.flow.states).filter(([, s]) => (s.includes ?? []).length > 0);
   if (covers.length > 0) {
@@ -292,6 +293,6 @@ export function renderPage(p: PageInput): string {
   out.push(`<details><summary>All transitions (${Object.values(g.flow.states).reduce((n, s) => n + (s.always?.length ?? 0) + Object.values(s.on ?? {}).reduce((k, spec) => k + alternatives(spec).length, 0), 0)})</summary>${transitionsTable(g, ex)}</details>`);
   const from = g.ui.absent === true ? 'flow.yaml (it has no screens)' : `flow.yaml, ui.yaml${kit === null ? ' and the catalog' : `, the catalog and the kit ${esc(kit.id)}`}`;
   out.push(`<footer>delurio graph-viz · generated from ${from} · no AI, no network: the same input gives the same bytes.</footer>`);
-  out.push('</main></body></html>');
+  out.push(`</main>${PAN_SCRIPT}</body></html>`);
   return out.join('\n') + '\n';
 }
