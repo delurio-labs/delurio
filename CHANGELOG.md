@@ -2,6 +2,10 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
+## 0.5.2 (2026-11-03)
+
+- `page`: the flow's diagram opens fitted to a box as wide as the window, and moves like a design tool's canvas: drag it to move (the hand), Ctrl or ⌘ with the wheel, or a pinch, to zoom at the pointer, and the wheel alone to move it until its edge, after which the page scrolls on. Buttons and keys: − and + (zoom), the zoom level (click: 100%, Shift+0), Fit (Shift+1), Full window (F; Esc leaves it); arrows move it. A click that does not drag still opens a step's screen. Before, a large flow was shrunk into the page's column (QAuth's consent flow to 7%) or scrolled sideways at full size. Without scripts the page keeps the old diagram. Nothing is judged differently.
+
 ## 0.5.1 (2026-11-03)
 
 - `check`, `diff` and `page` explore a large flow about four times faster and in a third of the memory, and judge every graph exactly as before: the same situations in the same order, the same shortest paths and the same findings. On QAuth's consent flow (5.4 million situations from 580,608 starts) `check` took 122 s and 2.9 GB, and now takes 34 s and 1 GB. A situation is kept as a number instead of a string; guards, assertions and effects are read once instead of at every situation; and an assertion is not tested in the states where the state alone rules it out.
