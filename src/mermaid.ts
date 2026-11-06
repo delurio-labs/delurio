@@ -3,7 +3,9 @@ import { titleOf } from './graph.ts';
 import type { Graph } from './graph.ts';
 import type { Exploration } from './model.ts';
 
-const clean = (s: string): string => s.replace(/"/g, "'").replace(/:/g, ' -');
+// Mermaid ends a statement at `;` even inside a transition's label: the rest of the label became stray states,
+// or, with a `-` or `{` after it, a parse error. A label keeps its words with a comma in its place.
+const clean = (s: string): string => s.replace(/"/g, "'").replace(/:/g, ' -').replace(/;/g, ',');
 
 // Mermaid's ids, which take no dot: an exit named `<error>.<cause>` is written `<error>__<cause>`
 function mermaidIds(names: string[]): (name: string) => string {
@@ -34,8 +36,10 @@ export function renderMermaid(g: Graph, ex: Exploration): string {
   }
   lines.push(`  [*] --> ${id(g.flow.initial)}`);
   for (const e of collectEdges(g, ex)) {
-    const label = e.labels.map(clean).join(', ');
-    lines.push(`  ${id(e.from)} --> ${id(e.to)}${label === '' ? '' : `: ${label}`}${e.unused ? ' (never taken)' : ''}`);
+    // "never taken" belongs in the label: after an arrow with no `:` Mermaid read its words as two more states
+    const said = e.labels.map(clean).join(', ');
+    const label = e.unused ? `${said} (never taken)`.trim() : said;
+    lines.push(`  ${id(e.from)} --> ${id(e.to)}${label === '' ? '' : `: ${label}`}`);
   }
   lines.push('  classDef server fill:#eeeeec,stroke:#6b6560,stroke-dasharray:4 3');
   lines.push('  classDef screen fill:#ffffff,stroke:#1c1917,stroke-width:2px');

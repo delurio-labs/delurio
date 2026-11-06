@@ -2,6 +2,10 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
+## 0.5.3 (2026-11-06)
+
+- `page`: the `flow.mmd` it writes now reads whole in Mermaid. Mermaid ends a statement at a `;`, even inside a transition's label, so a label with one lost its rest: those words were drawn as stray states, or, when a `-` or `{` came after the `;`, the diagram did not render at all ("Parse error on line …", QAuth's sign-in in an editor's preview). A `;` in a label is now written as a comma. A transition never taken and with no label of its own now carries "(never taken)" as its label: before, those two words were drawn as two more states. Of the 106 flow diagrams of QAuth, Medaris and delurio, 86 were drawn wrong (36 did not render, 50 had stray states) and none is now, in Mermaid 10.9 and 12.3; their 5 navigation diagrams were right before and are unchanged. `index.html` draws its own diagram and was not affected. Nothing is judged differently.
+
 ## 0.5.2 (2026-11-03)
 
 - `page`: the flow's diagram opens fitted to a box as wide as the window, and moves like a design tool's canvas: drag it to move (the hand), Ctrl or ⌘ with the wheel, or a pinch, to zoom at the pointer, and the wheel alone to move it until its edge, after which the page scrolls on. Buttons and keys: − and + (zoom), the zoom level (click: 100%, Shift+0), Fit (Shift+1), Full window (F; Esc leaves it); arrows move it. A click that does not drag still opens a step's screen. Before, a large flow was shrunk into the page's column (QAuth's consent flow to 7%) or scrolled sideways at full size. Without scripts the page keeps the old diagram. Nothing is judged differently.
