@@ -36,6 +36,7 @@ export interface State {
   includes?: string[]; // what the step covers beyond its title
   response?: Record<string, unknown>; // what the outside world sees from a step with no screen: status, code, redirect, headers, body
   states?: unknown;
+  source?: string; // the code that makes the state true (SPEC.md §9)
 }
 
 export interface ContextVar {

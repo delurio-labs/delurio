@@ -39,7 +39,7 @@ A flow with no screen (an HTTP endpoint, a webhook, an MCP tool, a CI job) has n
 | Key | Meaning |
 |---|---|
 | `title`, `summary` | the graph in plain words, for people |
-| `status` | `proposed`: written before or apart from the code, nobody has approved it. `captured`: read from existing code (capture mode, every element carries `source:`). `approved`: the owner reviewed and accepted it |
+| `status` | `proposed`: written before or apart from the code, nobody has approved it. `captured`: read from existing code (capture mode, every element carries `source:`, §9). `approved`: the owner reviewed and accepted it |
 | `source` | on any element: `<repo-relative path>:<line>` or a bare `<path>`, the code that makes the element true. See §9 |
 
 ### Text
@@ -291,7 +291,7 @@ A kit says how the components of `ui.yaml` look in one product: `tokens` and `da
 
 ## 9. Source anchors
 
-`source: <path>:<line>` on a state, a transition, a guard, a node, an entity or an action names the code that makes it true, relative to the application's repository root. A bare `<path>` anchors a whole file. In capture mode every element carries one; in create mode an element carries one when the code already exists.
+`source: <path>:<line>` on a state, a transition, a guard, a node, an entity or an action names the code that makes it true, relative to the application's repository root. A bare `<path>` anchors a whole file. In capture mode every element carries one; in create mode an element carries one when the code already exists. `check` reports a state of a captured flow that names no code (`source-missing`). An exit may leave it out: the transition into it names the code, and an exit such as the person leaving the page has no code of its own.
 
 `anchors.lock.yaml`, generated beside the graph, records what each anchor pointed at (the line, its neighbours' hashes, the commit). The check finds every line again and says whether it is unchanged, moved, changed, gone or ambiguous. A `file:line` in a description or a comment is not an anchor.
 
@@ -301,7 +301,7 @@ A kit says how the components of `ui.yaml` look in one product: `tokens` and `da
 |---|---|
 | 0 | the graph loads and, under `--strict`, nothing is wrong |
 | 1 | the graph cannot be loaded: a YAML error, unsupported YAML (§1), an unknown state, an unknown name in an expression, a non-exhaustive `always`, an unsupported construct |
-| 2 | under `--strict`: an assertion is violated, a catalog key or a sample value is missing, a component has no renderer, the kit does not cover a component, the main story cannot be walked, or a domain's files clash (§5) |
+| 2 | under `--strict`: an assertion is violated, a catalog key or a sample value is missing, a component has no renderer, the kit does not cover a component, the main story cannot be walked, a domain's files clash (§5), or a state of a captured flow names no code (§9) |
 
 **As text.** A finding is one line in the GNU error format, which compilers, editors and most CI logs read:
 

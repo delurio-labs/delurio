@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
-import { readYaml } from './yaml.ts';
+import { keyAt, readYaml } from './yaml.ts';
 import { GraphError, load } from './graph.ts';
 import { checkAssertions, explore, Model, ModelError } from './model.ts';
 import { stepsByEvents } from './story.ts';
@@ -70,6 +70,7 @@ const RULES: Rule[] = [
   { id: 'hand-over', text: 'A started flow cannot begin with what it is given', level: 'error' },
   { id: 'changes-note-missing', text: 'A flow whose steps write has no changes note (SPEC.md §4)', level: 'error' },
   { id: 'changes-note-locale', text: "The changes note is missing from a locale's catalog", level: 'error' },
+  { id: 'source-missing', text: 'A state of a captured flow names no code (SPEC.md §9)', level: 'error' },
   { id: 'graph-warning', text: 'Another warning of the graph', level: 'error' },
   { id: 'nav-problem', text: 'A problem of the navigation graph', level: 'error' },
   { id: 'nav-note', text: 'A note on the navigation graph', level: 'warning' },
@@ -168,6 +169,15 @@ function checkFlow(dir: string): CheckResult[] {
   for (const h of checkStarts(g, model, ex)) for (const p of h.problems) warn(`${h.from} starts ${h.flow}: ${p}`);
   for (const p of checkChanges(g)?.problems ?? []) warn(p);
   for (const w of warnings) out.push(fromWarning(dir, g.flow.id, w));
+  // a captured flow is read from code, so every state names the code that makes it true; an exit may leave it out, as
+  // the transition into it names that code (SPEC.md §9)
+  if (g.flow.status === 'captured') {
+    const text = readFileSync(file, 'utf8');
+    for (const [name, st] of Object.entries(g.flow.states)) {
+      if (st.source !== undefined || st.type === 'final') continue;
+      out.push(result('source-missing', file, keyAt(text, ['states', name]), `state ${name} names no code: in a captured flow every state but an exit carries source: <path>:<line> (SPEC.md §9)`, g.flow.id, `states/${name}`));
+    }
+  }
   return out;
 }
 

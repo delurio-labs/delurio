@@ -56,3 +56,13 @@ jobs:
           cat "$RUNNER_TEMP/yaml.txt"
           test "$code" -eq 1
           test "$(grep -c 'unsupported YAML.*\[load\]' "$RUNNER_TEMP/yaml.txt")" -eq 3
+      - name: A state of a captured flow that names no code fails the check
+        run: |
+          cp -r examples/qauth-authorize "$RUNNER_TEMP/captured"
+          sed -i 's/^status: proposed.*/status: captured/' "$RUNNER_TEMP/captured/flow.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/captured" --strict > "$RUNNER_TEMP/captured.txt" || code=$?
+          cat "$RUNNER_TEMP/captured.txt"
+          test "$code" -eq 2
+          grep -F '[source-missing]' "$RUNNER_TEMP/captured.txt"
+          ! grep -F 'state left names no code' "$RUNNER_TEMP/captured.txt"
