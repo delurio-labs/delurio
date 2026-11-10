@@ -30,6 +30,8 @@ id: learning.enrollment
 
 A flow directory holds `flow.yaml`; a flow with screens also holds `ui.yaml` and the catalog that `ui.yaml` names. It may hold `domain.yaml`, `binding.yaml` and `tutorial.yaml`. A domain shared by several flows sits in its own directory and each flow names it by id (`domain: learning.api`). A directory holds one domain and a domain sits in one directory, in `domain.yaml` or split across several files (§5). A navigation graph is a directory with `nav.yaml` and its catalog.
 
+A graph file is YAML 1.2 without anchors (`&name`), aliases (`*name`), tags (`!name`) or keys that are lists or maps: a value is written where it is used, and a key is a string. No graph needs them, and a YAML reader can take minutes over a small file that uses them, so a file with one cannot be loaded ("unsupported YAML", at its line). `@delurio/cli/yaml` reads a file this way.
+
 A flow with no screen (an HTTP endpoint, a webhook, an MCP tool, a CI job) has no `ui.yaml`: it loads and is checked without one, and its page draws no screens. What such a step answers the outside world is written on its state as `response` (§2).
 
 ### Common keys
@@ -298,7 +300,7 @@ A kit says how the components of `ui.yaml` look in one product: `tokens` and `da
 | Exit | Meaning |
 |---|---|
 | 0 | the graph loads and, under `--strict`, nothing is wrong |
-| 1 | the graph cannot be loaded: a YAML error, an unknown state, an unknown name in an expression, a non-exhaustive `always`, an unsupported construct |
+| 1 | the graph cannot be loaded: a YAML error, unsupported YAML (§1), an unknown state, an unknown name in an expression, a non-exhaustive `always`, an unsupported construct |
 | 2 | under `--strict`: an assertion is violated, a catalog key or a sample value is missing, a component has no renderer, the kit does not cover a component, the main story cannot be walked, or a domain's files clash (§5) |
 
 **As text.** A finding is one line in the GNU error format, which compilers, editors and most CI logs read:

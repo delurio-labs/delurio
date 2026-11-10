@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
-import { parse } from 'yaml';
+import { readYaml } from './yaml.ts';
 import { GraphError, load } from './graph.ts';
 import { checkAssertions, explore, Model, ModelError } from './model.ts';
 import { stepsByEvents } from './story.ts';
@@ -113,7 +113,7 @@ function graphFiles(root: string, out: string[] = []): string[] {
 
 // the format the file says it is written in: null when it is this one
 function newerFormat(abs: string): string | null {
-  const doc = parse(readFileSync(abs, 'utf8')) as { schema?: unknown } | null;
+  const doc = readYaml(readFileSync(abs, 'utf8')) as { schema?: unknown } | null;
   const s = typeof doc?.schema === 'string' ? doc.schema : FORMAT;
   return s === FORMAT ? null : s;
 }

@@ -3,7 +3,7 @@
 // transition is taken must give it a beginning it accepts; when it is not written yet, that is a note, not a failure.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { parse } from 'yaml';
+import { readYaml } from './yaml.ts';
 import { alternatives } from './graph.ts';
 import type { Flow, Graph, Scalar, Transition } from './graph.ts';
 import type { Exploration, Model } from './model.ts';
@@ -28,7 +28,7 @@ function rootOf(dir: string): string {
 function flowsUnder(root: string, depth = 4, out = new Map<string, Flow>()): Map<string, Flow> {
   const file = join(root, 'flow.yaml');
   if (existsSync(file)) {
-    const f = parse(readFileSync(file, 'utf8')) as Flow;
+    const f = readYaml(readFileSync(file, 'utf8')) as Flow;
     if (typeof f?.id === 'string') out.set(f.id, { ...f, context: f.context ?? {} });
   }
   if (depth === 0) return out;

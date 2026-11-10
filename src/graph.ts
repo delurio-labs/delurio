@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parse } from 'yaml';
+import { readYaml } from './yaml.ts';
 import { identifiers, parseExpr } from './expr.ts';
 
 export type Scalar = string | number | boolean;
@@ -137,13 +137,13 @@ export function load(
   read = (file: string): string => readFileSync(join(dir, file), 'utf8'),
   exists = (file: string): boolean => existsSync(join(dir, file)),
 ): Graph {
-  const flow = parse(read('flow.yaml')) as Flow;
+  const flow = readYaml(read('flow.yaml')) as Flow;
   // a flow with no context, guards or effects leaves the key out; every reader expects an object
   flow.context ??= {};
   flow.guards ??= {};
   flow.effects ??= {};
   // a flow with no screens (an endpoint, a webhook, a CI job) has no ui.yaml and no catalog
-  const ui: Ui = exists('ui.yaml') ? (parse(read('ui.yaml')) as Ui) : { absent: true, id: flow.id, catalog: '', samples: {}, nodes: {} };
+  const ui: Ui = exists('ui.yaml') ? (readYaml(read('ui.yaml')) as Ui) : { absent: true, id: flow.id, catalog: '', samples: {}, nodes: {} };
   const catalog = ui.absent === true ? {} : (JSON.parse(read(ui.catalog)) as Record<string, string>);
 
   if (flow.states[flow.initial] === undefined) throw new GraphError(`initial state ${flow.initial} does not exist`);

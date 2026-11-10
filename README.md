@@ -112,7 +112,7 @@ const g = load('graphs/billing/billing.payment');
 const configurations = explore(new Model(g.flow)).configs.length;
 ```
 
-The entry points are `graph`, `model`, `story`, `wireframe`, `kit`, `edges`, `html`, `nav` and `expr`, each with its types. While the version is 0.x their API may change in any minor release: pin an exact version.
+The entry points are `graph`, `model`, `story`, `wireframe`, `kit`, `edges`, `html`, `nav`, `expr` and `yaml`, each with its types. `yaml` reads a graph file's text as the CLI does (`readYaml`), refusing what SPEC.md §1 rules out before the text is resolved; a server that reads graphs it was sent should read them with it. While the version is 0.x their API may change in any minor release: pin an exact version.
 
 ## Licence
 

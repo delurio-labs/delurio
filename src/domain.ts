@@ -2,7 +2,7 @@
 // then the others by name. `schema`, `kind` and `id` open every file and the id is the same in all; maps merge key by
 // key at any depth; the top-level lists `policies` and `invariants` join in that order; any other value (a string, a
 // number, a list) is given in one file only. A split lets a generated part and a hand-written part sit side by side.
-import { isMap, isSeq, LineCounter, parse, parseDocument } from 'yaml';
+import { keyAt, readYaml } from './yaml.ts';
 
 export interface DomainPart {
   file: string; // as the caller names it; problems name it the same way
@@ -47,30 +47,8 @@ export function inReadingOrder(names: string[]): string[] {
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
-const keyOf = (pair: { key: unknown }): string => String((pair.key as { value?: unknown } | null)?.value ?? pair.key);
 const pointer = (path: string[]): string => path.map((s) => `/${s.replace(/~/g, '~0').replace(/\//g, '~1')}`).join('');
 const nameOf = (file: string): string => file.slice(file.lastIndexOf('/') + 1);
-
-// the 1-based line and column of the key at `path` in a YAML text (of the item, for a list index), else the file's start
-function placeOf(text: string, path: string[]): { line: number; column: number } {
-  const lineCounter = new LineCounter();
-  const doc = parseDocument(text, { lineCounter, prettyErrors: false });
-  let node: unknown = doc.contents;
-  let at: number | undefined;
-  for (const step of path) {
-    if (isMap(node)) {
-      const pair = node.items.find((p) => keyOf(p) === step);
-      if (pair === undefined) break;
-      at = (pair.key as { range?: [number, number, number] } | null)?.range?.[0] ?? at;
-      node = pair.value;
-    } else if (isSeq(node)) {
-      node = node.items[Number(step)];
-      at = (node as { range?: [number, number, number] } | null)?.range?.[0] ?? at;
-    } else break;
-  }
-  const { line, col } = lineCounter.linePos(at ?? 0);
-  return { line, column: col };
-}
 
 // the files of one directory, read as one domain; a file that is not YAML, or not a map, is left to its schema check
 export function mergeDomain(parts: DomainPart[]): MergedDomain {
@@ -81,7 +59,7 @@ export function mergeDomain(parts: DomainPart[]): MergedDomain {
   let id: string | null = null;
   let idFrom = -1;
 
-  const where = (i: number, path: string[]): DomainPlace => ({ file: parts[i].file, ...placeOf(parts[i].text, path) });
+  const where = (i: number, path: string[]): DomainPlace => ({ file: parts[i].file, ...keyAt(parts[i].text, path) });
   // the part that gave the value at `path`, or the map it sits in
   const giver = (path: string[]): number => {
     for (let n = path.length; n > 0; n--) {
@@ -112,7 +90,7 @@ export function mergeDomain(parts: DomainPart[]): MergedDomain {
   parts.forEach((part, i) => {
     let data: unknown;
     try {
-      data = parse(part.text);
+      data = readYaml(part.text);
     } catch {
       return;
     }
