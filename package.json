@@ -15,6 +15,7 @@
     "./html": { "types": "./dist/html.d.ts", "default": "./dist/html.js" },
     "./nav": { "types": "./dist/nav.d.ts", "default": "./dist/nav.js" },
     "./expr": { "types": "./dist/expr.d.ts", "default": "./dist/expr.js" },
+    "./yaml": { "types": "./dist/yaml.d.ts", "default": "./dist/yaml.js" },
     "./package.json": "./package.json"
   },
   "files": ["dist", "schemas", "SPEC.md", "NOTICE", "CHANGELOG.md"],

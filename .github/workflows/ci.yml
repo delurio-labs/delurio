@@ -35,3 +35,24 @@ jobs:
           cat "$RUNNER_TEMP/broken.txt"
           test "$code" -eq 2
           grep -F '[schema]' "$RUNNER_TEMP/broken.txt"
+      - name: Unsupported YAML is refused at once, not read for minutes
+        run: |
+          node -e '
+            const fs = require("fs");
+            const dir = process.argv[1];
+            const put = (name, text) => { fs.mkdirSync(`${dir}/${name}`, { recursive: true }); fs.writeFileSync(`${dir}/${name}/flow.yaml`, text); };
+            let key = "x";
+            for (let d = 0; d < 400; d++) key = `{${key}: ${d}}`;
+            let keys = "";
+            for (let i = 0; keys.length < 40000; i++) keys += `? ${key.replace("x", "x" + i)}\n: v\n`;
+            put("map-keys", keys);
+            let aliases = `e: &e []\na: &a [${Array(50).fill("*e").join(", ")}]\nu: [`;
+            while (aliases.length < 43000) aliases += "*a, ";
+            put("aliases", aliases + "x]\n");
+            put("tag", "schema: delurio-graph/0\nkind: flow\nid: tagged\ntitle: !custom Tagged\n");
+          ' "$RUNNER_TEMP/yaml"
+          code=0
+          timeout 60 node dist/cli.js check "$RUNNER_TEMP/yaml" > "$RUNNER_TEMP/yaml.txt" || code=$?
+          cat "$RUNNER_TEMP/yaml.txt"
+          test "$code" -eq 1
+          test "$(grep -c 'unsupported YAML.*\[load\]' "$RUNNER_TEMP/yaml.txt")" -eq 3

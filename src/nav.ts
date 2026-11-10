@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parse } from 'yaml';
+import { readYaml } from './yaml.ts';
 import { evaluate, identifiers, parseExpr } from './expr.ts';
 import type { Expr, Value } from './expr.ts';
 import { GraphError } from './graph.ts';
@@ -184,8 +184,8 @@ function mergeDocs(base: Partial<NavDoc>, hand: NavDoc): NavDoc {
 
 // `read` takes a path relative to `dir`; the revision diff passes one that reads a git revision instead of the disk
 export function loadNav(dir: string, locale?: string, read = (file: string): string => readFileSync(join(dir, file), 'utf8')): { g: NavGraph; warnings: string[] } {
-  const raw = parse(read('nav.yaml')) as NavDoc;
-  const doc = raw.extends === undefined ? raw : mergeDocs(parse(read(raw.extends)) as Partial<NavDoc>, raw);
+  const raw = readYaml(read('nav.yaml')) as NavDoc;
+  const doc = raw.extends === undefined ? raw : mergeDocs(readYaml(read(raw.extends)) as Partial<NavDoc>, raw);
   const warnings: string[] = [];
   if (doc.kind !== 'nav') throw new GraphError(`${join(dir, 'nav.yaml')} is not a navigation graph (kind: nav is missing)`);
   const catalogFile = locale === undefined ? doc.catalog : doc.catalog.replace(`${doc.locale}.json`, `${locale}.json`);

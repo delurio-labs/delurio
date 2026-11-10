@@ -4,7 +4,7 @@
 // the kit loads.
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { parse } from 'yaml';
+import { readYaml } from './yaml.ts';
 
 export class KitError extends Error {}
 
@@ -545,7 +545,7 @@ export function loadKit(path: string): Kit {
   const file = statSync(path).isDirectory() ? join(path, 'kit.yaml') : path;
   if (!existsSync(file)) throw new KitError(`kit ${path} has no kit.yaml`);
   const dir = dirname(file);
-  const raw = parse(readFileSync(file, 'utf8')) as Record<string, unknown> | null;
+  const raw = readYaml(readFileSync(file, 'utf8')) as Record<string, unknown> | null;
   if (raw === null || typeof raw !== 'object') throw new KitError(`${file}: empty`);
   if (raw.kind !== 'kit') throw new KitError(`${file} is not a kit (kind: kit is missing)`);
   only(raw, ['schema', 'kind', 'id', 'title', 'source', 'tokens', 'dark', 'css', 'stage', 'components'], file);

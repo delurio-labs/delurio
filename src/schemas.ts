@@ -8,7 +8,8 @@ import { basename, dirname, join } from 'node:path';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import type { ErrorObject, ValidateFunction } from 'ajv/dist/2020.js';
 import addFormatsModule from 'ajv-formats';
-import { isMap, isSeq, LineCounter, parse, parseDocument } from 'yaml';
+import { isMap, isSeq, LineCounter, parseDocument } from 'yaml';
+import { readYaml, unsupported } from './yaml.ts';
 import type { Document, YAMLMap } from 'yaml';
 import { isDomainText, mayBeDomain } from './domain.ts';
 
@@ -194,7 +195,7 @@ function graphIdBeside(dir: string): string | null {
     const file = join(dir, name);
     if (!existsSync(file)) continue;
     try {
-      const id = (parse(readFileSync(file, 'utf8')) as { id?: unknown } | null)?.id;
+      const id = (readYaml(readFileSync(file, 'utf8')) as { id?: unknown } | null)?.id;
       if (typeof id === 'string') return id;
     } catch {
       // a graph file that does not parse names no graph; its own check says why
@@ -209,6 +210,7 @@ export function validateFile(file: string): SchemaFinding[] {
   const kind = schemaKindOf(file);
   if (kind === null) return [];
   const text = readFileSync(file, 'utf8');
+  const refused = kind === 'catalog' ? null : unsupported(text);
   const lineCounter = new LineCounter();
   const doc = parseDocument(text, { lineCounter, prettyErrors: false });
   const at = (offset: number | undefined): { line: number; column: number } => {
@@ -222,7 +224,8 @@ export function validateFile(file: string): SchemaFinding[] {
     return { ...where, message: said, graph, element: `${ownFile}#${pointer}` };
   };
 
-  // the first YAML error only: the ones after it mostly follow from it
+  // the first YAML error only: the ones after it mostly follow from it; one before the unsupported place comes first
+  if (refused !== null && (doc.errors.length === 0 || refused.offset < doc.errors[0].pos[0])) return [failure(refused, refused.message, '')];
   if (doc.errors.length > 0) return [failure(at(doc.errors[0].pos[0]), `not YAML: ${doc.errors[0].message.split('\n')[0]}`, '')];
   let data: unknown;
   if (kind === 'catalog') {

@@ -2,6 +2,11 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
+## 0.6.0 (2026-11-10)
+
+- A graph file with an anchor (`&name`), an alias (`*name`), a tag (`!name`) or a key that is a list or a map cannot be loaded (SPEC.md §1): `check` gives `load` and `schema` errors at its line, "unsupported YAML", and exits 1; `page`, `diff` and the other commands stop the same way. The yaml library resolves these in time far beyond a file's size. On a 40 KB file, maps used as keys kept it busy for more than 30 seconds, and aliases of an anchor that holds only aliases of an empty list for more than two minutes. Its alias limit does not catch these cases. Every reader of a graph file now looks for them first, in one pass that resolves nothing: such a file is refused in under a second. A value is written where it is used, and a key is a string. Of the graphs of delurio, Medaris and QAuth, only QAuth's has them: seven flows use anchors for a `response` they repeat.
+- `@delurio/cli/yaml` exports that reader, `readYaml`, and `unsupported`, which names the first such place. A server that reads graphs it was sent should read them with it.
+
 ## 0.5.3 (2026-11-06)
 
 - `page`: the `flow.mmd` it writes now reads whole in Mermaid. Mermaid ends a statement at a `;`, even inside a transition's label, so a label with one lost its rest: those words were drawn as stray states, or, when a `-` or `{` came after the `;`, the diagram did not render at all ("Parse error on line …", QAuth's sign-in in an editor's preview). A `;` in a label is now written as a comma. A transition never taken and with no label of its own now carries "(never taken)" as its label: before, those two words were drawn as two more states. Of the 106 flow diagrams of QAuth, Medaris and delurio, 86 were drawn wrong (36 did not render, 50 had stray states) and none is now, in Mermaid 10.9 and 12.3; their 5 navigation diagrams were right before and are unchanged. `index.html` draws its own diagram and was not affected. Nothing is judged differently.
