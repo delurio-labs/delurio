@@ -2,6 +2,12 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
+## 0.6.1 (2026-11-11)
+
+- `page`: in the flow's diagram, every state's group carries `data-state`, and every edge and its label `data-from` and `data-to`. One edge is drawn per pair of states, so a transition is found by its two states. A tool on top of the CLI can now find a state or a transition in the drawing, to move to it or link to it. The pages of the examples differ from 0.6.0's only by these attributes. Nothing is judged differently.
+- `@delurio/cli/spine` exports `renderSpine`, which draws that diagram, with the states to draw as the story.
+- SPEC.md §7: a tutorial may be told on the flow's diagram instead of its screens (`stage: diagram`), for a flow with no screens. `show` and `end` walk the flow to their state along its normal way, and every other event is given with `after`; an ending needs no card. The checker does not read tutorials, so nothing is judged differently.
+
 ## 0.6.0 (2026-11-10)
 
 - A graph file with an anchor (`&name`), an alias (`*name`), a tag (`!name`) or a key that is a list or a map cannot be loaded (SPEC.md §1): `check` gives `load` and `schema` errors at its line, "unsupported YAML", and exits 1; `page`, `diff` and the other commands stop the same way. The yaml library resolves these in time far beyond a file's size. On a 40 KB file, maps used as keys kept it busy for more than 30 seconds, and aliases of an anchor that holds only aliases of an empty list for more than two minutes. Its alias limit does not catch these cases. Every reader of a graph file now looks for them first, in one pass that resolves nothing: such a file is refused in under a second. A value is written where it is used, and a key is a string. Of the graphs of delurio, Medaris and QAuth, only QAuth's has them: seven flows use anchors for a `response` they repeat.
