@@ -2,6 +2,10 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
+## 0.6.2 (2026-11-11)
+
+- SPEC.md §7: a tutorial step may say how it comes out where an effect leaves it to chance (`havoc`): `then { <variable>: <value> }`. The step takes the case in which those variables have those values; without `then` it takes the model's first case. A tutorial can now go through an answer from outside (a host that lists the person's repositories) that the graph leaves open. The checker does not read tutorials, so nothing is judged differently.
+
 ## 0.6.1 (2026-11-11)
 
 - `page`: in the flow's diagram, every state's group carries `data-state`, and every edge and its label `data-from` and `data-to`. One edge is drawn per pair of states, so a transition is found by its two states. A tool on top of the CLI can now find a state or a transition in the drawing, to move to it or link to it. The pages of the examples differ from 0.6.0's only by these attributes. Nothing is judged differently.
