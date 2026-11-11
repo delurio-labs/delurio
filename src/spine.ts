@@ -25,6 +25,11 @@ function labelLines(e: VizEdge, view: View): string[] {
   return e.labels.flatMap((l) => wrap(l, LABEL_WRAP[view]));
 }
 
+/**
+ * The flow's diagram as an SVG. Every state's group carries `data-state`, and every edge and its label `data-from` and
+ * `data-to`: one edge is drawn per pair of states, its label holding every transition between them. `story`: the
+ * states to draw as the story (`on-main`), in order.
+ */
 export async function renderSpine(g: Graph, ex: Exploration, view: View, story: PathStep[] | null): Promise<string> {
   const all = collectEdges(g, ex);
   // main view: the story without failure branches and without "the user closes the page"
@@ -99,6 +104,8 @@ export async function renderSpine(g: Graph, ex: Exploration, view: View, story: 
   edges.forEach((e, i) => byId.set(`e${i}`, e));
   const drawn = (laid.edges ?? []).filter((e) => e.sections?.[0] !== undefined);
   const isMain = (e: VizEdge | undefined): boolean => e !== undefined && mainEdges.has(`${e.from}>${e.to}`);
+  // which states an edge joins, so a tool can find the drawing of a transition: one edge per pair of states
+  const ends = (e: VizEdge): string => `data-from="${esc(e.from)}" data-to="${esc(e.to)}"`;
   const path = (e: ElkExtendedEdge): string => {
     const section = e.sections?.[0];
     if (section === undefined) return '';
@@ -113,7 +120,7 @@ export async function renderSpine(g: Graph, ex: Exploration, view: View, story: 
       const viz = byId.get(e.id);
       if (viz === undefined || isMain(viz) !== pass) continue;
       const kind = pass ? 'main' : viz.kind;
-      out.push(`<path class="edge edge-${kind}${viz.unused ? ' edge-unused' : ''}" d="${path(e)}" marker-end="url(#arrow-${view}-${kind})"/>`);
+      out.push(`<path class="edge edge-${kind}${viz.unused ? ' edge-unused' : ''}" ${ends(viz)} d="${path(e)}" marker-end="url(#arrow-${view}-${kind})"/>`);
     }
   }
   for (const e of drawn) {
@@ -123,7 +130,7 @@ export async function renderSpine(g: Graph, ex: Exploration, view: View, story: 
     const lines = labelLines(viz, view);
     const x = label.x ?? 0;
     const y = label.y ?? 0;
-    out.push(`<g class="elabel${isMain(viz) ? ' elabel-main' : ''}${viz.kind === 'fail' ? ' elabel-fail' : ''}"><rect x="${r1(x)}" y="${r1(y)}" width="${label.width ?? 0}" height="${label.height ?? 0}" rx="4"/>`);
+    out.push(`<g class="elabel${isMain(viz) ? ' elabel-main' : ''}${viz.kind === 'fail' ? ' elabel-fail' : ''}" ${ends(viz)}><rect x="${r1(x)}" y="${r1(y)}" width="${label.width ?? 0}" height="${label.height ?? 0}" rx="4"/>`);
     lines.forEach((l, i) => out.push(`<text x="${r1(x + 7)}" y="${r1(y + 17 + i * 17)}">${esc(l)}</text>`));
     out.push('</g>');
   }
@@ -144,7 +151,7 @@ export async function renderSpine(g: Graph, ex: Exploration, view: View, story: 
     const close = kind === 'screen' ? '</a>' : '';
     const by = st.by === undefined ? '' : ` by-${st.by}`;
     const tip = [st.description ?? n.id, ...(st.includes ?? []).map((s) => `+ ${s}`)].join('\n');
-    out.push(`${open}<g class="node node-${kind}${by}${st.goal === true ? ' goal' : ''}${exitClass}${mainNodes.has(n.id) ? ' on-main' : ''}${unreachable ? ' node-unreachable' : ''}"><title>${esc(tip)}</title>`);
+    out.push(`${open}<g class="node node-${kind}${by}${st.goal === true ? ' goal' : ''}${exitClass}${mainNodes.has(n.id) ? ' on-main' : ''}${unreachable ? ' node-unreachable' : ''}" data-state="${esc(n.id)}"><title>${esc(tip)}</title>`);
     const rx = kind === 'exit' || st.by === 'ai' ? 28 : st.by === 'ci' ? 0 : 8;
     out.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}"/>`);
     if (st.by === 'agent') out.push(`<rect class="inner" x="${r1(x + 4)}" y="${r1(y + 4)}" width="${w - 8}" height="${h - 8}" rx="5"/>`);
