@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { keyAt, readYaml } from './yaml.ts';
+import type { DomainPart } from './domain.ts';
 import { GraphError, load } from './graph.ts';
 import { checkAssertions, explore, Model, ModelError } from './model.ts';
 import { stepsByEvents } from './story.ts';
@@ -60,6 +61,7 @@ const RULES: Rule[] = [
   { id: 'schema', text: "A graph file does not follow its kind's schema (SPEC.md)", level: 'error' },
   { id: 'domain-twice', text: 'A value of a domain is given in two of its files (SPEC.md §5)', level: 'error' },
   { id: 'domain-place', text: 'A domain file is not with the rest of its domain (SPEC.md §1)', level: 'error' },
+  { id: 'server-fn-http', text: 'A server function is given a route, a query or an operationId, which only an HTTP operation has (SPEC.md §5)', level: 'error' },
   { id: 'assertion-violated', text: 'A guarantee of the flow is broken by a reachable situation', level: 'error' },
   { id: 'main-story-unwalkable', text: 'The declared main story cannot be walked', level: 'error' },
   { id: 'catalog-key-missing', text: 'A catalog key the screens use is missing', level: 'error' },
@@ -181,19 +183,61 @@ function checkFlow(dir: string): CheckResult[] {
   return out;
 }
 
+// what only an HTTP operation has (SPEC.md §5), and why a server function has none of it
+const HTTP_ONLY: Record<string, string> = {
+  route: 'a route is an operation that others call over HTTP, and a server function is called only by the product\'s own pages: give one of them',
+  query: 'a server function\'s input is its body, whatever its method',
+  operationId: 'a server function is no operation of an OpenAPI document',
+};
+
+// a server function that is also given what only an HTTP operation has (SPEC.md §5), at its `serverFn` with a note at
+// the other key; the two may come from two files of a split domain, so the domain is read as one first
+function checkServerFunctions(parts: DomainPart[], doc: Record<string, unknown>, id: string): CheckResult[] {
+  const out: CheckResult[] = [];
+  const read = parts.map((p) => {
+    try {
+      return readYaml(p.text) as { actions?: Record<string, Record<string, unknown> | null> } | null;
+    } catch {
+      return null;
+    }
+  });
+  // the part that gives the action's key, and where in it
+  const given = (name: string, key: string): { file: string; line: number; column: number } | null => {
+    const i = read.findIndex((d) => d?.actions?.[name]?.[key] !== undefined);
+    return i < 0 ? null : { file: parts[i].file, ...keyAt(parts[i].text, ['actions', name, key]) };
+  };
+  const actions = (doc.actions ?? {}) as Record<string, Record<string, unknown> | null>;
+  for (const [name, a] of Object.entries(actions)) {
+    if (a === null || typeof a !== 'object' || a.serverFn === undefined) continue;
+    const at = given(name, 'serverFn');
+    if (at === null) continue;
+    for (const [key, why] of Object.entries(HTTP_ONLY)) {
+      if (a[key] === undefined) continue;
+      const other = given(name, key);
+      const said = key === 'route' ? `a route, ${String(a.route)}` : key === 'query' ? 'a query' : `an operationId, ${String(a.operationId)}`;
+      const notes: Note[] = other === null ? [] : [{ file: rel(other.file), line: other.line, column: other.column, message: `its ${key} is given here` }];
+      out.push(result('server-fn-http', at.file, at, `the action ${name} is a server function (serverFn: ${String(a.serverFn)}) and has ${said}: ${why} (SPEC.md §5)`, id, `actions/${name}/${key}`, notes));
+    }
+  }
+  return out;
+}
+
 // the domains under root, each the domain files of one directory read as one (SPEC.md §5): a value given in two of
-// them, a file whose id is not its directory's, and a domain whose files sit in two directories
+// them, a file whose id is not its directory's, a domain whose files sit in two directories, and a server function
+// given what only an HTTP operation has
 function checkDomains(files: string[]): CheckResult[] {
   const byDir = new Map<string, string[]>();
   for (const f of files) if (schemaKindOf(f) === 'domain') byDir.set(dirname(f), [...(byDir.get(dirname(f)) ?? []), f]);
   const out: CheckResult[] = [];
   const dirsOf = new Map<string, string[]>(); // a domain's id -> the directories that hold it
   for (const [dir, list] of byDir) {
-    const merged = mergeDomain(inReadingOrder(list).map((file) => ({ file, text: readFileSync(file, 'utf8') })));
+    const parts = inReadingOrder(list).map((file) => ({ file, text: readFileSync(file, 'utf8') }));
+    const merged = mergeDomain(parts);
     for (const p of merged.problems) {
       const notes: Note[] = p.first === undefined ? [] : [{ file: rel(p.first.file), line: p.first.line, column: p.first.column, message: 'given first here' }];
       out.push(result(p.rule, p.file, p, p.message, merged.id ?? rel(dir), p.element, notes));
     }
+    out.push(...checkServerFunctions(parts, merged.doc, merged.id ?? rel(dir)));
     if (merged.id !== null) dirsOf.set(merged.id, [...(dirsOf.get(merged.id) ?? []), dir]);
   }
   for (const [id, dirs] of dirsOf) {

@@ -27,7 +27,7 @@
     },
     "actions": {
       "type": "object",
-      "description": "The API and the steps inside the service, by action name. An action with a `route` is one OpenAPI 3.1 operation whose operationId is its name; one with no route is a step inside the service. An action may be named before it is written (an empty value).",
+      "description": "The API and the steps inside the service, by action name. An action with a `route` is one OpenAPI 3.1 operation whose operationId is its name; one with `serverFn` is a server function that only the product's own pages call; one with neither is a step inside the service. An action may be named before it is written (an empty value).",
       "additionalProperties": { "$ref": "#/$defs/action" }
     },
     "invariants": {
@@ -212,21 +212,25 @@
     },
     "action": {
       "type": ["object", "null"],
-      "description": "An action. With a `route` it is one OpenAPI 3.1 operation: its name is the operationId, `needs` its security requirement, `query` its query parameters, `body` its request body, `result` its response, and each refusal one more response.",
+      "description": "An action. With a `route` it is one OpenAPI 3.1 operation: its name is the operationId, `needs` its security requirement, `query` its query parameters, `body` its request body, `result` its response, and each refusal one more response. With `serverFn` it is a server function, called only by the product's own pages: `body` is its input, and it is no OpenAPI operation. An action has a route or a server function, never both.",
       "additionalProperties": false,
       "properties": {
         "route": {
           "type": "string",
-          "description": "`METHOD /path`: the HTTP method and the path of the operation. An action with no route is a step inside the service.",
+          "description": "`METHOD /path`: the HTTP method and the path of the operation, which others call over HTTP. An action with neither a route nor `serverFn` is a step inside the service.",
           "pattern": "^(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|TRACE) /\\S*$",
           "examples": ["POST /authorize/consent", "GET /w/{workspace}/projects"]
         },
-        "operationId": { "type": "string", "description": "The operation in the app's own OpenAPI document (named at the top with `openapi:`), when it is not this action's name." },
+        "serverFn": {
+          "description": "The action is a server function: the product's own pages call it through their framework (such as TanStack Start's `createServerFn`), at an address the framework gives it, and nobody else calls it. Its method: `GET` reads and changes nothing, `POST` may write. It is no OpenAPI operation, so it has no `route`, no `query` and no `operationId`; its input is its `body`, whatever its method (SPEC.md §5).",
+          "enum": ["GET", "POST"]
+        },
+        "operationId": { "type": "string", "description": "The operation in the app's own OpenAPI document (named at the top with `openapi:`), when it is not this action's name. Only a route has one." },
         "summary": { "type": "string", "description": "OpenAPI: the operation in a few words." },
         "description": { "type": "string", "description": "OpenAPI: what the operation or the step does, in words." },
         "needs": { "type": "string", "description": "delurio: what the caller must hold (the operation's security requirement).", "examples": ["session"] },
-        "query": { "$ref": "#/$defs/schema", "description": "The query parameters: a JSON Schema object." },
-        "body": { "$ref": "#/$defs/schema", "description": "The request body: a JSON Schema." },
+        "query": { "$ref": "#/$defs/schema", "description": "The query parameters of a route: a JSON Schema object." },
+        "body": { "$ref": "#/$defs/schema", "description": "The request body of a route, or the input of a server function: a JSON Schema." },
         "result": { "$ref": "#/$defs/result" },
         "refusals": {
           "type": "object",

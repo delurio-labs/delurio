@@ -1,16 +1,22 @@
 // `changes:` in ui.yaml (SPEC.md §4): a flow whose steps write something tells its users, in its own note, what it
-// changes and what follows. An action writes when its route is not a GET, when a policy lets someone `write` with it, or
-// when it is a step inside the service (no route) that returns an entity; all three are read from the flow's domain,
-// looked up by id among the graphs beside this one, all its files read as one (SPEC.md §5). A flow with no screens, or
-// whose domain is not found, is not checked.
+// changes and what follows. An action writes when its route or its server function is not a GET, when a policy lets
+// someone `write` with it, or when it is a step inside the service (neither a route nor a server function) that returns
+// an entity; all three are read from the flow's domain, looked up by id among the graphs beside this one, all its files
+// read as one (SPEC.md §5). A flow with no screens, or whose domain is not found, is not checked.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { Graph } from './graph.ts';
 import { inReadingOrder, isDomainText, mayBeDomain, mergeDomain } from './domain.ts';
 
-interface Domain {
+export interface DomainAction {
+  route?: string;
+  serverFn?: string;
+  result?: { returns?: string };
+}
+
+export interface Domain {
   id?: string;
-  actions?: Record<string, { route?: string; result?: { returns?: string } } | null>;
+  actions?: Record<string, DomainAction | null>;
   policies?: Array<{ do?: string[]; write?: string[] }>;
 }
 
@@ -48,13 +54,21 @@ function domainUnder(root: string, id: string, depth = 4): Domain | null {
   return null;
 }
 
+// the domain the flow names, looked up by id among the graphs beside it; null when it names none or it is not found
+export function flowDomain(g: Graph): Domain | null {
+  return g.flow.domain === undefined ? null : domainUnder(rootOf(g.dir), g.flow.domain);
+}
+
+// the HTTP method of an action's route or server function; undefined for a step inside the service
+const methodOf = (a: DomainAction | null | undefined): string | undefined => (a?.route ?? a?.serverFn)?.trim().split(/\s+/)[0]?.toUpperCase();
+
 export function checkChanges(g: Graph): ChangesCheck | null {
-  if (g.ui.absent === true || g.flow.domain === undefined) return null;
-  const domain = domainUnder(rootOf(g.dir), g.flow.domain);
+  if (g.ui.absent === true) return null;
+  const domain = flowDomain(g);
   if (domain === null) return null;
   const writing = new Set<string>();
   for (const [name, a] of Object.entries(domain.actions ?? {})) {
-    const method = a?.route?.trim().split(/\s+/)[0]?.toUpperCase();
+    const method = methodOf(a);
     if ((method !== undefined && method !== 'GET') || (method === undefined && a?.result?.returns !== undefined)) writing.add(name);
   }
   for (const p of domain.policies ?? []) if ((p.write ?? []).length > 0) for (const name of p.do ?? []) writing.add(name);

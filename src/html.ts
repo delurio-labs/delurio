@@ -8,6 +8,7 @@ import type { Story } from './story.ts';
 import { kitCss } from './kit.ts';
 import type { Kit } from './kit.ts';
 import type { HandOver } from './starts.ts';
+import type { Domain, DomainAction } from './changes.ts';
 import { PAN_CSS, PAN_SCRIPT } from './pan.ts';
 
 const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -96,6 +97,17 @@ export interface PageInput {
   screens: string;
   kit?: Kit | null;
   handOvers?: HandOver[];
+  domain?: Domain | null; // the domain the flow names, when it is found among the graphs beside it
+}
+
+// how an action of the domain is called (SPEC.md §5): an HTTP operation others call, a server function only the
+// product's own pages call, or a step inside the service
+export function callLine(a: DomainAction | null | undefined): string {
+  if (a === undefined) return 'not in its domain';
+  if (a === null) return 'named, not written yet';
+  if (a.route !== undefined) return `an HTTP operation, ${a.route}`;
+  if (a.serverFn !== undefined) return `a server function, ${a.serverFn}, called only by the product's own pages`;
+  return 'a step inside the service';
 }
 
 function routingSection(g: Graph, ex: Exploration): string {
@@ -226,6 +238,20 @@ export function renderPage(p: PageInput): string {
     out.push('<h2>What each step answers</h2>');
     out.push('<div class="scroll"><table><thead><tr><th>Step</th><th>The outside world sees</th></tr></thead><tbody>');
     for (const [name, st] of answers) out.push(`<tr><td>${esc(titleOf(g.flow, name))}<br><span class="mono muted">${esc(name)}</span></td><td>${esc(responseLine(st.response ?? {}))}</td></tr>`);
+    out.push('</tbody></table></div>');
+  }
+
+  const actions = p.domain?.actions ?? null;
+  const calls = Object.entries(g.flow.states).filter(([, st]) => st.invoke?.action !== undefined);
+  if (actions !== null && calls.length > 0) {
+    out.push('<h2>What each step calls</h2>');
+    out.push(`<p class="muted" style="margin-top:-4px">The actions of its domain, <span class="mono">${esc(g.flow.domain ?? '')}</span>, and how each is called.</p>`);
+    out.push('<div class="scroll"><table><thead><tr><th>Step</th><th>Action</th><th>How it is called</th></tr></thead><tbody>');
+    for (const [name, st] of calls) {
+      const action = st.invoke?.action ?? '';
+      const a = Object.hasOwn(actions, action) ? actions[action] : undefined;
+      out.push(`<tr><td>${esc(titleOf(g.flow, name))}<br><span class="mono muted">${esc(name)}</span></td><td>${code(action)}</td><td>${esc(callLine(a))}</td></tr>`);
+    }
     out.push('</tbody></table></div>');
   }
 

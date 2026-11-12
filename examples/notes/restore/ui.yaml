@@ -1,0 +1,44 @@
+# The page of an archived note. Restore sends RESTORE; the page then calls the server function restoreNote.
+schema: delurio-graph/0
+kind: ui
+id: example.restoreNote
+flow: example.restoreNote
+status: proposed
+catalog: catalog/en.json
+locales: [en]
+changes: { key: Changes.note }
+
+nodes:
+  page:
+    type: page
+    component: Page
+    role: main
+    name: { labelledBy: title }
+    in: [archived, restoring]
+    initialFocus: title
+  title:
+    type: text
+    component: Heading
+    role: heading
+    text: { key: Note.archived }
+    in: [archived, restoring]
+  restore:
+    type: action
+    component: Button
+    role: button
+    intent: confirm
+    text: { key: Note.restore }
+    name: { key: Note.restore }
+    in: [archived, restoring]
+    disabledIn: [restoring]
+    emits: RESTORE
+  working:
+    type: status
+    component: Status
+    role: status
+    text: { key: Note.restoring }
+    in: [restoring]
+
+edges:
+  - { labelledBy: [page, title] }
+  - { triggers: [restore, restoring] }

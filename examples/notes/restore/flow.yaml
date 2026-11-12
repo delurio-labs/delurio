@@ -1,0 +1,45 @@
+# Restoring an archived note in the app: a flow with a screen whose two actions are server functions (SPEC.md §5). The
+# app's own page calls them through its framework, one to read the note (GET) and one to restore it (POST); neither is
+# an operation of the app's HTTP API. Their domain is split across ../domain/, read as one.
+schema: delurio-graph/0
+kind: flow
+id: example.restoreNote
+status: proposed
+domain: example.notes
+ui: example.restoreNote
+title: Restore an archived note
+summary: The owner of an archived note opens it in the app and restores it.
+
+failures:
+  reading:
+    from: readNote
+    gone: [NOT_FOUND]
+  restoring:
+    from: restoreNote
+    gone: [NOT_FOUND]
+    notArchived: [NOT_ARCHIVED]
+
+main: [DONE, RESTORE, DONE]
+initial: reading
+states:
+  reading:
+    title: Read the note
+    invoke: { action: readNote }
+    on:
+      DONE: archived
+      FAIL.gone: not_found
+  archived:
+    title: The archived note
+    on:
+      RESTORE: restoring
+      NAVIGATE: left
+  restoring:
+    title: Restore it
+    invoke: { action: restoreNote }
+    on:
+      DONE: restored
+      FAIL.notArchived: { target: restored, say: "it was restored in another window meanwhile" }
+      FAIL.gone: not_found
+  restored: { type: final, title: Restored }
+  not_found: { type: final, title: No such note }
+  left: { type: final, title: The owner leaves, leavesPage: true }

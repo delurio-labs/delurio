@@ -10,7 +10,7 @@ import { renderMermaid } from './mermaid.ts';
 import { renderSpine } from './spine.ts';
 import { renderScreens } from './wireframe.ts';
 import { renderPage } from './html.ts';
-import { checkChanges } from './changes.ts';
+import { checkChanges, flowDomain } from './changes.ts';
 import { checkStarts } from './starts.ts';
 import { mainStoryIndex, narrate, stepsByEvents, stepsTo } from './story.ts';
 import { checkGoals, findings, loadNav, menuRows, viewOf } from './nav.ts';
@@ -84,7 +84,7 @@ async function flowPage(dir: string, out: string, args: string[]): Promise<Paged
   for (const h of handOvers) for (const p of h.problems) warn(`${h.from} starts ${h.flow}: ${p}`);
   for (const p of checkChanges(g)?.problems ?? []) warn(p);
   mkdirSync(out, { recursive: true });
-  writeFileSync(join(out, 'index.html'), renderPage({ g, m: model, ex, assertions, finals, main, spineMain, spineFull, screens, kit, handOvers }));
+  writeFileSync(join(out, 'index.html'), renderPage({ g, m: model, ex, assertions, finals, main, spineMain, spineFull, screens, kit, handOvers, domain: flowDomain(g) }));
   writeFileSync(join(out, 'flow.mmd'), renderMermaid(g, ex));
   const violated = assertions.filter((a) => a.violation !== undefined);
   console.log(`${g.flow.id}: ${count(Object.keys(g.flow.states).length, 'state')}, ${count(ex.configs.length, 'configuration')} from ${count(ex.starts, 'start')}, ${assertions.length - violated.length}/${assertions.length} assertions hold`);

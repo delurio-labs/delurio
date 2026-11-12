@@ -66,3 +66,35 @@ jobs:
           test "$code" -eq 2
           grep -F '[source-missing]' "$RUNNER_TEMP/captured.txt"
           ! grep -F 'state left names no code' "$RUNNER_TEMP/captured.txt"
+      - name: A server function is no HTTP operation, and its method says whether it writes
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/server-fn"
+          printf 'actions:\n  restoreNote:\n    route: POST /notes/{id}/restore\n' >> "$RUNNER_TEMP/server-fn/domain/domain.yaml"
+          sed -i 's/^    serverFn: GET$/    serverFn: GET\n    query: { type: object }/' "$RUNNER_TEMP/server-fn/domain/note.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/server-fn" --strict > "$RUNNER_TEMP/server-fn.txt" || code=$?
+          cat "$RUNNER_TEMP/server-fn.txt"
+          test "$code" -eq 2
+          test "$(grep -c '\[server-fn-http\]' "$RUNNER_TEMP/server-fn.txt")" -eq 2
+          grep -F 'domain.yaml' "$RUNNER_TEMP/server-fn.txt" | grep -F 'note: its route is given here'
+
+          cp -r examples/notes "$RUNNER_TEMP/server-fn-method"
+          sed -i 's/^    serverFn: POST$/    serverFn: PUT/' "$RUNNER_TEMP/server-fn-method/domain/note.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/server-fn-method" --strict > "$RUNNER_TEMP/server-fn-method.txt" || code=$?
+          cat "$RUNNER_TEMP/server-fn-method.txt"
+          test "$code" -eq 2
+          grep -F 'serverFn: must be "GET" or "POST" [schema]' "$RUNNER_TEMP/server-fn-method.txt"
+
+          cp -r examples/notes "$RUNNER_TEMP/server-fn-writes"
+          sed -i '/^changes:/d' "$RUNNER_TEMP/server-fn-writes/restore/ui.yaml"
+          sed -i 's/do: \[archiveNote, restoreNote\]/do: [archiveNote]/' "$RUNNER_TEMP/server-fn-writes/domain/note.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/server-fn-writes" --strict > "$RUNNER_TEMP/server-fn-writes.txt" || code=$?
+          cat "$RUNNER_TEMP/server-fn-writes.txt"
+          test "$code" -eq 2
+          grep -F 'its steps write (restoreNote), but ui.yaml has no changes note' "$RUNNER_TEMP/server-fn-writes.txt"
+      - name: The page says how each step's action is called
+        run: |
+          grep -F 'a server function, POST, called only by the product' "$RUNNER_TEMP/pages/notes/restore/index.html"
+          grep -F 'an HTTP operation, POST /notes/{id}/archive' "$RUNNER_TEMP/pages/notes/archive/index.html"
