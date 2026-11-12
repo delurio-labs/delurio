@@ -2,6 +2,14 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
+## 0.7.0 (2026-11-12)
+
+- An action may be a server function (SPEC.md §5): `serverFn: GET` or `serverFn: POST` in place of a route, for a call that the product's own pages make to its server through their framework, such as TanStack Start's `createServerFn` or React's server functions, at an address the framework gives it. It is not part of the product's HTTP API: it is no OpenAPI operation, its input is its `body`, and it has no `query` and no `operationId`. `GET` reads and changes nothing; `POST` may write. An address that the browser itself opens, such as a link in an e-mail or a sign-in callback, keeps its route even when a server function answers it. Before, such an action could only be written with a route, as an operation that others may call, or with none, as a step inside the service; the `schema` rule refused `serverFn`.
+- New rule of `check`, which fails `--strict`: `server-fn-http`, a server function that also has a `route`, a `query` or an `operationId`. It is given at the `serverFn`, with a note at the other key, in whichever files of a split domain each is given. A method other than `GET` or `POST` is an error of the `schema` rule.
+- The `changes` rule (SPEC.md §4) reads a server function's method as it reads a route's: a `POST` writes and a `GET` does not, even when it returns an entity. Graphs with no `serverFn` are judged as before.
+- `page`: a flow's page lists what each of its steps calls, under "What each step calls": the action, and how it is called (an HTTP operation and its route, a server function and its method, or a step inside the service). It reads the flow's domain where the `changes` rule finds it; a flow whose domain is not found gets no list. The other parts of the examples' pages are unchanged.
+- `examples/notes/restore`: a flow with a screen whose two actions are server functions, one `GET` and one `POST`, in the split notes domain.
+
 ## 0.6.1 (2026-11-11)
 
 - `page`: in the flow's diagram, every state's group carries `data-state`, and every edge and its label `data-from` and `data-to`. One edge is drawn per pair of states, so a transition is found by its two states. A tool on top of the CLI can now find a state or a transition in the drawing, to move to it or link to it. The pages of the examples differ from 0.6.0's only by these attributes. Nothing is judged differently.
