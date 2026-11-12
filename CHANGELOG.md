@@ -2,6 +2,10 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
+## Unreleased
+
+- SPEC.md §7: a tutorial step may say how it comes out where an effect leaves it to chance (`havoc`): `then { <variable>: <value> }`. The step takes the case in which those variables have those values; without `then` it takes the model's first case. A tutorial can now go through an answer from outside (a host that lists the person's repositories) that the graph leaves open. The checker does not read tutorials, so nothing is judged differently.
+
 ## 0.7.0 (2026-11-12)
 
 - An action may be a server function (SPEC.md §5): `serverFn: GET` or `serverFn: POST` in place of a route, for a call that the product's own pages make to its server through their framework, such as TanStack Start's `createServerFn` or React's server functions, at an address the framework gives it. It is not part of the product's HTTP API: it is no OpenAPI operation, its input is its `body`, and it has no `query` and no `operationId`. `GET` reads and changes nothing; `POST` may write. An address that the browser itself opens, such as a link in an e-mail or a sign-in callback, keeps its route even when a server function answers it. Before, such an action could only be written with a route, as an operation that others may call, or with none, as a step inside the service; the `schema` rule refused `serverFn`.
