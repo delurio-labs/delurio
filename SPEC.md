@@ -235,7 +235,22 @@ A capture may carry more words of its own on a field (`owner`, `note`, `editable
 
 An action, a refusal and an invariant may carry `note`: the author's own words, which no tool reads. An invariant the code does not keep is still written, with `holds: false` and the `finding` that reports it: the finding's id in the graph's report, such as `MS-7`. A capture describes the code, so the invariant says what should hold and the finding says where it does not. Decided on 25 Oct 2026.
 
-**The API.** An action with a `route` (`METHOD /path`) is one OpenAPI 3.1 operation: its name is the `operationId`, `needs` its security requirement, `query` (a JSON Schema object) its query parameters, `body` its request body, `result` its response (`returns` an entity, a `redirect`, a `status`, or a JSON Schema), and each refusal one more response. When a refusal has a body, it is RFC 9457 problem details with the refusal code as its `type`. So a domain can be written out as an OpenAPI document, and an app that already publishes one names it at the top (`openapi: <file>`) and each action's operation by `operationId`, instead of copying them. An action with no route is a step inside the service. `needs`, `policies`, `sideEffects`, `refusals.<code>.redirect` and `invariants` are delurio's own: no standard says who may do what to which data, or what must always hold.
+**The API.** An action with a `route` (`METHOD /path`) is one OpenAPI 3.1 operation: its name is the `operationId`, `needs` its security requirement, `query` (a JSON Schema object) its query parameters, `body` its request body, `result` its response (`returns` an entity, a `redirect`, a `status`, or a JSON Schema), and each refusal one more response. When a refusal has a body, it is RFC 9457 problem details with the refusal code as its `type`. So a domain can be written out as an OpenAPI document, and an app that already publishes one names it at the top (`openapi: <file>`) and each action's operation by `operationId`, instead of copying them. An action with `serverFn` is a server function (below), and an action with neither is a step inside the service. `needs`, `policies`, `sideEffects`, `refusals.<code>.redirect` and `invariants` are delurio's own: no standard says who may do what to which data, or what must always hold.
+
+**Server functions.** Full-stack frameworks let a product's own pages call code on its server as if it were a function: TanStack Start's `createServerFn`, or React's server functions. The framework gives each one an address of its own and makes the call from the product's pages; it is not a public HTTP API, and nothing else is meant to call it. Such an action says so with `serverFn` and its HTTP method, `GET` or `POST`, in place of a route:
+
+```yaml
+actions:
+  readNote: { serverFn: GET, needs: session, body: { type: object, required: [id] }, result: { returns: Note } }
+  restoreNote: { serverFn: POST, needs: session, body: { type: object, required: [id] }, result: { returns: Note } }
+```
+
+- `GET` reads: it changes nothing, so the framework may call it ahead of time (a page's loader, a preload) or keep its answer. `POST` may write, and every server function that changes something is one.
+- Its input is its `body`, whatever its method: a framework puts a `GET`'s input in the address under a name of its own, so a server function has no `query`. `needs`, `result`, `refusals` and `sideEffects` mean what they mean for a route. The function is reached over HTTP like any request, so what it `needs` is checked by the function itself, never only by the page that calls it.
+- It is no OpenAPI operation: the OpenAPI document of a domain ([#8](https://github.com/delurio-labs/delurio/issues/8)) leaves it out, and it has no `operationId`.
+- An action has a route or `serverFn`, never both. An address that the browser itself opens, such as a link in an e-mail, a sign-in callback, or a link that sends the browser on to another site, keeps its `route` even when a server function answers it: the address is what is called, and others may link to it, so it is part of the API.
+
+`check` gives an error (`server-fn-http`) at the `serverFn` of an action that also has a `route`, a `query` or an `operationId`, in whichever of the domain's files each is given, with a note where the other key is; a method other than `GET` or `POST` is a `schema` error. Decided on 12 Nov 2026.
 
 This form was decided on 22 Oct 2026. Graphs captured before it may still give fields as `{ kind: text }`; they are converted when a tool first reads fields. The OpenAPI export and import are [#8](https://github.com/delurio-labs/delurio/issues/8).
 
@@ -247,7 +262,7 @@ This form was decided on 22 Oct 2026. Graphs captured before it may still give f
 
 A value given in two files is an error of `check` at the second one's line (`domain-twice`); so is a file whose id is not its directory's domain, and a domain whose files sit in two directories (`domain-place`). A split keeps a large domain one entity per file, and lets a part generated from the code ([#6](https://github.com/delurio-labs/delurio/issues/6)) and a part written by hand sit side by side; how a generator marks the files it owns is decided there. Decided on 1 Nov 2026.
 
-`check` validates every file of a domain against its schema and reads its files as one, the `changes` rule (§4) reads its actions, the revision diff compares it, and anchors lock its `source:` keys. Loading it with the flow and checking policies, secrets and `invoke` names is [#5](https://github.com/delurio-labs/delurio/issues/5); generating it from Drizzle and Zod is [#6](https://github.com/delurio-labs/delurio/issues/6); a registry that every API operation and route is covered by a graph is [#7](https://github.com/delurio-labs/delurio/issues/7).
+`check` validates every file of a domain against its schema and reads its files as one, the `changes` rule (§4) reads its actions (one writes when its route or its server function is not a `GET`, when a policy lets someone `write` with it, or when it is a step inside the service that returns an entity), the revision diff compares it, anchors lock its `source:` keys, and the page of a flow that names it lists what each of its steps calls and how: an HTTP operation and its route, a server function and its method, or a step inside the service. Loading it with the flow and checking policies, secrets and `invoke` names is [#5](https://github.com/delurio-labs/delurio/issues/5); generating it from Drizzle and Zod is [#6](https://github.com/delurio-labs/delurio/issues/6); a registry that every API operation and route is covered by a graph is [#7](https://github.com/delurio-labs/delurio/issues/7).
 
 ## 6. Navigation (`kind: nav`)
 
@@ -303,7 +318,7 @@ A kit says how the components of `ui.yaml` look in one product: `tokens` and `da
 |---|---|
 | 0 | the graph loads and, under `--strict`, nothing is wrong |
 | 1 | the graph cannot be loaded: a YAML error, unsupported YAML (§1), an unknown state, an unknown name in an expression, a non-exhaustive `always`, an unsupported construct |
-| 2 | under `--strict`: an assertion is violated, a catalog key or a sample value is missing, a component has no renderer, the kit does not cover a component, the main story cannot be walked, a domain's files clash (§5), or a state of a captured flow names no code (§9) |
+| 2 | under `--strict`: an assertion is violated, a catalog key or a sample value is missing, a component has no renderer, the kit does not cover a component, the main story cannot be walked, a domain's files clash or a server function has what only a route has (§5), or a state of a captured flow names no code (§9) |
 
 **As text.** A finding is one line in the GNU error format, which compilers, editors and most CI logs read:
 
@@ -356,7 +371,7 @@ Where a standard covers a part, delurio uses it rather than writing its own. Sur
 |---|---|---|
 | YAML 1.2 | every graph file | as it is |
 | JSON Schema 2020-12 | the fields of entities, bodies and results (§5); a schema of every kind of graph file, so that editors check and complete them (#1) | as it is, plus the keywords of §5 |
-| OpenAPI 3.1 | an action with a route is an operation (§5) | export and import: #13 |
+| OpenAPI 3.1 | an action with a route is an operation (§5); a server function is not | export and import: #13 |
 | RFC 9457, problem details | the body of a refusal (§5) | as it is |
 | SCXML (W3C, 2015) | what a flow means (§2) | a subset; export: #14 |
 | WAI-ARIA 1.2, Accessible Name and Description Computation 1.2 | roles and names in `ui.yaml` (§4) | as they are |

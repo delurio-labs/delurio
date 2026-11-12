@@ -1,5 +1,6 @@
 # The hand-written part of the notes domain: what the code does not declare. It marks a field and adds the actions,
-# the policy and an invariant; it gives no value the generated part gives (SPEC.md §5).
+# the policies and an invariant; it gives no value the generated part gives (SPEC.md §5). archiveNote is an operation
+# of the app's HTTP API (a route); readNote and restoreNote are server functions, which only the app's own pages call.
 schema: delurio-graph/0
 kind: domain
 id: example.notes
@@ -7,9 +8,10 @@ entities:
   Note:
     fields:
       body: { sensitivity: personal }
-    lifecycle: ["none -> active: written", "active -> archived: archiveNote"]
+    lifecycle: ["none -> active: written", "active -> archived: archiveNote", "archived -> active: restoreNote"]
 policies:
-  - { actor: person, needs: session, where: "the note is their own", write: [Note], do: [archiveNote] }
+  - { actor: person, needs: session, where: "the note is their own", read: [Note], do: [readNote] }
+  - { actor: person, needs: session, where: "the note is their own", write: [Note], do: [archiveNote, restoreNote] }
 actions:
   archiveNote:
     route: POST /notes/{id}/archive
@@ -18,5 +20,21 @@ actions:
     sideEffects: [archivedAt = now]
     refusals:
       NOT_FOUND: { status: 404 }
+  readNote:
+    serverFn: GET
+    needs: session
+    body: { type: object, required: [id], properties: { id: { type: string, format: uuid } } }
+    result: { returns: Note }
+    refusals:
+      NOT_FOUND: { status: 404 }
+  restoreNote:
+    serverFn: POST
+    needs: session
+    body: { type: object, required: [id], properties: { id: { type: string, format: uuid } } }
+    result: { returns: Note }
+    sideEffects: [archivedAt = null]
+    refusals:
+      NOT_FOUND: { status: 404 }
+      NOT_ARCHIVED: { status: 409 }
 invariants:
   - { id: archived-stays-readable, rule: "an archived note is still read by its owner" }
