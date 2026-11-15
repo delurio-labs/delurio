@@ -36,6 +36,15 @@
       "additionalProperties": { "type": "string", "description": "The sample value." },
       "examples": [{ "client": "Acme Notes" }]
     },
+    "task": {
+      "type": "object",
+      "description": "The flow's name as its users know it, in their own words and language, such as \"Invite a member\": what Rehber names the task by, and what a list of tasks or a video shows. The graph's `title` is in the graph's language, for the people who write it; this is in every locale.",
+      "required": ["key"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "$ref": "#/$defs/catalogKey", "description": "The catalog key of the name; every locale's catalog must have it.", "examples": ["Invite.task"] }
+      }
+    },
     "changes": {
       "type": "object",
       "description": "What the flow changes and what follows, in its users' own words: what is created, sent, charged or removed, who sees it, and whether it can be undone. Required under --strict when the flow's steps invoke a writing action of its domain.",
@@ -48,7 +57,11 @@
     "nodes": {
       "type": "object",
       "description": "The nodes of the screens, by id. A node is shown in a state when the state is in `in`, not in `unless`, and `when` holds.",
-      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "propertyNames": {
+        "$ref": "#/$defs/identifier",
+        "not": { "const": "opener" },
+        "description": "A node's id: camelCase, and not opener, which a returnsFocus says for the node that opened its dialog (SPEC.md §4)."
+      },
       "additionalProperties": { "$ref": "#/$defs/node" }
     },
     "focus": {
@@ -212,8 +225,8 @@
           "enum": ["page", "text", "action", "field", "list", "status", "alert"]
         },
         "component": {
-          "description": "A kit-neutral component; a kit maps it to the product's own (SPEC.md §8). A `TextField`'s `text` is its label, and the field is named by it.",
-          "enum": ["Page", "Heading", "Text", "Button", "LinkButton", "TextField", "List", "ListItem", "Status", "Alert"]
+          "description": "A kit-neutral component; a kit maps it to the product's own (SPEC.md §8). A `TextField`'s, a `Checkbox`'s, a `Radio`'s and a `Select`'s `text` is its label, and the control is named by it. A `Checkbox` (role checkbox or switch) and a `Radio` (role radio) say with `checked` whether they are checked; a `Select` (role combobox) is a choice of one option, and its `value` is the option it shows chosen.",
+          "enum": ["Page", "Heading", "Text", "Button", "LinkButton", "TextField", "Checkbox", "Radio", "Select", "List", "ListItem", "Status", "Alert"]
         },
         "role": {
           "description": "The WAI-ARIA 1.2 role the node exposes; `kit check` reads it from the browser's accessibility tree.",
@@ -238,6 +251,11 @@
         "unless": { "$ref": "#/$defs/states", "description": "The flow states the node is not shown in." },
         "when": { "$ref": "#/$defs/expression", "description": "A guard or context flag of the flow that must hold for the node to show." },
         "disabledIn": { "$ref": "#/$defs/states", "description": "The states where the node is shown but disabled." },
+        "disabledWhen": {
+          "$ref": "#/$defs/expression",
+          "description": "An expression over the flow's context (SPEC.md §3): where it holds, the node is shown but disabled, in any state that shows it, such as a button that waits until a VAT number is typed or a box is ticked. Beside disabledIn, the node is disabled where either says so. A replay compares it in each situation it stops in.",
+          "examples": ["not vatGiven", "not accepted"]
+        },
         "emits": {
           "type": "string",
           "description": "The event the node sends when pressed: an event of the flow, UPPER_SNAKE.",
@@ -282,7 +300,7 @@
     },
     "edge": {
       "type": "object",
-      "description": "A relation between nodes: `{ labelledBy: [node, labelNode] }`, `{ triggers: [node, state] }` or `{ returnsFocus: [dialog, node] }`.",
+      "description": "A relation between nodes: `{ labelledBy: [node, labelNode] }`, `{ triggers: [node, state] }` or `{ returnsFocus: [dialog, node | [node, ..] | opener] }`.",
       "minProperties": 1,
       "maxProperties": 1,
       "additionalProperties": false,
@@ -303,8 +321,16 @@
         },
         "returnsFocus": {
           "type": "array",
-          "description": "A dialog (a page node whose role is dialog or alertdialog) and the node that has focus when it closes, usually the one that opened it. It wins over `focus` for the state the dialog closes into, when that state shows the node.",
-          "prefixItems": [{ "$ref": "#/$defs/nodeRef" }, { "$ref": "#/$defs/nodeRef" }],
+          "description": "A dialog (a page node whose role is dialog or alertdialog) and the node that has focus when it closes, usually the one that opened it. Where several nodes open the dialog, the list of them, or opener: the focus goes back to the one pressed to open it. It wins over `focus` for the state the dialog closes into, when that state shows the node.",
+          "prefixItems": [
+            { "$ref": "#/$defs/nodeRef" },
+            {
+              "anyOf": [
+                { "$ref": "#/$defs/nodeRef", "description": "The node, or opener: the node pressed to open the dialog." },
+                { "type": "array", "items": { "$ref": "#/$defs/nodeRef" }, "minItems": 2, "uniqueItems": true, "description": "The nodes that open the dialog: the one pressed to open it has the focus." }
+              ]
+            }
+          ],
           "minItems": 2,
           "maxItems": 2
         }

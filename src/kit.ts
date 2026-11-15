@@ -11,7 +11,7 @@ export class KitError extends Error {}
 const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 const SLOTS = ['text', 'name', 'id', 'intent', 'children'] as const;
-const FLAGS = ['disabled', 'named', 'conditional'] as const;
+const FLAGS = ['disabled', 'named', 'conditional', 'checked'] as const;
 type Slot = (typeof SLOTS)[number];
 type Flag = (typeof FLAGS)[number];
 
@@ -51,6 +51,7 @@ export interface Fill {
   disabled: boolean;
   named: boolean; // the graph gives an accessible name that differs from the visible text
   conditional: boolean; // the node appears only when a flag is set (`when`)
+  checked: boolean; // the node is drawn checked: its `checked` is true
 }
 
 // Lists are drawn without a wrapper around each item, so their templates must be one element the renderer can mark.

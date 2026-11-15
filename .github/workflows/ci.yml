@@ -349,3 +349,109 @@ jobs:
           cat "$RUNNER_TEMP/kit-script.txt"
           test "$code" -eq 1
           grep -F 'event handlers are not allowed: a kit is data, never code [load]' "$RUNNER_TEMP/kit-script.txt"
+      - name: A control may be disabled by what the context holds (disabledWhen), read as checked is
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/disabled-when"
+          sed -i 's/^    emits: SAVE$/&\n    disabledWhen: "not pinned"/' "$RUNNER_TEMP/disabled-when/edit/ui.yaml"
+          node dist/cli.js check "$RUNNER_TEMP/disabled-when" --strict
+          node dist/cli.js page "$RUNNER_TEMP/disabled-when/edit" --out "$RUNNER_TEMP/disabled-when-page" --kit none
+          grep -F 'disabled when not pinned' "$RUNNER_TEMP/disabled-when-page/index.html"
+
+          sed -i 's/disabledWhen: "not pinned"/disabledWhen: "not pined"/' "$RUNNER_TEMP/disabled-when/edit/ui.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/disabled-when" --strict > "$RUNNER_TEMP/disabled-when.txt" || code=$?
+          cat "$RUNNER_TEMP/disabled-when.txt"
+          test "$code" -eq 1
+          grep -F 'ui node save: disabledWhen: not pined names pined, which is not a variable or a guard of the flow [load]' "$RUNNER_TEMP/disabled-when.txt"
+      - name: A dialog that several nodes open gives the focus back to the one pressed (a list, or opener)
+        run: |
+          for target in opener '[cancel, save]'; do
+            rm -rf "$RUNNER_TEMP/openers"
+            cp -r examples/notes "$RUNNER_TEMP/openers"
+            sed -i "s/returnsFocus: \[discardDialog, cancel\]/returnsFocus: [discardDialog, $target]/" "$RUNNER_TEMP/openers/edit/ui.yaml"
+            node dist/cli.js check "$RUNNER_TEMP/openers" --strict
+          done
+
+          sed -i 's/returnsFocus: \[discardDialog, \[cancel, save\]\]/returnsFocus: [discardDialog, [cancel, keep]]/' "$RUNNER_TEMP/openers/edit/ui.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/openers" --strict > "$RUNNER_TEMP/openers.txt" || code=$?
+          cat "$RUNNER_TEMP/openers.txt"
+          test "$code" -eq 2
+          grep -F 'returnsFocus gives the focus of discardDialog to keep, but no state discardDialog closes into shows it (editing and left)' "$RUNNER_TEMP/openers.txt" | grep -F '[focus-not-shown]'
+
+          sed -i 's/returnsFocus: \[discardDialog, \[cancel, keep\]\]/returnsFocus: [discardDialog, opener]/; /^    emits: CANCEL$/d' "$RUNNER_TEMP/openers/edit/ui.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/openers" --strict > "$RUNNER_TEMP/openers.txt" || code=$?
+          cat "$RUNNER_TEMP/openers.txt"
+          test "$code" -eq 2
+          grep -F 'returnsFocus gives the focus of discardDialog back to the node that opened it, but no node opens it' "$RUNNER_TEMP/openers.txt" | grep -F '[focus-not-shown]'
+
+          sed -i 's/^  working:$/  opener:/' "$RUNNER_TEMP/openers/edit/ui.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/openers" --strict > "$RUNNER_TEMP/openers.txt" || code=$?
+          cat "$RUNNER_TEMP/openers.txt"
+          grep -F 'the name "opener" is not allowed' "$RUNNER_TEMP/openers.txt" | grep -F '[schema]'
+
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { focusAfter, load } from "./dist/graph.js";
+
+            const edit = load("examples/notes/edit");
+            const at = (from, to, pressed) => { const f = focusAfter(edit.ui, from, to, pressed); return f === null ? null : `${f.by} ${f.node}`; };
+            const back = (target) => { edit.ui.edges = edit.ui.edges.map((e) => (e.returnsFocus === undefined ? e : { returnsFocus: ["discardDialog", target] })); };
+            back("opener");
+            assert.equal(at("discarding", "editing", "cancel"), "returnsFocus cancel");
+            assert.equal(at("discarding", "editing"), null);
+            back(["cancel", "save"]);
+            assert.equal(at("discarding", "editing", "save"), "returnsFocus save");
+            assert.equal(at("discarding", "editing"), null);
+            back(["cancel", "keep"]);
+            assert.equal(at("discarding", "editing"), "returnsFocus cancel");
+          '
+      - name: A checkbox, a radio and a select are components of their own, named by their label
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/controls-drawn"
+          python3 - "$RUNNER_TEMP/controls-drawn/edit" <<'PY'
+          import json, sys
+          d = sys.argv[1]
+          ui = open(f"{d}/ui.yaml").read()
+          ui = ui.replace("  pinBox:\n    type: field\n    component: ListItem\n", "  pinBox:\n    type: field\n    component: Checkbox\n")
+          ui = ui.replace("  save:\n    type: action\n", "  colour:\n    type: field\n    component: Select\n    role: combobox\n    text: { key: Edit.colour }\n    value: { key: Edit.yellow }\n    in: [editing, saving]\n  late:\n    type: field\n    component: Radio\n    role: radio\n    text: { key: Edit.later }\n    checked: true\n    in: [editing]\n  save:\n    type: action\n")
+          open(f"{d}/ui.yaml", "w").write(ui)
+          words = json.load(open(f"{d}/catalog/en.json"))
+          words.update({"Edit.colour": "Colour", "Edit.yellow": "Yellow", "Edit.later": "Remind me later"})
+          json.dump(words, open(f"{d}/catalog/en.json", "w"), indent=2)
+          PY
+          node dist/cli.js check "$RUNNER_TEMP/controls-drawn" --strict
+          node dist/cli.js page "$RUNNER_TEMP/controls-drawn/edit" --out "$RUNNER_TEMP/controls-drawn-page" --kit none --strict
+          page="$RUNNER_TEMP/controls-drawn-page/index.html"
+          grep -F '<input type="checkbox" tabindex="-1"><span>Pin it to the top of my notes</span>' "$page"
+          grep -F '<input type="radio" tabindex="-1" checked><span>Remind me later</span>' "$page"
+          grep -F '<select class="wf-input" tabindex="-1"><option>Yellow</option></select>' "$page"
+          grep -F 'checkbox &quot;Pin it to the top of my notes&quot;' "$page"
+          grep -F 'combobox &quot;Colour&quot;' "$page"
+      - name: A flow's name for its users (task) is in every locale's catalog
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/task"
+          sed -i 's/^changes: { key: Changes.note }$/&\ntask: { key: Edit.task }/; s/^locales: \[en\]$/locales: [en, tr]/' "$RUNNER_TEMP/task/edit/ui.yaml"
+          node -e '
+            const fs = require("fs");
+            const dir = process.argv[1];
+            const words = JSON.parse(fs.readFileSync(`${dir}/en.json`, "utf8"));
+            words["Edit.task"] = "Edit a note";
+            fs.writeFileSync(`${dir}/en.json`, JSON.stringify(words, null, 2));
+            fs.writeFileSync(`${dir}/tr.json`, JSON.stringify({ ...words, "Edit.task": "Notu düzenle" }, null, 2));
+          ' "$RUNNER_TEMP/task/edit/catalog"
+          node dist/cli.js check "$RUNNER_TEMP/task" --strict
+          node -e '
+            const fs = require("fs");
+            const file = `${process.argv[1]}/tr.json`;
+            const words = JSON.parse(fs.readFileSync(file, "utf8"));
+            delete words["Edit.task"];
+            fs.writeFileSync(file, JSON.stringify(words, null, 2));
+          ' "$RUNNER_TEMP/task/edit/catalog"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/task" --strict > "$RUNNER_TEMP/task.txt" || code=$?
+          cat "$RUNNER_TEMP/task.txt"
+          test "$code" -eq 2
+          grep -E "edit/ui\.yaml:[0-9]+:1: error: the flow's name for its users, Edit\.task, is not in the tr catalog \(SPEC\.md §4\) \[task-locale\]" "$RUNNER_TEMP/task.txt"
