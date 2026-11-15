@@ -364,7 +364,7 @@ A kit says how the components of `ui.yaml` look in one product: `tokens` and `da
 |---|---|
 | 0 | the graph loads and, under `--strict`, nothing is wrong |
 | 1 | the graph cannot be loaded: a YAML error, unsupported YAML (§1), an unknown state, an unknown name in an expression or one that does not parse, a non-exhaustive `always`, an unsupported construct, a `ui.yaml` that names no catalog or a catalog that is not there or not JSON (§4) |
-| 2 | under `--strict`: an assertion is violated, a catalog key or a sample value is missing, a component has no renderer, the kit does not cover a component, the main story cannot be walked, the focus goes to a node that is not shown or a `returnsFocus` does not start at a dialog (§4), a domain's files clash or a server function has what only a route has (§5), or a state of a captured flow names no code (§9) |
+| 2 | under `--strict`: an assertion is violated, a state no situation reaches or a state that is no exit and has no way out (§2), a catalog key is missing from a locale's catalog or a sample value from the samples, a component has no renderer, the kit does not cover a component, the main story cannot be walked, the focus goes to a node that is not shown or a `returnsFocus` does not start at a dialog (§4), a domain's files clash or a server function has what only a route has (§5), a tutorial no longer matches its flow (§7), or a state of a captured flow names no code (§9) |
 
 A graph that cannot be loaded is a finding of the rule `load`, at its place: the file and the line of what it is about (the transition that goes to a state that does not exist, the guard that does not parse, the `catalog` of `ui.yaml`), or the line and column a parser gave. The other graphs are checked as usual.
 
