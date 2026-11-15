@@ -164,7 +164,7 @@ rules: [ { id, rule } ]
 | Node key | Meaning |
 |---|---|
 | `type` | `page`, `text`, `action`, `field`, `list`, `status`, `alert` |
-| `component` | a kit-neutral component: `Page`, `Heading`, `Text`, `Button`, `LinkButton`, `TextField`, `List`, `ListItem`, `Status`, `Alert`. A kit maps it to the product's own (§8). A `TextField`'s `text` is its label, and the field is named by it |
+| `component` | a kit-neutral component: `Page`, `Heading`, `Text`, `Button`, `LinkButton`, `TextField`, `Checkbox`, `Radio`, `Select`, `List`, `ListItem`, `Status`, `Alert`. A kit maps it to the product's own (§8). A `TextField`'s, a `Checkbox`'s, a `Radio`'s and a `Select`'s `text` is its label, and the control is named by it. A `Checkbox` (role `checkbox` or `switch`) and a `Radio` (role `radio`) say whether they are checked with `checked`; a `Select` (role `combobox`, the HTML `<select>`) is a choice of one option, and its `value` is the option it shows chosen. A `ListItem` whose role is `checkbox` or `radio`, in a `List` whose role is `group` or `radiogroup`, still says the same |
 | `role` | the ARIA role the node exposes |
 | `intent` | for actions: `confirm`, `dismiss`, `secondary` |
 | `name` | the accessible name: `{ key, params }` from the catalog, `{ labelledBy: <node> }`, `{ literal }`, or `{ oneOf: [keys] }` |
@@ -363,7 +363,7 @@ A video is an MP4 file. Its captions are WebVTT (`tutorial.vtt`, what an HTML `<
 
 ## 8. Kit (`kind: kit`)
 
-A kit says how the components of `ui.yaml` look in one product: `tokens` and `dark` (design tokens files in the Design Tokens Format Module 2025.10 of the W3C Design Tokens Community Group), `css` (scoped to the screen), and per component a `template` with slots (`{text}`, `{name}`, `{intent}`, `{id}`, `{children}`), flags (`{?disabled}..{/disabled}`, `named`, `conditional`), `roles` and `intents`. A kit is data: nothing in it runs or is fetched. `kit check` proves that every node keeps the role, the name and the disabled state the graph expects.
+A kit says how the components of `ui.yaml` look in one product: `tokens` and `dark` (design tokens files in the Design Tokens Format Module 2025.10 of the W3C Design Tokens Community Group), `css` (scoped to the screen), and per component a `template` with slots (`{text}`, `{name}`, `{intent}`, `{id}`, `{children}`), flags (`{?disabled}..{/disabled}`, `named`, `conditional`, `checked`: a node whose `checked` is `true`), `roles` and `intents`. A kit is data: nothing in it runs or is fetched. `kit check` proves that every node keeps the role, the name and the disabled state the graph expects.
 
 ## 9. Source anchors
 

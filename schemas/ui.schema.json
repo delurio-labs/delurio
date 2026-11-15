@@ -216,8 +216,8 @@
           "enum": ["page", "text", "action", "field", "list", "status", "alert"]
         },
         "component": {
-          "description": "A kit-neutral component; a kit maps it to the product's own (SPEC.md §8). A `TextField`'s `text` is its label, and the field is named by it.",
-          "enum": ["Page", "Heading", "Text", "Button", "LinkButton", "TextField", "List", "ListItem", "Status", "Alert"]
+          "description": "A kit-neutral component; a kit maps it to the product's own (SPEC.md §8). A `TextField`'s, a `Checkbox`'s, a `Radio`'s and a `Select`'s `text` is its label, and the control is named by it. A `Checkbox` (role checkbox or switch) and a `Radio` (role radio) say with `checked` whether they are checked; a `Select` (role combobox) is a choice of one option, and its `value` is the option it shows chosen.",
+          "enum": ["Page", "Heading", "Text", "Button", "LinkButton", "TextField", "Checkbox", "Radio", "Select", "List", "ListItem", "Status", "Alert"]
         },
         "role": {
           "description": "The WAI-ARIA 1.2 role the node exposes; `kit check` reads it from the browser's accessibility tree.",

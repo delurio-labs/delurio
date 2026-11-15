@@ -41,7 +41,20 @@ function accessibleName(g: Graph, n: UiNode, warn: Warn): string | undefined {
     return ref === undefined ? undefined : texts(g, ref, warn).join(' ');
   }
   if (n.role === 'button' || n.role === 'heading' || n.role === 'status' || n.role === 'alert') return texts(g, n, warn)[0];
+  // a checkbox, a radio and a select are named by their label, the words beside them (SPEC.md §4)
+  if (LABELLED.has(n.component ?? '')) return texts(g, n, warn)[0];
   return undefined;
+}
+
+const LABELLED = new Set(['Checkbox', 'Radio', 'Select']);
+
+// the words a field holds when it is shown (`value`), for a select the option it shows chosen
+function valueWords(g: Graph, n: UiNode, warn: Warn): string {
+  const v = n.value;
+  if (v === undefined) return '';
+  if (v.literal !== undefined) return v.literal;
+  const key = v.key ?? v.oneOf?.[0];
+  return key === undefined ? '' : fill(g, key, warn);
 }
 
 interface Item {
@@ -83,7 +96,7 @@ function renderWireframe(g: Graph, state: string, items: Item[], warn: Warn, cle
     const name = accessibleName(g, n, warn);
     // the role the expected tree gives the node, which picks a template from the component's `roles`
     const role = n.role ?? (n.type === 'text' ? undefined : n.type);
-    return { id: it.id, text, name: name ?? text, intent: n.intent, role, disabled: it.disabled, named: name !== undefined && name !== text, conditional: n.when !== undefined };
+    return { id: it.id, text, name: name ?? text, intent: n.intent, role, disabled: it.disabled, named: name !== undefined && name !== text, conditional: n.when !== undefined, checked: n.checked === true };
   };
   const drawKitList = (it: Item, drawn: string[]): string => {
     const f = { ...fill(it, texts(g, it.node, warn)[0] ?? ''), children: drawn.map((d) => `\n${d}`).join('') + '\n' };
@@ -136,6 +149,14 @@ function renderWireframe(g: Graph, state: string, items: Item[], warn: Warn, cle
       case 'TextField':
         // the visible text is the label; the input is named by it, as a <label> around it does
         out.push(item(it, `<label class="wf-field"><span>${text}</span><input type="text" class="wf-input" tabindex="-1"${it.disabled ? ' disabled' : ''}></label>`));
+        break;
+      case 'Checkbox':
+      case 'Radio':
+        // the box beside its label, as a <label> around an <input> draws it
+        out.push(item(it, `<label class="wf-check"><input type="${n.component === 'Radio' ? 'radio' : 'checkbox'}" tabindex="-1"${n.checked === true ? ' checked' : ''}${it.disabled ? ' disabled' : ''}><span>${text}</span></label>`));
+        break;
+      case 'Select':
+        out.push(item(it, `<label class="wf-field"><span>${text}</span><select class="wf-input" tabindex="-1"${it.disabled ? ' disabled' : ''}><option>${esc(valueWords(g, n, warn))}</option></select></label>`));
         break;
       case 'List':
         out.push(`<ul class="wf-list" data-node="${esc(it.id)}">`);

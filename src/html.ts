@@ -75,7 +75,7 @@ svg.spine { display: block; width: 100%; height: auto; padding: 8px; background:
 .wf button:disabled { opacity: .45; }
 .wf-list { margin: 0; padding-left: 20px; display: grid; gap: 2px; }
 .wf-status { color: var(--muted); font-style: italic; } .wf-alert { border: 1.5px solid var(--bad); border-radius: 6px; padding: 6px 10px; }
-.wf-field { display: grid; gap: 4px; } .wf-input { font: inherit; border: 1px solid var(--muted); border-radius: 6px; padding: 6px 10px; background: var(--surface); color: var(--ink); }
+.wf-check { display: flex; gap: 8px; align-items: center; } .wf-field { display: grid; gap: 4px; } .wf-input { font: inherit; border: 1px solid var(--muted); border-radius: 6px; padding: 6px 10px; background: var(--surface); color: var(--ink); }
 .wf-unmapped { border: 1.5px solid var(--bad); padding: 6px 10px; }
 .chip { font: 11px ui-monospace, Menlo, Consolas, monospace; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; white-space: nowrap; }
 details { margin-top: 12px; } summary { cursor: pointer; color: var(--muted); }
