@@ -98,7 +98,7 @@ export interface UiNode {
   frame?: string;
   value?: Label; // on a field: what it holds when shown; `{ literal: "" }` is an empty field (SPEC.md §4)
   checked?: boolean | string; // on a checkable role (CHECKABLE): an expression over the context, or true / false (SPEC.md §4)
-  script?: 'optional'; // on a page: it and its actions work without JavaScript (SPEC.md §4)
+  script?: 'optional' | 'actions'; // on a page: it and its actions work without JavaScript, or it is read without and only its actions need it (SPEC.md §4)
   source?: string;
 }
 

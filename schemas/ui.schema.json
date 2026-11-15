@@ -257,8 +257,8 @@
           "examples": [true, "pinned", "plan == 'yearly'"]
         },
         "script": {
-          "description": "On a page: `optional` when the page and its actions work without JavaScript (plain forms and links). Without it, JavaScript is required. A replay walks such a page a second time with JavaScript off.",
-          "const": "optional"
+          "description": "On a page: how much of it works without JavaScript. `optional`: the page and its actions (plain forms and links). `actions`: the page is drawn and read without it (rendered on the server), and only its actions need it. Without it, the page needs JavaScript. A replay's second walk with JavaScript off checks an `optional` page and takes its actions, and checks an `actions` page but its actions, and ends there.",
+          "enum": ["optional", "actions"]
         },
         "source": { "$ref": "#/$defs/sourceAnchor" }
       },
