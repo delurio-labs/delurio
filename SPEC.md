@@ -157,7 +157,7 @@ samples: { client: "Acme Notes" }   # values for catalog parameters, on the page
 changes: { key: Changes.note }      # optional: what the flow changes and what follows, in its users' words
 focus: { <state>: <node> }          # optional: the node that has focus once a step has led into the state
 nodes: { <node>: { .. } }
-edges: [ { labelledBy: [node, node] }, { triggers: [node, state] }, { returnsFocus: [dialog, node] } ]
+edges: [ { labelledBy: [node, node] }, { triggers: [node, state] }, { returnsFocus: [dialog, node | [node, ..] | opener] } ]
 rules: [ { id, rule } ]
 ```
 
@@ -192,13 +192,15 @@ A node is shown in a state when the state is in `in`, not in `unless`, and `when
 
 A page that opens gives the focus to its `initialFocus`. `focus` and `returnsFocus` say where it goes after that, when someone acts or a step ends. A page opens when the flow enters a state that shows it from a state that does not, or starts in a state that shows it, however the browser got there: by a step inside the app, or by loading the page anew (a link from an e-mail, a reload, the way back from another site). Its `initialFocus` holds in both; an app that leaves the focus at the document's start after a load does not meet it. The flow moves from one state it stops in to the next: a state with `always` is passed at once, so the focus is never said there. When the flow moves from one state into another, the node that has focus in the new state is the first of these that applies:
 
-1. the node of `{ returnsFocus: [<dialog>, <node>] }` in `edges`, when the dialog closes (the state before shows it and the new one does not) and the new state shows the node. The dialog is a page node whose role is `dialog` or `alertdialog`, and the node is usually the one that opened it, as the dialog pattern of the ARIA Authoring Practices Guide asks;
+1. the node of `{ returnsFocus: [<dialog>, <node>] }` in `edges`, when the dialog closes (the state before shows it and the new one does not) and the new state shows the node. The dialog is a page node whose role is `dialog` or `alertdialog`, and the node is usually the one that opened it, as the dialog pattern of the ARIA Authoring Practices Guide asks. Where several nodes open the same dialog, the second item is the list of them, `[<dialog>, [<node>, ..]]`, or `opener`, `[<dialog>, opener]`: the focus goes back to the node that opened the dialog this time, one of those listed for a list (opener, below);
 2. the `initialFocus` of a page that opens and has one; when a dialog opens over a page, the dialog's;
 3. `focus.<state>`, the node that has focus when the flow enters that state from another one: on a page that stays open, the alert a failed step shows, or the status that says a step is done.
 
-When none applies, and when the flow moves from a state to itself, the graph says nothing of the focus. `focusAfter` in `@delurio/cli/graph` gives this order. A replay checks, in each state it stops in, that the node the graph gives has the focus: the browser's focused element is that node, found by its role and name or by its binding (§7).
+When none applies, and when the flow moves from a state to itself, the graph says nothing of the focus. `focusAfter` in `@delurio/cli/graph` gives this order.
 
-A state that `focus` names that is not a state of the flow keeps the graph from loading. `check` gives an error (`focus-not-shown`) where `focus` gives the focus to a node its state does not show (by `in` and `unless`; a replay reads `when`), or a `returnsFocus` to a node no state the dialog closes into shows, and one (`returns-focus-not-dialog`) where a `returnsFocus` starts at a node that is not a dialog.
+The node that opened a dialog is the one pressed to open it: a node shown in the state before the dialog opened, whose `emits` is the event of the transition into the state that shows the dialog (past states with `always`). A dialog that edits any of four fields, each with its own Edit button, gives the focus back to the Edit button that was pressed. The graph cannot say which one that was, as the four lead to the same state; a replay knows the node it pressed, and gives it to `focusAfter` as its fourth argument. Without it, `focusAfter` gives the one node of a list that the new state shows, and nothing for `opener` or for a list of which the new state shows several. `opener` is a word of the format, not a node: no node is called `opener`. A replay checks, in each state it stops in, that the node the graph gives has the focus: the browser's focused element is that node, found by its role and name or by its binding (§7).
+
+A state that `focus` names that is not a state of the flow keeps the graph from loading. `check` gives an error (`focus-not-shown`) where `focus` gives the focus to a node its state does not show (by `in` and `unless`; a replay reads `when`), or a `returnsFocus` to a node no state the dialog closes into shows, and one (`returns-focus-not-dialog`) where a `returnsFocus` starts at a node that is not a dialog. For a list, each node it lists is held so; for `opener`, each node that opens the dialog, and a dialog that no node opens is `focus-not-shown` too.
 
 ### What a control holds, and pages without JavaScript
 
@@ -208,7 +210,7 @@ A state that `focus` names that is not a state of the flow keeps the graph from 
 
 `script` on a page says how much of it works without JavaScript. With `script: optional` the page and its actions work without it: its forms are posted and its links followed by the browser itself, and JavaScript only adds to them. With `script: actions` the page is drawn and can be read without JavaScript, as a page rendered on the server is, but its actions need it. Without `script` the page needs JavaScript, and the graph says nothing of it without. A replay with `--no-js` (§7) walks the flow a second time with JavaScript off. In a state whose page is `optional` it checks what the state shows, as on the first walk, and takes the next step there. In a state whose page is `actions` it checks what the state shows but its actions (the nodes of `type: action`), and takes no step from it: the walk ends there, as it does where a step leads to a page without `script`.
 
-The `schema` rule refuses `value` on a node that is not a field, `checked` on a node of another role, and `script` on a node that is not a page. A `checked` or a `disabledWhen` expression that names neither a variable, a guard nor `state` keeps the graph from loading. A `value` from the catalog is held as a node's text is (`catalog-key-missing`, `sample-missing`).
+The `schema` rule refuses `value` on a node that is not a field, `checked` on a node of another role, `script` on a node that is not a page, and a node called `opener`. A `checked` or a `disabledWhen` expression that names neither a variable, a guard nor `state` keeps the graph from loading. A `value` from the catalog is held as a node's text is (`catalog-key-missing`, `sample-missing`).
 
 ### Catalog
 

@@ -48,7 +48,11 @@
     "nodes": {
       "type": "object",
       "description": "The nodes of the screens, by id. A node is shown in a state when the state is in `in`, not in `unless`, and `when` holds.",
-      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "propertyNames": {
+        "$ref": "#/$defs/identifier",
+        "not": { "const": "opener" },
+        "description": "A node's id: camelCase, and not opener, which a returnsFocus says for the node that opened its dialog (SPEC.md §4)."
+      },
       "additionalProperties": { "$ref": "#/$defs/node" }
     },
     "focus": {
@@ -287,7 +291,7 @@
     },
     "edge": {
       "type": "object",
-      "description": "A relation between nodes: `{ labelledBy: [node, labelNode] }`, `{ triggers: [node, state] }` or `{ returnsFocus: [dialog, node] }`.",
+      "description": "A relation between nodes: `{ labelledBy: [node, labelNode] }`, `{ triggers: [node, state] }` or `{ returnsFocus: [dialog, node | [node, ..] | opener] }`.",
       "minProperties": 1,
       "maxProperties": 1,
       "additionalProperties": false,
@@ -308,8 +312,16 @@
         },
         "returnsFocus": {
           "type": "array",
-          "description": "A dialog (a page node whose role is dialog or alertdialog) and the node that has focus when it closes, usually the one that opened it. It wins over `focus` for the state the dialog closes into, when that state shows the node.",
-          "prefixItems": [{ "$ref": "#/$defs/nodeRef" }, { "$ref": "#/$defs/nodeRef" }],
+          "description": "A dialog (a page node whose role is dialog or alertdialog) and the node that has focus when it closes, usually the one that opened it. Where several nodes open the dialog, the list of them, or opener: the focus goes back to the one pressed to open it. It wins over `focus` for the state the dialog closes into, when that state shows the node.",
+          "prefixItems": [
+            { "$ref": "#/$defs/nodeRef" },
+            {
+              "anyOf": [
+                { "$ref": "#/$defs/nodeRef", "description": "The node, or opener: the node pressed to open the dialog." },
+                { "type": "array", "items": { "$ref": "#/$defs/nodeRef" }, "minItems": 2, "uniqueItems": true, "description": "The nodes that open the dialog: the one pressed to open it has the focus." }
+              ]
+            }
+          ],
           "minItems": 2,
           "maxItems": 2
         }

@@ -2,7 +2,7 @@
 // that is shown where the focus goes, `returnsFocus` starts at a dialog, and the words a field's `value` takes from
 // the catalog are there, as every other node's are. That `value`, `checked` and `script` sit only on the nodes they
 // are for is the schema's; that a `focus` state exists and that `checked` reads the context is the loader's.
-import { alternatives, isDialog, shownIn } from './graph.ts';
+import { alternatives, isDialog, OPENER, shownIn } from './graph.ts';
 import type { Graph, Label } from './graph.ts';
 
 export interface UiProblem {
@@ -14,16 +14,17 @@ export interface UiProblem {
 
 const listed = (xs: string[]): string => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
 
-// the states the flow stops in after a transition out of `state`: its targets, and past a state with `always` the
-// targets of that state, as far as they go
-function stopsAfter(g: Graph, state: string): string[] {
+// the states the flow stops in after a transition out of `state` (on `event` only, when it is given): its targets, and
+// past a state with `always` the targets of that state, as far as they go
+function stopsAfter(g: Graph, state: string, event?: string): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   const ways = (s: string): string[] => {
     const st = g.flow.states[s];
     return [...(st.always ?? []).map((a) => a.target), ...Object.values(st.on ?? {}).flatMap((spec) => alternatives(spec).map((a) => a.target))];
   };
-  const todo = ways(state);
+  const first = g.flow.states[state].on?.[event ?? ''];
+  const todo = event === undefined ? ways(state) : first === undefined ? [] : alternatives(first).map((a) => a.target);
   while (todo.length > 0) {
     const t = todo.shift() as string;
     if (seen.has(t)) continue;
@@ -45,6 +46,19 @@ function closesInto(g: Graph, dialog: string): string[] {
   return [...out];
 }
 
+// the nodes that open a dialog: each is shown in a state that does not show the dialog, and sends an event that leads
+// from there to a state that shows it (SPEC.md §4, the node that opened a dialog)
+function openersOf(g: Graph, dialog: string): string[] {
+  const d = g.ui.nodes[dialog];
+  const out: string[] = [];
+  for (const [id, n] of Object.entries(g.ui.nodes)) {
+    if (n.emits === undefined) continue;
+    const opens = Object.keys(g.flow.states).some((s) => shownIn(n, s) && !shownIn(d, s) && stopsAfter(g, s, n.emits).some((t) => shownIn(d, t)));
+    if (opens) out.push(id);
+  }
+  return out;
+}
+
 export function checkUi(g: Graph, warn: (message: string) => void): UiProblem[] {
   const nodes = g.ui.nodes;
   const out: UiProblem[] = [];
@@ -64,14 +78,25 @@ export function checkUi(g: Graph, warn: (message: string) => void): UiProblem[] 
       out.push({ rule: 'returns-focus-not-dialog', path, element, message: `returnsFocus starts at ${dialog}, which is ${what}: it starts at a page node whose role is dialog or alertdialog (SPEC.md §4)` });
       return;
     }
-    if (nodes[node] === undefined) {
-      out.push({ rule: 'focus-not-shown', path, element, message: `returnsFocus gives the focus of ${dialog} to ${node}, which is no node of ui.yaml` });
+    // one node, the nodes that open the dialog, or OPENER: whichever node opens it
+    const several = Array.isArray(node) || node === OPENER;
+    const targets = node === OPENER ? openersOf(g, dialog) : Array.isArray(node) ? node : [node];
+    if (node === OPENER && targets.length === 0) {
+      out.push({ rule: 'focus-not-shown', path, element, message: `returnsFocus gives the focus of ${dialog} back to the node that opened it, but no node opens it: none sends an event that leads from a state without the dialog to one that shows it (SPEC.md §4)` });
       return;
     }
     const into = closesInto(g, dialog);
-    if (into.some((s) => shownIn(nodes[node], s))) return;
-    const where = into.length === 0 ? `the dialog ${dialog} never closes into a state the flow stops in` : `no state ${dialog} closes into shows it (${listed(into)})`;
-    out.push({ rule: 'focus-not-shown', path, element, message: `returnsFocus gives the focus of ${dialog} to ${node}, but ${where} (SPEC.md §4)` });
+    for (const t of targets) {
+      const at = several ? `${element}/${t}` : element;
+      if (nodes[t] === undefined) {
+        out.push({ rule: 'focus-not-shown', path, element: at, message: `returnsFocus gives the focus of ${dialog} to ${t}, which is no node of ui.yaml` });
+        continue;
+      }
+      if (into.some((s) => shownIn(nodes[t], s))) continue;
+      const where = into.length === 0 ? `the dialog ${dialog} never closes into a state the flow stops in` : `no state ${dialog} closes into shows it (${listed(into)})`;
+      const who = node === OPENER ? `back to ${t}, which opens it,` : `to ${t},`;
+      out.push({ rule: 'focus-not-shown', path, element: at, message: `returnsFocus gives the focus of ${dialog} ${who} but ${where} (SPEC.md §4)` });
+    }
   });
   // a field's value in words of the catalog, held as every other node's words are
   const words = (v: Label): void => {

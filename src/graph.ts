@@ -104,12 +104,15 @@ export interface UiNode {
 }
 
 // a relation between nodes (SPEC.md §4): a node and the node that labels it, an action and the state it leads to, or
-// a dialog and the node that has focus when it closes
+// a dialog and the node that has focus when it closes: one node, the nodes that open it, or OPENER
 export interface UiEdge {
   labelledBy?: [string, string];
   triggers?: [string, string];
-  returnsFocus?: [string, string];
+  returnsFocus?: [string, string | string[]];
 }
+
+// in a returnsFocus, the node that was pressed to open the dialog, whichever it is (SPEC.md §4); no node is called so
+export const OPENER = 'opener';
 
 // the roles whose node may say whether it is `checked` (WAI-ARIA 1.2: the roles that support aria-checked)
 export const CHECKABLE = ['checkbox', 'menuitemcheckbox', 'menuitemradio', 'option', 'radio', 'switch'] as const;
@@ -163,15 +166,31 @@ export interface FocusAfter {
 // The node that has focus once the flow has moved from the state `from` (null when it starts) into another state `to`,
 // both states the flow stops in (SPEC.md §4, Focus): a dialog that closes gives it back to its `returnsFocus` node when
 // `to` shows that node; else a page that opens gives it to its `initialFocus`, a dialog's before the page it covers;
-// else `focus.<to>`. null when the graph does not say, and on a move from a state to itself.
-export function focusAfter(ui: Ui, from: string | null, to: string): FocusAfter | null {
+// else `focus.<to>`. null when the graph does not say, and on a move from a state to itself. `pressed` is the node that
+// was pressed to open the dialog, which a replay knows and the graph does not: a returnsFocus that lists several
+// nodes, or says OPENER, gives the focus to it. Without it, a list gives the one node of it that `to` shows, and
+// OPENER, or a list of which `to` shows several, gives null.
+export function focusAfter(ui: Ui, from: string | null, to: string, pressed?: string): FocusAfter | null {
   if (from === to) return null;
   const nodes = ui.nodes;
   const shown = (id: string, state: string | null): boolean => state !== null && nodes[id] !== undefined && shownIn(nodes[id], state);
   for (const e of ui.edges ?? []) {
-    const [dialog, node] = e.returnsFocus ?? [];
-    if (dialog === undefined || node === undefined || !isDialog(nodes[dialog])) continue;
-    if (shown(dialog, from) && !shown(dialog, to) && shown(node, to)) return { node, by: 'returnsFocus', from: dialog };
+    const [dialog, target] = e.returnsFocus ?? [];
+    if (dialog === undefined || target === undefined || !isDialog(nodes[dialog])) continue;
+    if (!shown(dialog, from) || shown(dialog, to)) continue;
+    if (typeof target === 'string' && target !== OPENER) {
+      if (shown(target, to)) return { node: target, by: 'returnsFocus', from: dialog };
+      continue;
+    }
+    // the node that opened the dialog: the one pressed, when the caller knows it, among those a list allows
+    const allowed = (id: string): boolean => target === OPENER || (Array.isArray(target) && target.includes(id));
+    if (pressed !== undefined) {
+      if (allowed(pressed) && shown(pressed, to)) return { node: pressed, by: 'returnsFocus', from: dialog };
+      continue;
+    }
+    const candidates = Array.isArray(target) ? target.filter((id) => shown(id, to)) : [];
+    if (candidates.length === 1) return { node: candidates[0], by: 'returnsFocus', from: dialog };
+    return null;
   }
   const opened = Object.entries(nodes).filter(([id, n]) => n.type === 'page' && n.initialFocus !== undefined && shown(id, to) && !shown(id, from));
   const page = opened.find(([, n]) => isDialog(n)) ?? opened[0];

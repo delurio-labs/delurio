@@ -222,3 +222,48 @@ jobs:
           cat "$RUNNER_TEMP/disabled-when.txt"
           test "$code" -eq 1
           grep -F 'ui node save: disabledWhen: not pined names pined, which is not a variable or a guard of the flow [load]' "$RUNNER_TEMP/disabled-when.txt"
+      - name: A dialog that several nodes open gives the focus back to the one pressed (a list, or opener)
+        run: |
+          for target in opener '[cancel, save]'; do
+            rm -rf "$RUNNER_TEMP/openers"
+            cp -r examples/notes "$RUNNER_TEMP/openers"
+            sed -i "s/returnsFocus: \[discardDialog, cancel\]/returnsFocus: [discardDialog, $target]/" "$RUNNER_TEMP/openers/edit/ui.yaml"
+            node dist/cli.js check "$RUNNER_TEMP/openers" --strict
+          done
+
+          sed -i 's/returnsFocus: \[discardDialog, \[cancel, save\]\]/returnsFocus: [discardDialog, [cancel, keep]]/' "$RUNNER_TEMP/openers/edit/ui.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/openers" --strict > "$RUNNER_TEMP/openers.txt" || code=$?
+          cat "$RUNNER_TEMP/openers.txt"
+          test "$code" -eq 2
+          grep -F 'returnsFocus gives the focus of discardDialog to keep, but no state discardDialog closes into shows it (editing and left)' "$RUNNER_TEMP/openers.txt" | grep -F '[focus-not-shown]'
+
+          sed -i 's/returnsFocus: \[discardDialog, \[cancel, keep\]\]/returnsFocus: [discardDialog, opener]/; /^    emits: CANCEL$/d' "$RUNNER_TEMP/openers/edit/ui.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/openers" --strict > "$RUNNER_TEMP/openers.txt" || code=$?
+          cat "$RUNNER_TEMP/openers.txt"
+          test "$code" -eq 2
+          grep -F 'returnsFocus gives the focus of discardDialog back to the node that opened it, but no node opens it' "$RUNNER_TEMP/openers.txt" | grep -F '[focus-not-shown]'
+
+          sed -i 's/^  working:$/  opener:/' "$RUNNER_TEMP/openers/edit/ui.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/openers" --strict > "$RUNNER_TEMP/openers.txt" || code=$?
+          cat "$RUNNER_TEMP/openers.txt"
+          grep -F 'the name "opener" is not allowed' "$RUNNER_TEMP/openers.txt" | grep -F '[schema]'
+
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { focusAfter, load } from "./dist/graph.js";
+
+            const edit = load("examples/notes/edit");
+            const at = (from, to, pressed) => { const f = focusAfter(edit.ui, from, to, pressed); return f === null ? null : `${f.by} ${f.node}`; };
+            const back = (target) => { edit.ui.edges = edit.ui.edges.map((e) => (e.returnsFocus === undefined ? e : { returnsFocus: ["discardDialog", target] })); };
+            back("opener");
+            assert.equal(at("discarding", "editing", "cancel"), "returnsFocus cancel");
+            assert.equal(at("discarding", "editing"), null);
+            back(["cancel", "save"]);
+            assert.equal(at("discarding", "editing", "save"), "returnsFocus save");
+            assert.equal(at("discarding", "editing"), null);
+            back(["cancel", "keep"]);
+            assert.equal(at("discarding", "editing"), "returnsFocus cancel");
+          '
