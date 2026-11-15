@@ -25,10 +25,16 @@ function rootOf(dir: string): string {
   return dirname(dir);
 }
 
+// every flow under root by its id; a flow.yaml that cannot be read is left out, as its own check reports it
 function flowsUnder(root: string, depth = 4, out = new Map<string, Flow>()): Map<string, Flow> {
   const file = join(root, 'flow.yaml');
   if (existsSync(file)) {
-    const f = readYaml(readFileSync(file, 'utf8')) as Flow;
+    let f: Flow | null = null;
+    try {
+      f = readYaml(readFileSync(file, 'utf8')) as Flow | null;
+    } catch {
+      f = null;
+    }
     if (typeof f?.id === 'string') out.set(f.id, { ...f, context: f.context ?? {} });
   }
   if (depth === 0) return out;

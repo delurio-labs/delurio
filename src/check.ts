@@ -7,7 +7,8 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from '
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { keyAt, parsingOnce, readYaml } from './yaml.ts';
 import type { DomainPart } from './domain.ts';
-import { GraphError, load } from './graph.ts';
+import { GraphError, load, placed } from './graph.ts';
+import type { ErrorPlace } from './graph.ts';
 import { checkAssertions, explore, Model, ModelError } from './model.ts';
 import { stepsByEvents } from './story.ts';
 import { renderScreens } from './wireframe.ts';
@@ -152,7 +153,12 @@ function fromWarning(dir: string, graph: string, w: string): CheckResult {
 function checkFlow(dir: string): CheckResult[] {
   const file = join(dir, 'flow.yaml');
   const g = load(dir);
-  const kit = resolveKit(dir, g.ui.kit, undefined);
+  let kit: ReturnType<typeof resolveKit>;
+  try {
+    kit = resolveKit(dir, g.ui.kit, undefined);
+  } catch (err) {
+    throw g.ui.kit === undefined ? err : placed(err, { file: 'ui.yaml', path: ['kit'] });
+  }
   const model = new Model(g.flow);
   const ex = explore(model);
   const out: CheckResult[] = [];
@@ -269,6 +275,18 @@ function checkNav(dir: string): CheckResult[] {
   return out;
 }
 
+// where a load error is (SPEC.md §10): the place the loader or the model gave it, at the keys it names or the line a
+// parser gave, in the file it names; else the line a YAML parser gave; else the start of the graph's own file
+function loadPlace(dir: string, file: string, err: Error): Place {
+  const place = (err as { place?: ErrorPlace }).place;
+  const at = place === undefined ? file : join(dir, place.file);
+  if (place?.line !== undefined) return { file: at, line: place.line, column: place.column ?? 1 };
+  const linePos = (err as { linePos?: Array<{ line: number; col: number }> }).linePos?.[0];
+  if (linePos !== undefined) return { file: at, line: linePos.line, column: linePos.col };
+  if (place?.path !== undefined && existsSync(at)) return { file: at, ...keyAt(readFileSync(at, 'utf8'), place.path) };
+  return { file: at, line: 1, column: 1 };
+}
+
 const fingerprint = (r: CheckResult): string => createHash('sha256').update(`${r.rule}|${r.graph}|${r.element}`).digest('hex').slice(0, 32);
 
 function baselinePrints(file: string): Set<string> {
@@ -370,8 +388,8 @@ function checkRun(args: string[]): number {
     } catch (err) {
       if (!(err instanceof GraphError || err instanceof ModelError || err instanceof KitError || (err instanceof Error && err.name === 'YAMLParseError'))) throw err;
       broken = true;
-      const linePos = (err as { linePos?: Array<{ line: number; col: number }> }).linePos?.[0];
-      results.push(result('load', file, linePos === undefined ? { line: 1, column: 1 } : { line: linePos.line, column: linePos.col }, err.message.split('\n')[0], rel(d), 'load'));
+      const at = loadPlace(d, file, err);
+      results.push(result('load', at.file, at, err.message.split('\n')[0], rel(d), 'load'));
     }
   }
   // every graph file against its kind's schema: what an editor with the schemas marks, check reports
