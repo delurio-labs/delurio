@@ -22,17 +22,19 @@ import { KitError, resolveKit } from './kit.ts';
 import { checkGoals, findings, loadNav, viewOf } from './nav.ts';
 import { schemaKindOf, validateFile } from './schemas.ts';
 import { inReadingOrder, mergeDomain } from './domain.ts';
+import { checkNeeds } from './needs.ts';
 
 export const CHECK_USAGE = [
-  '  node src/cli.ts check <graphs folder>... [--strict] [--baseline <sarif>] [--format sarif --output <file>]',
+  '  node src/cli.ts check <graphs folder>... [--strict] [--baseline <sarif>] [--format sarif --output <file>] [--app <dir>]',
   '    checks every graph under the folders and writes nothing else: GNU error lines on stdout, or SARIF 2.1.0;',
-  '    exit 0 clean, 1 a graph cannot be loaded or needs a newer format, 2 an error under --strict (new since --baseline)',
+  '    exit 0 clean, 1 a graph cannot be loaded or needs a newer format, 2 an error under --strict (new since --baseline);',
+  '    the evidence of needs is found under --app, the application\'s repository root (default: the working directory)',
 ].join('\n');
 
 const FORMAT = 'delurio-graph/0';
 const SKIP = new Set(['viz', 'video', 'recording', 'node_modules', '.git']);
 
-type Level = 'error' | 'warning';
+type Level = 'error' | 'warning' | 'note';
 
 interface Place {
   file: string; // as given on the command line's side: relative to the working directory
@@ -84,6 +86,14 @@ const RULES: Rule[] = [
   { id: 'state-no-way-out', text: 'A state that is not an exit has no way out (SPEC.md §2)', level: 'error' },
   { id: 'state-unreachable', text: 'No situation the flow starts in reaches the state (SPEC.md §2)', level: 'error' },
   { id: 'tutorial-mismatch', text: 'A tutorial no longer matches its flow (SPEC.md §7)', level: 'error' },
+  { id: 'evidence-unresolved', text: "A need's evidence names what is not there (SPEC.md §13)", level: 'error' },
+  { id: 'need-no-evidence', text: 'A need that is not missing names no evidence outside the graph (SPEC.md §13)', level: 'error' },
+  { id: 'need-unlisted', text: "A missing need is not in the product's gaps (SPEC.md §13)", level: 'error' },
+  { id: 'need-twice', text: "A need's id is given twice in its flow's needs (SPEC.md §13)", level: 'error' },
+  { id: 'needs-place', text: 'A needs file is beside no flow, or is the needs of another one (SPEC.md §13)', level: 'error' },
+  { id: 'gap-met', text: 'The gaps list a need that is met (SPEC.md §13)', level: 'error' },
+  { id: 'gap-unknown', text: 'The gaps list a need that no flow under them has (SPEC.md §13)', level: 'error' },
+  { id: 'need-gap', text: 'A need that is missing, listed in the gaps: counted, and fails nothing (SPEC.md §13)', level: 'note' },
   { id: 'invoke-unknown', text: "An invoke or a failures entry names an action its flow's domain does not have (SPEC.md §5)", level: 'warning' },
   { id: 'refusal-unknown', text: 'A failure class lists a code that is not a refusal of its action (SPEC.md §2)', level: 'warning' },
   { id: 'graph-warning', text: 'Another warning of the graph', level: 'error' },
@@ -435,7 +445,7 @@ function checkRun(args: string[]): number {
     const i = args.indexOf(name);
     return i >= 0 ? args[i + 1] : undefined;
   };
-  const withValue = ['--baseline', '--format', '--output'];
+  const withValue = ['--baseline', '--format', '--output', '--app'];
   const dirs = args.filter((a, i) => !a.startsWith('--') && !withValue.includes(args[i - 1] ?? ''));
   if (dirs.length === 0) {
     console.error(`usage:\n${CHECK_USAGE}`);
@@ -457,6 +467,12 @@ function checkRun(args: string[]): number {
     console.error(`--format is text or sarif, not ${format}`);
     return 1;
   }
+  const appGiven = flag('--app');
+  if (appGiven !== undefined && (!existsSync(appGiven) || !statSync(appGiven).isDirectory())) {
+    console.error(`--app ${appGiven} is not a folder\nusage:\n${CHECK_USAGE}`);
+    return 1;
+  }
+  const app = resolve(appGiven ?? '.');
 
   const results: CheckResult[] = [];
   const domains = new Map<string, Domain | null>(); // the domains found, for every flow that names one
@@ -484,6 +500,9 @@ function checkRun(args: string[]): number {
     for (const f of validateFile(file)) results.push(result('schema', file, f, f.message, f.graph ?? rel(file), f.element));
   }
   results.push(...checkDomains(files));
+  // each flow's needs held to their evidence, and the product's gaps to its needs (SPEC.md §13)
+  const needs = checkNeeds(files, app);
+  for (const p of needs.problems) results.push(result(p.rule, p.file, p, p.message, p.graph, p.element));
   results.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column || a.rule.localeCompare(b.rule) || a.message.localeCompare(b.message));
 
   if (baseline !== undefined) {
@@ -506,7 +525,10 @@ function checkRun(args: string[]): number {
     const graphs = dirsOfGraphs.length;
     const errors = results.filter((r) => printedLevel(r) === 'error').length;
     const warnings = results.filter((r) => printedLevel(r) === 'warning').length;
-    console.error(`delurio check: ${count(graphs, 'graph')}, ${count(errors, 'error')}, ${count(warnings, 'warning')}; exit ${exitCode}`);
+    // the gaps, once a flow has needs: every need that is missing, listed or not, and those the base run did not have
+    const fresh = results.filter((r) => r.rule === 'need-gap' && r.baselineState === 'new').length;
+    const gaps = needs.files === 0 ? '' : `, ${count(needs.gaps, 'gap')} of ${count(needs.needs, 'need')}${fresh > 0 ? ` (${fresh} new)` : ''}`;
+    console.error(`delurio check: ${count(graphs, 'graph')}, ${count(errors, 'error')}, ${count(warnings, 'warning')}${gaps}; exit ${exitCode}`);
   }
   return exitCode;
 }

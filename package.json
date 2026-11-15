@@ -17,6 +17,7 @@
     "./expr": { "types": "./dist/expr.d.ts", "default": "./dist/expr.js" },
     "./spine": { "types": "./dist/spine.d.ts", "default": "./dist/spine.js" },
     "./yaml": { "types": "./dist/yaml.d.ts", "default": "./dist/yaml.js" },
+    "./needs": { "types": "./dist/needs.d.ts", "default": "./dist/needs.js" },
     "./package.json": "./package.json"
   },
   "files": ["dist", "schemas", "SPEC.md", "NOTICE", "CHANGELOG.md"],
