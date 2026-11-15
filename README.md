@@ -66,6 +66,24 @@ Given a folder of graphs instead, it writes the page of every graph under it, ea
 npx @delurio/cli page graphs --out viz
 ```
 
+## Draw the screens with your product's look: a kit
+
+A kit (SPEC.md §8) says how the components of `ui.yaml` look in one product, so that the page and the videos draw its screens as the product does rather than as plain wireframes. It is data, in a folder of its own: nothing in it runs or is fetched. [`examples/notes/kit`](examples/notes/kit) is a small kit to start from, which the screens of `examples/notes` are drawn with.
+
+1. Copy `examples/notes/kit` beside your graphs (`graphs/kit/`) and give it your own `id` (lowercase letters, digits and dashes) and `title`.
+2. Name it from each `ui.yaml` whose screens it draws, by its path from that graph's folder: `kit: ../kit`. `page --kit <path>` draws with another kit for one run, and `--kit none` draws the plain wireframes.
+3. Put your design tokens in `tokens.json`, in the W3C Design Tokens format (2025.10): groups nest, a token has `$value`, `$type` is inherited from its group, and `"{color.accent}"` is an alias. Each token becomes a CSS custom property named by its path: `color.accent` is `--color-accent`, `font.size-body` is `--font-size-body`. `dark.json` gives the same names other values for a dark page; a name that `tokens.json` lacks is refused.
+4. Write the CSS in `kit.css`, from the tokens. It is scoped to the drawn screen: `&` is the screen itself, a rule never reaches the rest of the page, `:root`, `html` and `body` are refused as they never match there, and only `@media`, `@supports` and `@container` may wrap rules. Nothing is fetched: `url()` takes only `data:` addresses.
+5. Give each component its screens use a `template`, one HTML element or a few, filled per node:
+   - slots: `{text}`, the node's visible text; `{name}`, its accessible name; `{id}`, the node's id; `{intent}`, the word `intents` gives its intent (`confirm`, `dismiss`, `secondary`, and `default` for a node with none); `{children}`, the items of a `List`;
+   - flags, each a section that opens and closes in the same place: `{?disabled}..{/disabled}` where the node is disabled, `{!disabled}..{/disabled}` where it is not, `{?named}` where the graph gives an accessible name other than the visible text (so `aria-label="{name}"` goes inside it), and `{?conditional}` where the node shows only when a flag holds;
+   - `roles`: a template of its own for a node whose ARIA role differs, such as a `Button` drawn as a link or a `ListItem` that is a checkbox or a radio;
+   - a `List`'s and a `ListItem`'s template is one element, which the page marks with the node it draws.
+
+   Templates take no `<script>`, `<style>`, `<iframe>`, `<form>` or event handler, and no address other than one inside the page (`#…`) or, for `src`, a `data:image`. Write the roles, names and disabled states the graph expects: a `<button>` for a button, a `<label>` around a field, `aria-label="{name}"` where it is named.
+
+`Page` has no template: it is the screen itself, styled with `&`, and a dialog is a page node whose role is `dialog`, drawn as its screen. A component a screen uses that the kit has no template for, or an intent with no word in `intents`, is drawn with the fixed component and reported (`kit-uncovered`), which fails `--strict`. A kit that cannot be read, such as a template that is not well-formed or a token that refers to one no file defines, keeps every graph that names it from loading.
+
 ## Write a graph in an editor
 
 The package ships a JSON Schema (2020-12) for each kind of graph file in `schemas/`: `flow`, `ui`, `nav` (also `nav.extracted.yaml`), `domain` and `catalog`. With them an editor completes keys, explains each one from SPEC.md on hover, and marks a typo, a value of the wrong kind, or a title cut short by a comma inside `{ }`. In VS Code, with the YAML extension, put this in `.vscode/settings.json`:
