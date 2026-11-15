@@ -306,6 +306,56 @@ jobs:
           grep -F 'warning: state issuing invokes issueCode, which is not an action of the domain qauth.authorize' "$RUNNER_TEMP/invokes.txt" | grep -F '[invoke-unknown]'
           grep -F 'warning: FAIL.unsafe of deciding stands for TOKEN_REUSED, which is not a refusal of decide' "$RUNNER_TEMP/invokes.txt" | grep -F '[refusal-unknown]'
           grep -F 'delurio check: 1 graph, 0 errors, 2 warnings; exit 0' "$RUNNER_TEMP/invokes.txt"
+      - name: A domain's names are held to what it has, an entity or a field as errors and a policy's names as warnings
+        run: |
+          cp -r examples/qauth-authorize "$RUNNER_TEMP/names"
+          sed -i '0,/references: Client }/s//references: Clinet }/; s/result: { returns: AuthorizationCode }/result: { returns: AuthCode }/; s/required: \[codeChallenge, codeChallengeMethod\]/required: [codeChallenge, challengeMethod]/; s/csrf: { type: string } }/csrf: { type: string, references: Session } }/; s/    do: \[decide\]/    do: [decide, revoke]/; s/    write: \[Consent\]/    write: [Consent, Grant]/' "$RUNNER_TEMP/names/domain.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/names" --strict > "$RUNNER_TEMP/names.txt" 2>&1 || code=$?
+          cat "$RUNNER_TEMP/names.txt"
+          test "$code" -eq 2
+          grep -F 'names/domain.yaml:76:15: error: the action issue returns AuthCode, which is not an entity of the domain qauth.authorize' "$RUNNER_TEMP/names.txt" | grep -F '[entity-unknown]'
+          grep -F 'names/domain.yaml:19:33: error: the field AuthorizationRequest.clientId references Clinet, which is not an entity' "$RUNNER_TEMP/names.txt" | grep -F '[entity-unknown]'
+          grep -F 'names/domain.yaml:69:126: error: the body of the action decide, at csrf, references Session, which is not an entity' "$RUNNER_TEMP/names.txt" | grep -F '[entity-unknown]'
+          grep -F 'names/domain.yaml:17:31: error: the entity AuthorizationRequest requires challengeMethod, which is not one of its fields' "$RUNNER_TEMP/names.txt" | grep -F '[field-unknown]'
+          grep -F 'names/domain.yaml:50:18: warning: the policy for end-user names revoke in do, which is not an action of the domain qauth.authorize' "$RUNNER_TEMP/names.txt" | grep -F '[policy-unknown]'
+          grep -F 'names/domain.yaml:49:22: warning: the policy for end-user names Grant in write, which is not an entity of the domain qauth.authorize' "$RUNNER_TEMP/names.txt" | grep -F '[policy-unknown]'
+          grep -F 'delurio check: 1 graph, 4 errors, 2 warnings; exit 2' "$RUNNER_TEMP/names.txt"
+          node dist/cli.js check "$RUNNER_TEMP/names" --format sarif --output "$RUNNER_TEMP/names.sarif"
+          node -e '
+            const run = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).runs[0];
+            const level = Object.fromEntries(run.tool.driver.rules.map((r) => [r.id, r.defaultConfiguration.level]));
+            const want = { "entity-unknown": "error", "field-unknown": "error", "policy-unknown": "warning" };
+            for (const [id, l] of Object.entries(want)) if (level[id] !== l) throw new Error(`${id} is ${level[id]}, not ${l}`);
+            const where = run.results.map((r) => `${r.ruleId} ${r.level} ${r.locations[0].physicalLocation.region.startLine} ${r.locations[0].logicalLocations[0].fullyQualifiedName}`);
+            for (const w of ["entity-unknown error 76 qauth.authorize/actions/issue/result/returns", "policy-unknown warning 50 qauth.authorize/policies/end-user/do/revoke"]) if (!where.includes(w)) throw new Error(`no ${w} in ${where.join("; ")}`);
+          ' "$RUNNER_TEMP/names.sarif"
+
+          cp -r examples/notes "$RUNNER_TEMP/split-names"
+          sed -i 's/^  Note:$/  Note:\n    key: [id]/' "$RUNNER_TEMP/split-names/domain/note.yaml"
+          sed -i '0,/properties: { id: { type: string, format: uuid } }/s//properties: { id: { type: string, format: uuid, references: Note } }/' "$RUNNER_TEMP/split-names/domain/note.yaml"
+          node dist/cli.js check "$RUNNER_TEMP/split-names" --strict > "$RUNNER_TEMP/split-names.txt" 2>&1
+          cat "$RUNNER_TEMP/split-names.txt"
+          grep -F 'delurio check: 3 graphs, 0 errors, 0 warnings' "$RUNNER_TEMP/split-names.txt"
+          sed -i 's/^    key: \[id\]$/    key: [noteId]/; s/do: \[editNote\]/do: [editNote, pinNote]/' "$RUNNER_TEMP/split-names/domain/note.yaml"
+          sed -i 's/required: \[id, ownerId, body\]/required: [id, ownerId, body, title]/' "$RUNNER_TEMP/split-names/domain/domain.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/split-names" --strict > "$RUNNER_TEMP/split-names.txt" 2>&1 || code=$?
+          cat "$RUNNER_TEMP/split-names.txt"
+          test "$code" -eq 2
+          grep -F 'split-names/domain/domain.yaml:10:35: error: the entity Note requires title, which is not one of its fields' "$RUNNER_TEMP/split-names.txt" | grep -F '[field-unknown]'
+          grep -F 'split-names/domain/note.yaml:10:11: error: the key of the entity Note names noteId, which is not one of its fields' "$RUNNER_TEMP/split-names.txt" | grep -F '[field-unknown]'
+          grep -F 'split-names/domain/note.yaml:17:100: warning: the policy for person names pinNote in do' "$RUNNER_TEMP/split-names.txt" | grep -F '[policy-unknown]'
+
+          mkdir -p "$RUNNER_TEMP/two/graphs/people" "$RUNNER_TEMP/two/graphs/notes"
+          printf 'schema: delurio-graph/0\nkind: domain\nid: example.people\nentities:\n  Person:\n    fields:\n      id: { type: string }\n' > "$RUNNER_TEMP/two/graphs/people/domain.yaml"
+          printf 'schema: delurio-graph/0\nkind: domain\nid: example.notes\nentities:\n  Note:\n    fields:\n      id: { type: string }\n      ownerId: { type: string, references: Person }\n' > "$RUNNER_TEMP/two/graphs/notes/domain.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/two" --strict > "$RUNNER_TEMP/two.txt" 2>&1 || code=$?
+          cat "$RUNNER_TEMP/two.txt"
+          test "$code" -eq 2
+          grep -F 'notes/domain.yaml:8:32: error: the field Note.ownerId references Person, which is not an entity of the domain example.notes' "$RUNNER_TEMP/two.txt" | grep -F '[entity-unknown]'
+          grep -F 'people/domain.yaml:5:3: note: Person is an entity of the domain example.people' "$RUNNER_TEMP/two.txt"
       - name: A tutorial that no longer matches its flow fails the check at its step
         run: |
           t=edit/tutorial.yaml
