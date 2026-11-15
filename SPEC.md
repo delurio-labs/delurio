@@ -373,7 +373,7 @@ graphs/panel/nav/nav.yaml:42:5: error: the menu entry opens a page that refuses 
 graphs/product/flow.yaml:88:7: note: step 2: CODE_CHANGED from developing, with replayed = false
 ```
 
-`error` fails under `--strict` and `warning` does not; the `note` lines after a finding give its path or the places it relates to. On GitHub a problem matcher turns these lines into annotations on the pull request, at no cost and on pull requests from forks too.
+`error` fails under `--strict` and `warning` does not; the `note` lines after a finding give its path or the places it relates to. With `--baseline`, an error the base run had is printed as a `warning`, as it fails nothing, but a `load` error fails the run however often it was seen and is printed as an `error`. The summary on the last line counts the findings at the levels they are printed at. On GitHub a problem matcher turns these lines into annotations on the pull request, at no cost and on pull requests from forks too.
 
 **As SARIF.** `--format sarif` writes SARIF 2.1.0 (OASIS), which code scanning on GitHub, GitLab and Azure DevOps, SonarQube and the SARIF viewer for VS Code read. A finding of a graph fills every part of SARIF it has:
 

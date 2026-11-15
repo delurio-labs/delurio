@@ -82,6 +82,8 @@ const RULES: Rule[] = [
   { id: 'nav-note', text: 'A note on the navigation graph', level: 'warning' },
 ];
 const LEVEL = new Map(RULES.map((r) => [r.id, r.level]));
+// the rules whose errors stop the run (exit 1) however --strict and --baseline read them
+const BREAKING = new Set(['load', 'format-newer']);
 
 export const count = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -275,6 +277,10 @@ function checkNav(dir: string): CheckResult[] {
   return out;
 }
 
+// the level a finding is printed at, and counted at: an error known from the baseline is a warning, as it fails no
+// run, but one that stops the run (it cannot be loaded) is an error however often it was seen
+const printedLevel = (r: CheckResult): Level => (r.level === 'error' && r.baselineState === 'unchanged' && !BREAKING.has(r.rule) ? 'warning' : r.level);
+
 // where a load error is (SPEC.md §10): the place the loader or the model gave it, at the keys it names or the line a
 // parser gave, in the file it names; else the line a YAML parser gave; else the start of the graph's own file
 function loadPlace(dir: string, file: string, err: Error): Place {
@@ -404,7 +410,7 @@ function checkRun(args: string[]): number {
     const prints = baselinePrints(baseline);
     for (const r of results) r.baselineState = prints.has(fingerprint(r)) ? 'unchanged' : 'new';
   }
-  const failing = results.filter((r) => r.level === 'error' && r.rule !== 'load' && r.rule !== 'format-newer' && (r.baselineState === undefined || r.baselineState === 'new'));
+  const failing = results.filter((r) => r.level === 'error' && !BREAKING.has(r.rule) && (r.baselineState === undefined || r.baselineState === 'new'));
   const exitCode = broken ? 1 : strict && failing.length > 0 ? 2 : 0;
 
   if (format === 'sarif') {
@@ -414,13 +420,12 @@ function checkRun(args: string[]): number {
   }
   if (format === 'text' || output !== undefined) {
     for (const r of results) {
-      const level = r.level === 'error' && r.baselineState === 'unchanged' ? 'warning' : r.level;
-      console.log(`${r.file}:${r.line}:${r.column}: ${level}: ${r.message} [${r.rule}]`);
+      console.log(`${r.file}:${r.line}:${r.column}: ${printedLevel(r)}: ${r.message} [${r.rule}]`);
       for (const n of r.notes) console.log(`${n.file}:${n.line}:${n.column}: note: ${n.message}`);
     }
     const graphs = dirsOfGraphs.length;
-    const errors = results.filter((r) => r.level === 'error').length;
-    const warnings = results.filter((r) => r.level === 'warning').length;
+    const errors = results.filter((r) => printedLevel(r) === 'error').length;
+    const warnings = results.filter((r) => printedLevel(r) === 'warning').length;
     console.error(`delurio check: ${count(graphs, 'graph')}, ${count(errors, 'error')}, ${count(warnings, 'warning')}; exit ${exitCode}`);
   }
   return exitCode;
