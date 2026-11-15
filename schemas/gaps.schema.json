@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unpkg.com/@delurio/cli@0.9.0/schemas/gaps.schema.json",
+  "title": "delurio gaps of a product (needs.gaps.yaml)",
+  "description": "Every need of a product's flows that is missing, by the flow's id and the need's id, in delurio-graph/0 (SPEC.md §13). It sits at the root of the product's graphs and covers the flows under its folder. A need that is missing and not listed here fails the check, and so does an entry whose need is met: the list only shrinks on its own.",
+  "type": "object",
+  "required": ["schema", "kind", "id", "gaps"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "description": "The format and its version. Every graph file starts with it.",
+      "const": "delurio-graph/0"
+    },
+    "kind": { "description": "The kind of graph file. A needs.gaps.yaml is `gaps`.", "const": "gaps" },
+    "id": {
+      "type": "string",
+      "description": "The product's id, as its flows' ids begin.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "examples": ["example.notes"]
+    },
+    "title": { "type": "string", "description": "The list in plain words, for people." },
+    "summary": { "type": "string", "description": "What the gaps are, in a few plain sentences: the phases still to come, for instance." },
+    "status": {
+      "description": "`proposed`: written, nobody has approved it. `approved`: the owner reviewed and accepted the list.",
+      "enum": ["proposed", "approved"]
+    },
+    "gaps": {
+      "type": "object",
+      "description": "The needs that are missing, by flow id: each a list of need ids, every one of them a need of that flow's needs.yaml that says `missing`. Empty when every need is met.",
+      "propertyNames": {
+        "type": "string",
+        "description": "A flow's id, as its needs.yaml gives it.",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+      },
+      "additionalProperties": {
+        "type": "array",
+        "description": "The ids of the flow's needs that are missing.",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "description": "A need's id: kebab-case.",
+          "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+        }
+      },
+      "examples": [{ "example.restoreNote": ["says-when-it-is-erased"] }]
+    }
+  }
+}
