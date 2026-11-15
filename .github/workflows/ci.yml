@@ -242,3 +242,19 @@ jobs:
             const at = run.results.filter((r) => r.ruleId === "load").map((r) => `${r.locations[0].physicalLocation.artifactLocation.uri.split("/load/")[1]}:${r.locations[0].physicalLocation.region.startLine}`);
             for (const want of ["no-catalog/ui.yaml:1", "no-catalog-file/ui.yaml:5", "guard/flow.yaml:7", "target/flow.yaml:129"]) if (!at.includes(want)) throw new Error(`no load result at ${want}: ${at.join(", ")}`);
           ' "$RUNNER_TEMP/load.sarif"
+      - name: Under --baseline, a known error that keeps a graph from loading is still an error
+        run: |
+          mkdir -p "$RUNNER_TEMP/known/no-catalog-file"
+          printf 'schema: delurio-graph/0\nkind: flow\nid: example.form\ninitial: form\nstates:\n  form: { on: { SEND: done } }\n  done: { type: final }\n' > "$RUNNER_TEMP/known/no-catalog-file/flow.yaml"
+          printf 'schema: delurio-graph/0\nkind: ui\nid: example.form\nflow: example.form\ncatalog: catalog/en.json\nnodes:\n  send: { type: action, component: Button, role: button, text: { key: Form.send }, in: [form], emits: SEND }\n' > "$RUNNER_TEMP/known/no-catalog-file/ui.yaml"
+          cp -r examples/qauth-authorize "$RUNNER_TEMP/known/schema"
+          sed -i 's/left: { type: final, title: The user leaves, leavesPage: true }/left: { type: final, title: The user leaves, and nothing is sent, leavesPage: true }/' "$RUNNER_TEMP/known/schema/flow.yaml"
+          node dist/cli.js check "$RUNNER_TEMP/known" --format sarif --output "$RUNNER_TEMP/known.sarif" > /dev/null 2>&1 || true
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/known" --strict --baseline "$RUNNER_TEMP/known.sarif" > "$RUNNER_TEMP/known.txt" 2>&1 || code=$?
+          cat "$RUNNER_TEMP/known.txt"
+          test "$code" -eq 1
+          grep -F 'no-catalog-file/ui.yaml:5:1: error: the catalog catalog/en.json that ui.yaml names does not exist [load]' "$RUNNER_TEMP/known.txt"
+          ! grep -F 'warning: the catalog' "$RUNNER_TEMP/known.txt"
+          grep -F 'schema/flow.yaml' "$RUNNER_TEMP/known.txt" | grep -F 'warning:' | grep -F '[schema]'
+          grep -E 'delurio check: 2 graphs, 1 error, [1-9][0-9]* warnings?; exit 1' "$RUNNER_TEMP/known.txt"

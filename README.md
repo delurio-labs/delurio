@@ -44,7 +44,7 @@ Several folders may be given (`check graphs examples`); a graph under two of the
   ```
 
 - **SARIF:** `--format sarif --output delurio.sarif` writes SARIF 2.1.0 for code scanning. The same input gives the same bytes.
-- **Baseline:** `--baseline <sarif>` fails only on errors that are new since an earlier run.
+- **Baseline:** `--baseline <sarif>` fails only on errors that are new since an earlier run; a graph that cannot be loaded fails it, new or not.
 
 | Exit | Meaning |
 |---|---|
