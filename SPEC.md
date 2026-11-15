@@ -119,7 +119,9 @@ A configuration is a state together with a value for every context variable. The
 
 Each assertion is `never: <expression>`: it holds when no reachable configuration satisfies the expression. A violation is reported with the shortest event path from a starting situation. Under `--strict` a violated assertion exits 2.
 
-The checker does not yet fail on unreachable states, transitions no situation takes, or states with no way out; the page already shows them. That is [#2](https://github.com/delurio-labs/delurio/issues/2). Paths that cover every transition are [#4](https://github.com/delurio-labs/delurio/issues/4).
+The checker does not yet fail on unreachable states, transitions no situation takes, or states with no way out; the page already shows them. That is [#2](https://github.com/delurio-labs/delurio/issues/2).
+
+`cover` in `@delurio/cli/model` gives event paths that together pass every reachable state, or take every reachable transition, from the same starts the checker explores (or the ones a replay is bound to). Each path is a shortest way to the state or transition it is kept for, so it repeats a state only on the way to something not yet covered; the longest are kept first, and a path that covers nothing new is left out. Each has an id, a hash of its start and its transitions, and lists what it covers, and the result lists what no situation reaches. The same flow gives the same paths in the same order. A replay walks them (`--cover`, §7). Why a transition cannot be reached, a coverage report of the walks, and the command that fails on what they did not reach are [#4](https://github.com/delurio-labs/delurio/issues/4).
 
 ### Several flows
 
