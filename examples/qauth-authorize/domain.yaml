@@ -54,7 +54,7 @@ policies:
 actions:
   validate:
     route: GET /authorize
-    result: { returns: ValidatedRequest }
+    result: { returns: AuthorizationRequest }
     refusals:
       CLIENT_UNKNOWN: { redirect: never }
       REDIRECT_URI_MISMATCH: { redirect: never }
