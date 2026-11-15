@@ -73,6 +73,7 @@ const RULES: Rule[] = [
   { id: 'hand-over', text: 'A started flow cannot begin with what it is given', level: 'error' },
   { id: 'changes-note-missing', text: 'A flow whose steps write has no changes note (SPEC.md §4)', level: 'error' },
   { id: 'changes-note-locale', text: "The changes note is missing from a locale's catalog", level: 'error' },
+  { id: 'task-locale', text: "The flow's name for its users is missing from a locale's catalog (SPEC.md §4)", level: 'error' },
   { id: 'source-missing', text: 'A state of a captured flow names no code (SPEC.md §9)', level: 'error' },
   { id: 'focus-not-shown', text: 'A focus or a returnsFocus gives the focus to a node that is not shown there (SPEC.md §4)', level: 'error' },
   { id: 'returns-focus-not-dialog', text: 'A returnsFocus does not start at a dialog (SPEC.md §4)', level: 'error' },

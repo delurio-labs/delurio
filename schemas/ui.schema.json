@@ -36,6 +36,15 @@
       "additionalProperties": { "type": "string", "description": "The sample value." },
       "examples": [{ "client": "Acme Notes" }]
     },
+    "task": {
+      "type": "object",
+      "description": "The flow's name as its users know it, in their own words and language, such as \"Invite a member\": what Rehber names the task by, and what a list of tasks or a video shows. The graph's `title` is in the graph's language, for the people who write it; this is in every locale.",
+      "required": ["key"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "$ref": "#/$defs/catalogKey", "description": "The catalog key of the name; every locale's catalog must have it.", "examples": ["Invite.task"] }
+      }
+    },
     "changes": {
       "type": "object",
       "description": "What the flow changes and what follows, in its users' own words: what is created, sent, charged or removed, who sees it, and whether it can be undone. Required under --strict when the flow's steps invoke a writing action of its domain.",

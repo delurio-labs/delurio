@@ -155,6 +155,7 @@ locales: [en]
 kit: ../kit                 # optional: the kit the screens are drawn with
 samples: { client: "Acme Notes" }   # values for catalog parameters, on the page and in videos
 changes: { key: Changes.note }      # optional: what the flow changes and what follows, in its users' words
+task: { key: Authorize.task }       # optional: the flow's name as its users know it
 focus: { <state>: <node> }          # optional: the node that has focus once a step has led into the state
 nodes: { <node>: { .. } }
 edges: [ { labelledBy: [node, node] }, { triggers: [node, state] }, { returnsFocus: [dialog, node | [node, ..] | opener] } ]
@@ -181,6 +182,8 @@ rules: [ { id, rule } ]
 | `checked` | on a node whose role is `checkbox`, `menuitemcheckbox`, `menuitemradio`, `option`, `radio` or `switch`: whether it is checked (an `option`: selected) when it is shown, as an expression over the context (§3), or `true` or `false` |
 | `script` | on a page: how much of it works without JavaScript. `optional`: the page and its actions; `actions`: the page is drawn and read without it, and only its actions need it. Without `script`, the page needs JavaScript |
 | `source` | the code that draws it |
+
+`task` is a catalog message that names the flow as its users know it, in their words and their language: "Edit a note", "Invite a member". Rehber names the task by it in the page's language, and a list of tasks or a video's title can show it. The graph's `title` is in the graph's language, for the people who write and review it; `task` is in every locale. `check` gives an error (`task-locale`) where `task`'s key is missing from, or empty in, the catalog of any locale. A flow without `task` is not held to one; a tool that names it to its users then has no words of theirs for it.
 
 `changes` is a catalog message that tells the flow's users, in their own words, what the flow changes and what follows from it: what is created, sent, charged or removed, who sees it, and whether it can be undone. Rehber shows it before it guides the flow and again at the step that makes the change, and it guides a flow whose steps write something only when the flow has one (rehber.install, rehber.guide; Taha, 24 Oct 2026: "readonly olmayan her akış için nelerin değişeceğini ve ne etkilerinin olacağını okuyabilecekleri bi not olsun"). The step that makes the change is found from the graph: the one that leads into a step invoking an action that writes. `graph-viz --strict` fails a flow whose steps invoke a writing action of its domain and whose ui has no `changes`, and a `changes` key missing from any locale's catalog (`tools/graph-viz/README.md`).
 

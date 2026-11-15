@@ -289,3 +289,28 @@ jobs:
           grep -F '<select class="wf-input" tabindex="-1"><option>Yellow</option></select>' "$page"
           grep -F 'checkbox &quot;Pin it to the top of my notes&quot;' "$page"
           grep -F 'combobox &quot;Colour&quot;' "$page"
+      - name: A flow's name for its users (task) is in every locale's catalog
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/task"
+          sed -i 's/^changes: { key: Changes.note }$/&\ntask: { key: Edit.task }/; s/^locales: \[en\]$/locales: [en, tr]/' "$RUNNER_TEMP/task/edit/ui.yaml"
+          node -e '
+            const fs = require("fs");
+            const dir = process.argv[1];
+            const words = JSON.parse(fs.readFileSync(`${dir}/en.json`, "utf8"));
+            words["Edit.task"] = "Edit a note";
+            fs.writeFileSync(`${dir}/en.json`, JSON.stringify(words, null, 2));
+            fs.writeFileSync(`${dir}/tr.json`, JSON.stringify({ ...words, "Edit.task": "Notu düzenle" }, null, 2));
+          ' "$RUNNER_TEMP/task/edit/catalog"
+          node dist/cli.js check "$RUNNER_TEMP/task" --strict
+          node -e '
+            const fs = require("fs");
+            const file = `${process.argv[1]}/tr.json`;
+            const words = JSON.parse(fs.readFileSync(file, "utf8"));
+            delete words["Edit.task"];
+            fs.writeFileSync(file, JSON.stringify(words, null, 2));
+          ' "$RUNNER_TEMP/task/edit/catalog"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/task" --strict > "$RUNNER_TEMP/task.txt" || code=$?
+          cat "$RUNNER_TEMP/task.txt"
+          test "$code" -eq 2
+          grep -F "edit/ui.yaml:13:1: error: the flow's name for its users, Edit.task, is not in the tr catalog (SPEC.md §4) [task-locale]" "$RUNNER_TEMP/task.txt"

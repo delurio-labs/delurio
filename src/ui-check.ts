@@ -1,12 +1,14 @@
 // What `check` holds in ui.yaml beyond its schema (SPEC.md §4): `focus` and `returnsFocus` give the focus to a node
-// that is shown where the focus goes, `returnsFocus` starts at a dialog, and the words a field's `value` takes from
-// the catalog are there, as every other node's are. That `value`, `checked` and `script` sit only on the nodes they
+// that is shown where the focus goes, `returnsFocus` starts at a dialog, the words a field's `value` takes from the
+// catalog are there, as every other node's are, and the flow's name for its users (`task`) is in every locale. That `value`, `checked` and `script` sit only on the nodes they
 // are for is the schema's; that a `focus` state exists and that `checked` reads the context is the loader's.
+import { readFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { alternatives, isDialog, OPENER, shownIn } from './graph.ts';
 import type { Graph, Label } from './graph.ts';
 
 export interface UiProblem {
-  rule: 'focus-not-shown' | 'returns-focus-not-dialog';
+  rule: 'focus-not-shown' | 'returns-focus-not-dialog' | 'task-locale';
   path: string[]; // where in ui.yaml
   message: string;
   element: string;
@@ -110,5 +112,20 @@ export function checkUi(g: Graph, warn: (message: string) => void): UiProblem[] 
     }
   };
   for (const n of Object.values(nodes)) if (n.value !== undefined) words(n.value);
+  // the flow's name for its users, in the catalog of every locale, as the changes note is
+  const task = g.ui.task?.key;
+  if (g.ui.absent !== true && typeof task === 'string') {
+    for (const locale of g.ui.locales ?? [basename(g.ui.catalog, '.json')]) {
+      let catalog: unknown = null;
+      try {
+        catalog = JSON.parse(readFileSync(join(g.dir, dirname(g.ui.catalog), `${locale}.json`), 'utf8'));
+      } catch {
+        catalog = null;
+      }
+      const name = (catalog as Record<string, unknown> | null)?.[task];
+      if (typeof name === 'string' && name.trim() !== '') continue;
+      out.push({ rule: 'task-locale', path: ['task'], element: `task/${locale}`, message: `the flow's name for its users, ${task}, is not in the ${locale} catalog (SPEC.md §4)` });
+    }
+  }
   return out;
 }
