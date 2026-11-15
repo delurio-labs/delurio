@@ -7,8 +7,8 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from '
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { keyAt, parsingOnce, readYaml } from './yaml.ts';
 import type { DomainPart } from './domain.ts';
-import { GraphError, load, placed } from './graph.ts';
-import type { ErrorPlace } from './graph.ts';
+import { alternatives, GraphError, load, placed } from './graph.ts';
+import type { ErrorPlace, Graph } from './graph.ts';
 import { checkAssertions, explore, Model, ModelError } from './model.ts';
 import { stepsByEvents } from './story.ts';
 import { renderScreens } from './wireframe.ts';
@@ -77,6 +77,8 @@ const RULES: Rule[] = [
   { id: 'source-missing', text: 'A state of a captured flow names no code (SPEC.md §9)', level: 'error' },
   { id: 'focus-not-shown', text: 'A focus or a returnsFocus gives the focus to a node that is not shown there (SPEC.md §4)', level: 'error' },
   { id: 'returns-focus-not-dialog', text: 'A returnsFocus does not start at a dialog (SPEC.md §4)', level: 'error' },
+  { id: 'state-no-way-out', text: 'A state that is not an exit has no way out (SPEC.md §2)', level: 'error' },
+  { id: 'state-unreachable', text: 'No situation the flow starts in reaches the state (SPEC.md §2)', level: 'error' },
   { id: 'graph-warning', text: 'Another warning of the graph', level: 'error' },
   { id: 'nav-problem', text: 'A problem of the navigation graph', level: 'error' },
   { id: 'nav-note', text: 'A note on the navigation graph', level: 'warning' },
@@ -152,6 +154,16 @@ function fromWarning(dir: string, graph: string, w: string): CheckResult {
   return result('graph-warning', existsSync(ui) ? ui : flow, { line: 1, column: 1 }, w, graph, w);
 }
 
+// the states that some transition leads to, whatever its guard
+function targeted(g: Graph): Set<string> {
+  const out = new Set<string>();
+  for (const st of Object.values(g.flow.states)) {
+    for (const a of st.always ?? []) out.add(a.target);
+    for (const spec of Object.values(st.on ?? {})) for (const a of alternatives(spec)) out.add(a.target);
+  }
+  return out;
+}
+
 function checkFlow(dir: string): CheckResult[] {
   const file = join(dir, 'flow.yaml');
   const g = load(dir);
@@ -164,6 +176,21 @@ function checkFlow(dir: string): CheckResult[] {
   const model = new Model(g.flow);
   const ex = explore(model);
   const out: CheckResult[] = [];
+  const flowText = readFileSync(file, 'utf8');
+  // a state the flow stops in for good though it is no exit, and a state no situation reaches (SPEC.md §2)
+  const led = targeted(g);
+  for (const [name, st] of Object.entries(g.flow.states)) {
+    const at = (): { line: number; column: number } => keyAt(flowText, ['states', name]);
+    const element = `states/${name}`;
+    const ways = Object.keys(st.on ?? {}).length + (st.always ?? []).length;
+    if (st.type !== 'final' && ways === 0 && st.invoke === undefined) {
+      out.push(result('state-no-way-out', file, at(), `state ${name} is not an exit and has no way out: it has no on, always or invoke, so the flow stops there; make it an exit (type: final) or give it a transition (SPEC.md §2)`, g.flow.id, element));
+    }
+    if (!ex.atState.has(name)) {
+      const why = led.has(name) ? 'the transitions that lead to it are never taken: the states they leave are not reached, or their guards never hold' : 'no transition leads to it';
+      out.push(result('state-unreachable', file, at(), `state ${name} is reached by no situation the flow starts in: ${why} (SPEC.md §2)`, g.flow.id, element));
+    }
+  }
   const warnings: string[] = [];
   const warn = (m: string): void => {
     if (!warnings.includes(m)) warnings.push(m);
@@ -190,10 +217,9 @@ function checkFlow(dir: string): CheckResult[] {
   // a captured flow is read from code, so every state names the code that makes it true; an exit may leave it out, as
   // the transition into it names that code (SPEC.md §9)
   if (g.flow.status === 'captured') {
-    const text = readFileSync(file, 'utf8');
     for (const [name, st] of Object.entries(g.flow.states)) {
       if (st.source !== undefined || st.type === 'final') continue;
-      out.push(result('source-missing', file, keyAt(text, ['states', name]), `state ${name} names no code: in a captured flow every state but an exit carries source: <path>:<line> (SPEC.md §9)`, g.flow.id, `states/${name}`));
+      out.push(result('source-missing', file, keyAt(flowText, ['states', name]), `state ${name} names no code: in a captured flow every state but an exit carries source: <path>:<line> (SPEC.md §9)`, g.flow.id, `states/${name}`));
     }
   }
   return out;
