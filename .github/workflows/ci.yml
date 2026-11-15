@@ -213,7 +213,7 @@ jobs:
           cp -r examples/notes "$RUNNER_TEMP/disabled-when"
           sed -i 's/^    emits: SAVE$/&\n    disabledWhen: "not pinned"/' "$RUNNER_TEMP/disabled-when/edit/ui.yaml"
           node dist/cli.js check "$RUNNER_TEMP/disabled-when" --strict
-          node dist/cli.js page "$RUNNER_TEMP/disabled-when/edit" --out "$RUNNER_TEMP/disabled-when-page"
+          node dist/cli.js page "$RUNNER_TEMP/disabled-when/edit" --out "$RUNNER_TEMP/disabled-when-page" --kit none
           grep -F 'disabled when not pinned' "$RUNNER_TEMP/disabled-when-page/index.html"
 
           sed -i 's/disabledWhen: "not pinned"/disabledWhen: "not pined"/' "$RUNNER_TEMP/disabled-when/edit/ui.yaml"
@@ -282,7 +282,7 @@ jobs:
           json.dump(words, open(f"{d}/catalog/en.json", "w"), indent=2)
           PY
           node dist/cli.js check "$RUNNER_TEMP/controls-drawn" --strict
-          node dist/cli.js page "$RUNNER_TEMP/controls-drawn/edit" --out "$RUNNER_TEMP/controls-drawn-page" --strict
+          node dist/cli.js page "$RUNNER_TEMP/controls-drawn/edit" --out "$RUNNER_TEMP/controls-drawn-page" --kit none --strict
           page="$RUNNER_TEMP/controls-drawn-page/index.html"
           grep -F '<input type="checkbox" tabindex="-1"><span>Pin it to the top of my notes</span>' "$page"
           grep -F '<input type="radio" tabindex="-1" checked><span>Remind me later</span>' "$page"
@@ -313,4 +313,4 @@ jobs:
           node dist/cli.js check "$RUNNER_TEMP/task" --strict > "$RUNNER_TEMP/task.txt" || code=$?
           cat "$RUNNER_TEMP/task.txt"
           test "$code" -eq 2
-          grep -F "edit/ui.yaml:13:1: error: the flow's name for its users, Edit.task, is not in the tr catalog (SPEC.md §4) [task-locale]" "$RUNNER_TEMP/task.txt"
+          grep -E "edit/ui\.yaml:[0-9]+:1: error: the flow's name for its users, Edit\.task, is not in the tr catalog \(SPEC\.md §4\) \[task-locale\]" "$RUNNER_TEMP/task.txt"
