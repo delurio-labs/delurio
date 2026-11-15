@@ -44,13 +44,13 @@ Several folders may be given (`check graphs examples`); a graph under two of the
   ```
 
 - **SARIF:** `--format sarif --output delurio.sarif` writes SARIF 2.1.0 for code scanning. The same input gives the same bytes.
-- **Baseline:** `--baseline <sarif>` fails only on errors that are new since an earlier run.
+- **Baseline:** `--baseline <sarif>` fails only on errors that are new since an earlier run; a graph that cannot be loaded fails it, new or not.
 
 | Exit | Meaning |
 |---|---|
 | 0 | every graph loads, and under `--strict` nothing is wrong |
 | 1 | a graph cannot be loaded, or is written for a newer format than this version reads |
-| 2 | under `--strict`: a guarantee is broken, a catalog key or a sample is missing, the main story cannot be walked, a writing flow has no changes note… |
+| 2 | under `--strict`: a guarantee is broken, a state cannot be reached or has no way out, a catalog key is missing from a locale or a sample is missing, the main story cannot be walked, a tutorial no longer matches its flow, a writing flow has no changes note… |
 
 ## A graph's page
 

@@ -54,17 +54,26 @@ function domainUnder(root: string, id: string, depth = 4): Domain | null {
   return null;
 }
 
-// the domain the flow names, looked up by id among the graphs beside it; null when it names none or it is not found
-export function flowDomain(g: Graph): Domain | null {
-  return g.flow.domain === undefined ? null : domainUnder(rootOf(g.dir), g.flow.domain);
+// the domain the flow names, looked up by id among the graphs beside it; null when it names none or it is not found.
+// `seen` keeps what a run has found, so that the flows that name one domain look it up once
+export function flowDomain(g: Graph, seen?: Map<string, Domain | null>): Domain | null {
+  if (g.flow.domain === undefined) return null;
+  const root = rootOf(g.dir);
+  const key = `${root}\0${g.flow.domain}`;
+  if (seen?.has(key) === true) return structuredClone(seen.get(key) as Domain | null);
+  const found = domainUnder(root, g.flow.domain);
+  seen?.set(key, found);
+  return seen === undefined ? found : structuredClone(found);
 }
 
 // the HTTP method of an action's route or server function; undefined for a step inside the service
 const methodOf = (a: DomainAction | null | undefined): string | undefined => (a?.route ?? a?.serverFn)?.trim().split(/\s+/)[0]?.toUpperCase();
 
-export function checkChanges(g: Graph): ChangesCheck | null {
+// `domainOf` finds the flow's domain, called at most once: a caller that reads the domain for another rule as well
+// hands over the one it found
+export function checkChanges(g: Graph, domainOf: () => Domain | null = () => flowDomain(g)): ChangesCheck | null {
   if (g.ui.absent === true) return null;
-  const domain = flowDomain(g);
+  const domain = domainOf();
   if (domain === null) return null;
   const writing = new Set<string>();
   for (const [name, a] of Object.entries(domain.actions ?? {})) {

@@ -1,9 +1,28 @@
-import { alternatives } from './graph.ts';
-import type { Flow, Scalar, Transition } from './graph.ts';
+import { alternatives, placed, transitionPath } from './graph.ts';
+import type { ErrorPlace, Flow, Scalar, Transition } from './graph.ts';
 import { parseExpr } from './expr.ts';
 import type { Expr, Value } from './expr.ts';
 
-export class ModelError extends Error {}
+// a flow that cannot be explored; `place` says where in flow.yaml, when it is known (SPEC.md §10)
+export class ModelError extends Error {
+  readonly place: ErrorPlace | undefined;
+  constructor(message: string, place?: ErrorPlace) {
+    super(message);
+    this.place = place;
+  }
+}
+
+const inFlow = (path: string[]): ErrorPlace => ({ file: 'flow.yaml', path });
+
+// an expression read, or a ModelError that says why it cannot be: a guard or an assertion that does not parse keeps
+// the flow from loading, as a name that is not one does
+function parsed(src: string, place?: ErrorPlace): Expr {
+  try {
+    return parseExpr(src);
+  } catch (err) {
+    throw new ModelError((err as Error).message, place);
+  }
+}
 
 export interface Step {
   event: string | null;
@@ -35,6 +54,7 @@ interface Way {
   guard: string | undefined; // read the first time it is tried, as before: a guard never tried is never parsed
   effect: string[] | undefined;
   taken: string;
+  path: string[]; // where it is written in flow.yaml
 }
 
 // The model explores millions of (state, context) pairs on a large flow (QAuth's consent: 5.4 million), so every guard,
@@ -56,7 +76,8 @@ export class Model {
   }
 
   // what evaluate(parseExpr(src), lookup) gave, with the same errors, raised only when the name is reached
-  private compile(e: Expr, depth: number): Compiled {
+  // `where`: the named guard being read, so that a name in it that is not one is placed there
+  private compile(e: Expr, depth: number, where?: ErrorPlace): Compiled {
     switch (e.k) {
       case 'lit': {
         const v = e.v;
@@ -70,36 +91,37 @@ export class Model {
         const guard = this.flow.guards[name];
         if (guard === undefined)
           return (state) => {
-            throw new ModelError(`unknown name "${name}" (state ${state})`);
+            throw new ModelError(`unknown name "${name}" (state ${state})`, where);
           };
         if (depth > 8)
           return () => {
-            throw new ModelError(`guard ${name} nests too deep`);
+            throw new ModelError(`guard ${name} nests too deep`, where);
           };
+        const at = inFlow(['guards', name]);
         let inner: Compiled | null = null; // compiled when first reached, as the lookup read it
-        return (state, ctx) => (inner ??= this.compile(parseExpr(guard), depth + 1))(state, ctx);
+        return (state, ctx) => (inner ??= this.compile(parsed(guard, at), depth + 1, at))(state, ctx);
       }
       case 'list': {
-        const items = e.items.map((x) => this.compile(x, depth));
+        const items = e.items.map((x) => this.compile(x, depth, where));
         return (state, ctx) => items.map((f) => f(state, ctx));
       }
       case 'not': {
-        const f = this.compile(e.e, depth);
+        const f = this.compile(e.e, depth, where);
         return (state, ctx) => !f(state, ctx);
       }
       case 'and': {
-        const l = this.compile(e.l, depth);
-        const r = this.compile(e.r, depth);
+        const l = this.compile(e.l, depth, where);
+        const r = this.compile(e.r, depth, where);
         return (state, ctx) => Boolean(l(state, ctx)) && Boolean(r(state, ctx));
       }
       case 'or': {
-        const l = this.compile(e.l, depth);
-        const r = this.compile(e.r, depth);
+        const l = this.compile(e.l, depth, where);
+        const r = this.compile(e.r, depth, where);
         return (state, ctx) => Boolean(l(state, ctx)) || Boolean(r(state, ctx));
       }
       case 'cmp': {
-        const l = this.compile(e.l, depth);
-        const r = this.compile(e.r, depth);
+        const l = this.compile(e.l, depth, where);
+        const r = this.compile(e.r, depth, where);
         if (e.op === '==') return (state, ctx) => l(state, ctx) === r(state, ctx);
         if (e.op === '!=') return (state, ctx) => l(state, ctx) !== r(state, ctx);
         const negate = e.op === 'not in';
@@ -125,7 +147,7 @@ export class Model {
   private expr(src: string): Compiled {
     let f = this.compiled.get(src);
     if (f === undefined) {
-      f = this.compile(parseExpr(src), 0);
+      f = this.compile(parsed(src), 0);
       this.compiled.set(src, f);
     }
     return f;
@@ -276,6 +298,7 @@ export class Model {
         guard: a.guard,
         effect: a.effect,
         taken: `${state}|${event ?? 'always'}|${i}`,
+        path: transitionPath(state, st, event, i),
       });
       w =
         st.type === 'final'
@@ -300,9 +323,30 @@ export class Model {
           break;
         }
       }
-      if (always && !chosen) throw new ModelError(`\`always\` in ${state} is not exhaustive for ${JSON.stringify(Object.fromEntries(this.vars.map((v, i) => [v, ctx[i]])))}`);
+      if (always && !chosen) throw new ModelError(`\`always\` in ${state} is not exhaustive for ${JSON.stringify(Object.fromEntries(this.vars.map((v, i) => [v, ctx[i]])))}`, inFlow(['states', state, 'always']));
     }
     return out;
+  }
+
+  /**
+   * `err`, thrown by `steps(state, ctx)`, given the place in flow.yaml of the transition that threw it when it has
+   * none: the ways are tried again as `steps` tries them, and the one whose guard or effect throws is the place; else
+   * the state. Read only once a step has thrown, so the exploration itself pays nothing for it.
+   */
+  placeError<E>(err: E, state: string, ctx: Scalar[]): E {
+    if (!(err instanceof Error) || (err as { place?: unknown }).place !== undefined || this.flow.states[state] === undefined) return err;
+    for (const alts of this.waysOf(state).groups) {
+      for (const a of alts) {
+        try {
+          if (a.guard !== undefined && !this.test(a.guard, state, ctx)) continue;
+          this.apply(a.effect, ctx);
+          break;
+        } catch {
+          return placed(err, inFlow(a.path));
+        }
+      }
+    }
+    return placed(err, inFlow(['states', state]));
   }
 
   initials(): Scalar[][] {
@@ -392,22 +436,28 @@ export function explore(m: Model, from: Scalar[][] = m.initials(), keep?: (at: C
   };
   for (const c of from) push(m.flow.initial, c, -1, null);
   const starts = configs.length;
-  for (let i = 0; i < configs.length; i++) {
-    const { state, ctx } = configs[i];
-    atState.set(state, (atState.get(state) ?? 0) + 1);
-    const steps = m.steps(state, ctx);
-    for (const s of steps) {
-      if (keep !== undefined && !keep(configs[i], s)) continue;
-      taken.add(s.taken);
-      push(s.target, s.ctx, i, s.event);
+  let i = 0;
+  try {
+    for (; i < configs.length; i++) {
+      const { state, ctx } = configs[i];
+      atState.set(state, (atState.get(state) ?? 0) + 1);
+      const steps = m.steps(state, ctx);
+      for (const s of steps) {
+        if (keep !== undefined && !keep(configs[i], s)) continue;
+        taken.add(s.taken);
+        push(s.target, s.ctx, i, s.event);
+      }
+      const always = m.flow.states[state].always;
+      if (always !== undefined && steps.length > 0) {
+        const counts = branchCounts.get(state) ?? always.map(() => 0);
+        const taken0 = steps[0].taken;
+        counts[Number(taken0.slice(taken0.lastIndexOf('|') + 1))] += 1;
+        branchCounts.set(state, counts);
+      }
     }
-    const always = m.flow.states[state].always;
-    if (always !== undefined && steps.length > 0) {
-      const counts = branchCounts.get(state) ?? always.map(() => 0);
-      const taken0 = steps[0].taken;
-      counts[Number(taken0.slice(taken0.lastIndexOf('|') + 1))] += 1;
-      branchCounts.set(state, counts);
-    }
+  } catch (err) {
+    // where in flow.yaml the step that threw is written (SPEC.md §10)
+    throw i < configs.length ? m.placeError(err, configs[i].state, configs[i].ctx) : err;
   }
   return { configs, starts, taken, atState, branchCounts };
 }
@@ -468,8 +518,13 @@ export function checkAssertions(m: Model, ex: Exploration): AssertionResult[] {
     }
     return groups;
   };
-  return (m.flow.assertions ?? []).map((a) => {
-    const hit = firstHit(m, ex, a.never, byState);
+  return (m.flow.assertions ?? []).map((a, i) => {
+    let hit: number;
+    try {
+      hit = firstHit(m, ex, a.never, byState);
+    } catch (err) {
+      throw placed(err, inFlow(['assertions', String(i), 'never']));
+    }
     if (hit < 0) return { id: a.id, never: a.never, say: a.say };
     return { id: a.id, never: a.never, say: a.say, violation: { ...pathTo(m, ex, hit), state: ex.configs[hit].state } };
   });
