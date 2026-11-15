@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unpkg.com/@delurio/cli@0.9.0/schemas/needs.schema.json",
+  "title": "delurio needs of a flow (needs.yaml)",
+  "description": "What must exist for a flow's users, in delurio-graph/0 (SPEC.md §13): a closed list beside the flow's flow.yaml, each need with the evidence that it exists, or `missing` and why it does not yet. A need that is missing is a gap of the product, listed in its needs.gaps.yaml.",
+  "type": "object",
+  "required": ["schema", "kind", "id", "needs"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "$ref": "#/$defs/formatVersion" },
+    "kind": { "description": "The kind of graph file. A needs.yaml is `needs`.", "const": "needs" },
+    "id": {
+      "type": "string",
+      "description": "The id of the flow beside this file, whose needs these are.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+      "examples": ["example.restoreNote"]
+    },
+    "title": { "type": "string", "description": "The list in plain words, for people." },
+    "summary": { "type": "string", "description": "Where the needs come from and what they cover, in a few plain sentences." },
+    "status": {
+      "description": "`proposed`: written, nobody has approved it. `approved`: the owner reviewed and accepted the list. A list is written from what the flow's users need, never read from the code, so it is never `captured`.",
+      "enum": ["proposed", "approved"]
+    },
+    "needs": {
+      "type": "array",
+      "description": "The needs, in the order people read them. Each id comes once.",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/need" }
+    }
+  },
+  "$defs": {
+    "formatVersion": {
+      "description": "The format and its version. Every graph file starts with it.",
+      "const": "delurio-graph/0"
+    },
+    "need": {
+      "type": "object",
+      "description": "One thing that must exist for the flow's users. A need without `missing` is met, and names evidence outside the graph (a source, a test, a scenario or a setting); a need with `missing` is a gap, and may name what exists of it so far.",
+      "required": ["id", "need"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/needId" },
+        "need": {
+          "type": "string",
+          "description": "What must exist, in a sentence of the graph's language, from the users' side: what they can do or what they are told.",
+          "minLength": 1,
+          "examples": ["The owner of an archived note restores it from the note's own page, and it is active again."]
+        },
+        "evidence": {
+          "type": "array",
+          "description": "What shows that the need exists: the code, a test, a scenario that walks it, the states and nodes it is drawn as, a setting a deployment gives. Every piece must resolve.",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/evidence" }
+        },
+        "missing": {
+          "type": "string",
+          "description": "That the need does not exist yet, and why or where that is tracked: words, an issue, a finding's id. Its flow and id must then be in the product's needs.gaps.yaml.",
+          "minLength": 1,
+          "examples": ["archived notes are not erased yet; the second phase erases them"]
+        },
+        "note": { "type": "string", "description": "The author's own words. No tool reads them." }
+      },
+      "anyOf": [{ "required": ["evidence"] }, { "required": ["missing"] }]
+    },
+    "needId": {
+      "type": "string",
+      "description": "A need's id in its flow: kebab-case. The gaps name it so.",
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+      "examples": ["restore-from-its-page"]
+    },
+    "path": {
+      "type": "string",
+      "description": "A path relative to the application's repository root (SPEC.md §9).",
+      "pattern": "^[^\\s/][^\\s]*$"
+    },
+    "evidence": {
+      "type": "object",
+      "description": "One piece of evidence, of one kind: `source`, `test`, `scenario`, `state`, `node` or `setting`.",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "description": "The code that makes the need true: `<path>:<line>`, or a bare `<path>` for a whole file, relative to the application's repository root (SPEC.md §9). The file must exist and have that line.",
+          "pattern": "^[^\\s/:][^\\s:]*(:[0-9]+)?$",
+          "examples": ["app/notes.js", "src/notes/restore.ts:42"]
+        },
+        "test": {
+          "$ref": "#/$defs/path",
+          "description": "A test of the need: its file, relative to the application's repository root. The file must exist.",
+          "examples": ["app/notes.test.js"]
+        },
+        "name": {
+          "type": "string",
+          "description": "With `source`: a name the file holds, such as the function that does it. With `test`: the test's name as it is written, in quotes or as a test function's name. The file must hold it, not as a part of a longer word.",
+          "minLength": 1,
+          "examples": ["restoreNote", "restores an archived note"]
+        },
+        "scenario": {
+          "type": "string",
+          "description": "A scenario of a binding (SPEC.md §7) that walks the need on the app. The binding is the flow's own binding.yaml, or the one `binding` names; it binds this flow and has the scenario, its `extends` included.",
+          "minLength": 1,
+          "examples": ["owner"]
+        },
+        "binding": {
+          "$ref": "#/$defs/path",
+          "description": "With `scenario`: the binding that has it, relative to the application's repository root, when it is not the flow's own binding.yaml.",
+          "examples": ["e2e/notes.binding.yaml"]
+        },
+        "state": {
+          "type": "string",
+          "description": "A state of the flow the need is drawn as. Where only missing needs name it, a tool that walks the flow on the app leaves it out.",
+          "minLength": 1,
+          "examples": ["restoring"]
+        },
+        "node": {
+          "type": "string",
+          "description": "A node of the flow's screens (ui.yaml) the need is drawn as. Where only missing needs name it, a tool that walks the flow on the app leaves it out.",
+          "minLength": 1,
+          "examples": ["restore"]
+        },
+        "setting": {
+          "type": "string",
+          "description": "An environment variable a deployment sets for the need. The file `in` names sets it on a line that is not commented out.",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "examples": ["NOTES_SESSION_SECRET"]
+        },
+        "in": {
+          "$ref": "#/$defs/path",
+          "description": "With `setting`: the file that tells a deployment what to set, relative to the application's repository root: a dotenv file such as .env.example, or a Compose file.",
+          "examples": [".env.example", "compose.yaml"]
+        }
+      },
+      "allOf": [
+        {
+          "$comment": "a piece of evidence names its kind",
+          "anyOf": [
+            { "required": ["source"] },
+            { "required": ["test"] },
+            { "required": ["scenario"] },
+            { "required": ["state"] },
+            { "required": ["node"] },
+            { "required": ["setting"] }
+          ]
+        },
+        {
+          "$comment": "a piece of evidence is of one kind: give each kind an item of its own",
+          "if": { "required": ["source"] },
+          "then": { "properties": { "test": false, "scenario": false, "state": false, "node": false, "setting": false } }
+        },
+        {
+          "$comment": "a piece of evidence is of one kind: give each kind an item of its own",
+          "if": { "required": ["test"] },
+          "then": { "properties": { "scenario": false, "state": false, "node": false, "setting": false } }
+        },
+        {
+          "$comment": "a piece of evidence is of one kind: give each kind an item of its own",
+          "if": { "required": ["scenario"] },
+          "then": { "properties": { "state": false, "node": false, "setting": false } }
+        },
+        {
+          "$comment": "a piece of evidence is of one kind: give each kind an item of its own",
+          "if": { "required": ["state"] },
+          "then": { "properties": { "node": false, "setting": false } }
+        },
+        {
+          "$comment": "a piece of evidence is of one kind: give each kind an item of its own",
+          "if": { "required": ["node"] },
+          "then": { "properties": { "setting": false } }
+        },
+        {
+          "$comment": "name goes with a source or a test",
+          "if": { "required": ["name"] },
+          "then": { "anyOf": [{ "required": ["source"] }, { "required": ["test"] }] }
+        },
+        {
+          "$comment": "binding goes with a scenario",
+          "if": { "required": ["binding"] },
+          "then": { "required": ["scenario"] }
+        },
+        {
+          "$comment": "a setting names the file that sets it, and in goes with a setting",
+          "if": { "required": ["setting"] },
+          "then": { "required": ["in"] },
+          "else": { "properties": { "in": false } }
+        }
+      ]
+    }
+  }
+}

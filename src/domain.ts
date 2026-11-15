@@ -29,7 +29,7 @@ export interface MergedDomain {
 }
 
 // the files whose name says another kind (SPEC.md §1); only the others are read to see whether they are a domain
-export const OTHER_KINDS = new Set(['flow.yaml', 'ui.yaml', 'nav.yaml', 'nav.extracted.yaml', 'binding.yaml', 'tutorial.yaml', 'kit.yaml', 'anchors.lock.yaml']);
+export const OTHER_KINDS = new Set(['flow.yaml', 'ui.yaml', 'nav.yaml', 'nav.extracted.yaml', 'binding.yaml', 'tutorial.yaml', 'kit.yaml', 'needs.yaml', 'needs.gaps.yaml', 'anchors.lock.yaml']);
 const OWN = new Set(['schema', 'kind', 'id']);
 const JOINED = new Set(['policies', 'invariants']);
 
