@@ -94,8 +94,27 @@ export interface UiNode {
   disabledIn?: string[];
   emits?: string;
   initialFocus?: string;
+  repeat?: string; // the node is drawn once per item of this data
   frame?: string;
+  value?: Label; // on a field: what it holds when shown; `{ literal: "" }` is an empty field (SPEC.md §4)
+  checked?: boolean | string; // on a checkable role (CHECKABLE): an expression over the context, or true / false (SPEC.md §4)
+  script?: 'optional'; // on a page: it and its actions work without JavaScript (SPEC.md §4)
+  source?: string;
 }
+
+// a relation between nodes (SPEC.md §4): a node and the node that labels it, an action and the state it leads to, or
+// a dialog and the node that has focus when it closes
+export interface UiEdge {
+  labelledBy?: [string, string];
+  triggers?: [string, string];
+  returnsFocus?: [string, string];
+}
+
+// the roles whose node may say whether it is `checked` (WAI-ARIA 1.2: the roles that support aria-checked)
+export const CHECKABLE = ['checkbox', 'menuitemcheckbox', 'menuitemradio', 'option', 'radio', 'switch'] as const;
+
+// a page node drawn over another page, whose closing `returnsFocus` may give the focus back (SPEC.md §4)
+export const isDialog = (n: UiNode | undefined): boolean => n?.type === 'page' && (n.role === 'dialog' || n.role === 'alertdialog');
 
 export interface Ui {
   absent?: boolean; // the flow has no screens and no ui.yaml
@@ -106,6 +125,8 @@ export interface Ui {
   nodes: Record<string, UiNode>;
   locales?: string[]; // each has a catalog beside `catalog`, named <locale>.json
   changes?: { key: string }; // what the flow changes and what follows, in its users' words (SPEC.md §4)
+  focus?: Record<string, string>; // state -> the node that has focus when the flow enters it from another state (SPEC.md §4)
+  edges?: UiEdge[];
 }
 
 export interface Graph {
@@ -125,6 +146,37 @@ export function humanize(id: string): string {
 
 export function titleOf(flow: Flow, state: string): string {
   return flow.states[state].title ?? humanize(state);
+}
+
+// a node is shown in a state when the state is in its `in` and not in its `unless`; `when` is read over the context
+export function shownIn(n: UiNode, state: string): boolean {
+  return (n.in ?? []).includes(state) && !(n.unless ?? []).includes(state);
+}
+
+export interface FocusAfter {
+  node: string;
+  by: 'returnsFocus' | 'initialFocus' | 'focus'; // which part of ui.yaml gives it
+  from?: string; // the dialog that closed, or the page that opened
+}
+
+// The node that has focus once the flow has moved from the state `from` (null when it starts) into another state `to`,
+// both states the flow stops in (SPEC.md §4, Focus): a dialog that closes gives it back to its `returnsFocus` node when
+// `to` shows that node; else a page that opens gives it to its `initialFocus`, a dialog's before the page it covers;
+// else `focus.<to>`. null when the graph does not say, and on a move from a state to itself.
+export function focusAfter(ui: Ui, from: string | null, to: string): FocusAfter | null {
+  if (from === to) return null;
+  const nodes = ui.nodes;
+  const shown = (id: string, state: string | null): boolean => state !== null && nodes[id] !== undefined && shownIn(nodes[id], state);
+  for (const e of ui.edges ?? []) {
+    const [dialog, node] = e.returnsFocus ?? [];
+    if (dialog === undefined || node === undefined || !isDialog(nodes[dialog])) continue;
+    if (shown(dialog, from) && !shown(dialog, to) && shown(node, to)) return { node, by: 'returnsFocus', from: dialog };
+  }
+  const opened = Object.entries(nodes).filter(([id, n]) => n.type === 'page' && n.initialFocus !== undefined && shown(id, to) && !shown(id, from));
+  const page = opened.find(([, n]) => isDialog(n)) ?? opened[0];
+  if (page !== undefined) return { node: page[1].initialFocus as string, by: 'initialFocus', from: page[0] };
+  const node = from === null ? undefined : ui.focus?.[to];
+  return node === undefined ? null : { node, by: 'focus' };
 }
 
 export function alternatives(spec: TransitionSpec): Transition[] {
@@ -177,6 +229,23 @@ export function load(
     for (const s of [...(node.in ?? []), ...(node.unless ?? []), ...(node.disabledIn ?? [])]) {
       if (flow.states[s] === undefined) throw new GraphError(`ui node ${id} names the unknown state ${s}`);
     }
+    // `checked` is an expression over the context (SPEC.md §3), read when the node is shown
+    if (typeof node.checked === 'string') {
+      let names: Set<string>;
+      try {
+        names = identifiers(parseExpr(node.checked));
+      } catch (err) {
+        throw new GraphError(`ui node ${id}: checked: ${(err as Error).message}`);
+      }
+      for (const n of names) {
+        if (n !== 'state' && flow.context[n] === undefined && flow.guards[n] === undefined) {
+          throw new GraphError(`ui node ${id}: checked: ${node.checked} names ${n}, which is not a variable or a guard of the flow`);
+        }
+      }
+    }
+  }
+  for (const s of Object.keys(ui.focus ?? {})) {
+    if (flow.states[s] === undefined) throw new GraphError(`ui focus names the unknown state ${s}`);
   }
   return { dir, flow, ui, catalog };
 }

@@ -13,3 +13,4 @@ entities:
       ownerId: { type: string, format: uuid }
       body: { type: string, maxLength: 10000 }
       archivedAt: { type: [string, "null"], format: date-time }
+      pinned: { type: boolean }

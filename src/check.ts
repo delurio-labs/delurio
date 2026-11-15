@@ -13,6 +13,7 @@ import { stepsByEvents } from './story.ts';
 import { renderScreens } from './wireframe.ts';
 import { checkStarts } from './starts.ts';
 import { checkChanges } from './changes.ts';
+import { checkUi } from './ui-check.ts';
 import { KitError, resolveKit } from './kit.ts';
 import { checkGoals, findings, loadNav, viewOf } from './nav.ts';
 import { schemaKindOf, validateFile } from './schemas.ts';
@@ -73,6 +74,8 @@ const RULES: Rule[] = [
   { id: 'changes-note-missing', text: 'A flow whose steps write has no changes note (SPEC.md §4)', level: 'error' },
   { id: 'changes-note-locale', text: "The changes note is missing from a locale's catalog", level: 'error' },
   { id: 'source-missing', text: 'A state of a captured flow names no code (SPEC.md §9)', level: 'error' },
+  { id: 'focus-not-shown', text: 'A focus or a returnsFocus gives the focus to a node that is not shown there (SPEC.md §4)', level: 'error' },
+  { id: 'returns-focus-not-dialog', text: 'A returnsFocus does not start at a dialog (SPEC.md §4)', level: 'error' },
   { id: 'graph-warning', text: 'Another warning of the graph', level: 'error' },
   { id: 'nav-problem', text: 'A problem of the navigation graph', level: 'error' },
   { id: 'nav-note', text: 'A note on the navigation graph', level: 'warning' },
@@ -168,6 +171,11 @@ function checkFlow(dir: string): CheckResult[] {
   }
   if (g.flow.main !== undefined && stepsByEvents(model, g.flow.main) === null) warn('the declared main story cannot be walked: an event is not possible where it is sent');
   renderScreens(g, warn, kit);
+  if (g.ui.absent !== true) {
+    const ui = join(dir, 'ui.yaml');
+    const text = readFileSync(ui, 'utf8');
+    for (const p of checkUi(g, warn)) out.push(result(p.rule, ui, keyAt(text, p.path), p.message, g.flow.id, p.element));
+  }
   for (const h of checkStarts(g, model, ex)) for (const p of h.problems) warn(`${h.from} starts ${h.flow}: ${p}`);
   for (const p of checkChanges(g)?.problems ?? []) warn(p);
   for (const w of warnings) out.push(fromWarning(dir, g.flow.id, w));

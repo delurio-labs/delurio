@@ -1,4 +1,4 @@
-import { titleOf } from './graph.ts';
+import { shownIn, titleOf } from './graph.ts';
 import type { Graph, UiNode } from './graph.ts';
 import { drawWith, mark } from './kit.ts';
 import type { Fill, Kit } from './kit.ts';
@@ -42,10 +42,6 @@ function accessibleName(g: Graph, n: UiNode, warn: Warn): string | undefined {
   }
   if (n.role === 'button' || n.role === 'heading' || n.role === 'status' || n.role === 'alert') return texts(g, n, warn)[0];
   return undefined;
-}
-
-function shownIn(n: UiNode, state: string): boolean {
-  return (n.in ?? []).includes(state) && !(n.unless ?? []).includes(state);
 }
 
 interface Item {

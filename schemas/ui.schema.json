@@ -51,9 +51,16 @@
       "propertyNames": { "$ref": "#/$defs/identifier" },
       "additionalProperties": { "$ref": "#/$defs/node" }
     },
+    "focus": {
+      "type": "object",
+      "description": "The node that has focus when the flow enters a state from another state, after someone acts or a step ends, by state. A page that opens gives the focus to its `initialFocus` instead, and a dialog that closes to its `returnsFocus` node. The node is shown in that state.",
+      "propertyNames": { "$ref": "#/$defs/stateRef" },
+      "additionalProperties": { "$ref": "#/$defs/nodeRef", "description": "The node that has focus in that state." },
+      "examples": [{ "consent": "retryAlert" }]
+    },
     "edges": {
       "type": "array",
-      "description": "Relations the page and the checks use: a node labelled by another, an action that leads to a state.",
+      "description": "Relations the page and the checks use: a node labelled by another, an action that leads to a state, the node a dialog gives the focus back to.",
       "items": { "$ref": "#/$defs/edge" }
     },
     "rules": {
@@ -165,6 +172,35 @@
         }
       ]
     },
+    "value": {
+      "$comment": "exactly one of key, literal or oneOf",
+      "type": "object",
+      "description": "What a field holds when it is shown, until someone types in it, in one of these forms: `{ key, params }` from the catalog, `{ literal }` (`{ literal: \"\" }` for an empty field), or `{ oneOf: [keys] }`.",
+      "additionalProperties": false,
+      "properties": {
+        "key": { "$ref": "#/$defs/catalogKey", "description": "The catalog key of the message the field holds." },
+        "params": {
+          "type": "object",
+          "description": "The data each `{param}` of the message stands for (e.g. `title: note.title`); the page fills it from `samples`.",
+          "additionalProperties": { "type": "string", "description": "The data the parameter stands for." }
+        },
+        "literal": { "type": "string", "description": "What the field holds, as it is; an empty string for an empty field." },
+        "oneOf": {
+          "type": "array",
+          "description": "Catalog keys of which one is held, depending on the data.",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/catalogKey" }
+        }
+      },
+      "oneOf": [{ "required": ["key"] }, { "required": ["literal"] }, { "required": ["oneOf"] }],
+      "allOf": [
+        {
+          "$comment": "params go with key or oneOf",
+          "if": { "required": ["literal"] },
+          "then": { "properties": { "params": false } }
+        }
+      ]
+    },
     "node": {
       "type": "object",
       "description": "A node of a screen.",
@@ -207,25 +243,46 @@
           "description": "The event the node sends when pressed: an event of the flow, UPPER_SNAKE.",
           "pattern": "^[A-Z][A-Z0-9_]*$"
         },
-        "initialFocus": { "$ref": "#/$defs/nodeRef", "description": "On a page: the node that has focus when it opens." },
+        "initialFocus": { "$ref": "#/$defs/nodeRef", "description": "On a page: the node that has focus when it opens, at the flow's start or when a transition shows it." },
         "repeat": { "type": "string", "description": "The node is drawn once per item of this data.", "examples": ["request.scopes"] },
         "frame": {
           "description": "For a page: whether it may be framed; `never` (served with CSP frame-ancestors 'none').",
           "const": "never"
         },
+        "value": { "$ref": "#/$defs/value", "description": "On a field: what it holds when it is shown, until someone types in it. A replay reads the field's value and compares it." },
+        "checked": {
+          "type": ["boolean", "string"],
+          "minLength": 1,
+          "description": "On a checkbox, menuitemcheckbox, menuitemradio, option, radio or switch: whether it is checked (or selected) when it is shown, as an expression over the flow's context (SPEC.md §3), or true or false. A replay reads its checked state and compares it.",
+          "examples": [true, "pinned", "plan == 'yearly'"]
+        },
+        "script": {
+          "description": "On a page: `optional` when the page and its actions work without JavaScript (plain forms and links). Without it, JavaScript is required. A replay walks such a page a second time with JavaScript off.",
+          "const": "optional"
+        },
         "source": { "$ref": "#/$defs/sourceAnchor" }
       },
       "allOf": [
         {
-          "$comment": "initialFocus and frame are only on a page",
+          "$comment": "initialFocus, frame and script are only on a page",
           "if": { "not": { "properties": { "type": { "const": "page" } } } },
-          "then": { "properties": { "initialFocus": false, "frame": false } }
+          "then": { "properties": { "initialFocus": false, "frame": false, "script": false } }
+        },
+        {
+          "$comment": "value is only on a field: what the field holds",
+          "if": { "not": { "properties": { "type": { "const": "field" } } } },
+          "then": { "properties": { "value": false } }
+        },
+        {
+          "$comment": "checked is only on a node whose role is checkbox, menuitemcheckbox, menuitemradio, option, radio or switch",
+          "if": { "not": { "required": ["role"], "properties": { "role": { "enum": ["checkbox", "menuitemcheckbox", "menuitemradio", "option", "radio", "switch"] } } } },
+          "then": { "properties": { "checked": false } }
         }
       ]
     },
     "edge": {
       "type": "object",
-      "description": "A relation between nodes: `{ labelledBy: [node, labelNode] }` or `{ triggers: [node, state] }`.",
+      "description": "A relation between nodes: `{ labelledBy: [node, labelNode] }`, `{ triggers: [node, state] }` or `{ returnsFocus: [dialog, node] }`.",
       "minProperties": 1,
       "maxProperties": 1,
       "additionalProperties": false,
@@ -241,6 +298,13 @@
           "type": "array",
           "description": "An action and the state it leads to.",
           "prefixItems": [{ "$ref": "#/$defs/nodeRef" }, { "$ref": "#/$defs/stateRef" }],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "returnsFocus": {
+          "type": "array",
+          "description": "A dialog (a page node whose role is dialog or alertdialog) and the node that has focus when it closes, usually the one that opened it. It wins over `focus` for the state the dialog closes into, when that state shows the node.",
+          "prefixItems": [{ "$ref": "#/$defs/nodeRef" }, { "$ref": "#/$defs/nodeRef" }],
           "minItems": 2,
           "maxItems": 2
         }
