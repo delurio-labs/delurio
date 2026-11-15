@@ -172,6 +172,7 @@ rules: [ { id, rule } ]
 | `in`, `unless` | the flow states the node is shown in, and those it is not |
 | `when` | a guard or context flag that must hold for the node to show |
 | `disabledIn` | states where the node is shown but disabled |
+| `disabledWhen` | an expression over the context (§3): where it holds, the node is shown but disabled, in any state that shows it |
 | `emits` | the event the node sends when pressed |
 | `initialFocus` | on a page: the node that has focus when it opens (Focus, below) |
 | `repeat` | the node is drawn once per item of this data (`request.scopes`) |
@@ -203,9 +204,11 @@ A state that `focus` names that is not a state of the flow keeps the graph from 
 
 `value` is what a field holds when it is shown, until someone types in it. It takes the forms of a node's words except `labelledBy`: `{ key, params }` from the catalog, `{ literal }`, or `{ oneOf }`, and `{ literal: "" }` is an empty field. A replay compares it in each state that shows the field, up to the step at which its walk types in that field. `checked` says whether a control is checked, or for an `option` selected, in each state that shows it: an expression over the context there (§3), or `true` or `false`. A control someone checks during the flow is checked by an event, and the expression reads what that event's effect sets; one that the flow finds already checked is said over the context, such as the radio of the role a member already has (`checked: "role == 'admin'"`). A replay compares it in each state that shows the node. On a node drawn more than once (`repeat`, or words given as `oneOf`), `value` and `checked` hold for each control it draws; controls that differ are written as separate nodes.
 
+`disabledIn` lists the states in which a node is shown but disabled. `disabledWhen` disables it by what the context holds, in every state that shows it: a Continue button disabled until a VAT number is typed (`disabledWhen: "not vatGiven"`, where typing it is an event whose effect sets `vatGiven`), or until a box is ticked (`disabledWhen: "not accepted"`, beside the box's `checked: accepted`). A node is disabled where either says so. A replay compares it in each situation it stops in, from the context it has walked to there. A `disabledWhen` that does not parse, or names anything but a variable, a guard or `state`, keeps the graph from loading, as `checked` does.
+
 `script` on a page says how much of it works without JavaScript. With `script: optional` the page and its actions work without it: its forms are posted and its links followed by the browser itself, and JavaScript only adds to them. With `script: actions` the page is drawn and can be read without JavaScript, as a page rendered on the server is, but its actions need it. Without `script` the page needs JavaScript, and the graph says nothing of it without. A replay with `--no-js` (§7) walks the flow a second time with JavaScript off. In a state whose page is `optional` it checks what the state shows, as on the first walk, and takes the next step there. In a state whose page is `actions` it checks what the state shows but its actions (the nodes of `type: action`), and takes no step from it: the walk ends there, as it does where a step leads to a page without `script`.
 
-The `schema` rule refuses `value` on a node that is not a field, `checked` on a node of another role, and `script` on a node that is not a page. A `checked` expression that names neither a variable, a guard nor `state` keeps the graph from loading. A `value` from the catalog is held as a node's text is (`catalog-key-missing`, `sample-missing`).
+The `schema` rule refuses `value` on a node that is not a field, `checked` on a node of another role, and `script` on a node that is not a page. A `checked` or a `disabledWhen` expression that names neither a variable, a guard nor `state` keeps the graph from loading. A `value` from the catalog is held as a node's text is (`catalog-key-missing`, `sample-missing`).
 
 ### Catalog
 

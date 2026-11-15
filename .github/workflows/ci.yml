@@ -208,3 +208,17 @@ jobs:
             const driven = cover(m, "states", m.initials(), (_, s) => s.event !== "CANCEL");
             assert.deepEqual(driven.unreached, ["discarding", "left"]);
           '
+      - name: A control may be disabled by what the context holds (disabledWhen), read as checked is
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/disabled-when"
+          sed -i 's/^    emits: SAVE$/&\n    disabledWhen: "not pinned"/' "$RUNNER_TEMP/disabled-when/edit/ui.yaml"
+          node dist/cli.js check "$RUNNER_TEMP/disabled-when" --strict
+          node dist/cli.js page "$RUNNER_TEMP/disabled-when/edit" --out "$RUNNER_TEMP/disabled-when-page"
+          grep -F 'disabled when not pinned' "$RUNNER_TEMP/disabled-when-page/index.html"
+
+          sed -i 's/disabledWhen: "not pinned"/disabledWhen: "not pined"/' "$RUNNER_TEMP/disabled-when/edit/ui.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/disabled-when" --strict > "$RUNNER_TEMP/disabled-when.txt" || code=$?
+          cat "$RUNNER_TEMP/disabled-when.txt"
+          test "$code" -eq 1
+          grep -F 'ui node save: disabledWhen: not pined names pined, which is not a variable or a guard of the flow [load]' "$RUNNER_TEMP/disabled-when.txt"

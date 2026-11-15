@@ -238,6 +238,11 @@
         "unless": { "$ref": "#/$defs/states", "description": "The flow states the node is not shown in." },
         "when": { "$ref": "#/$defs/expression", "description": "A guard or context flag of the flow that must hold for the node to show." },
         "disabledIn": { "$ref": "#/$defs/states", "description": "The states where the node is shown but disabled." },
+        "disabledWhen": {
+          "$ref": "#/$defs/expression",
+          "description": "An expression over the flow's context (SPEC.md §3): where it holds, the node is shown but disabled, in any state that shows it, such as a button that waits until a VAT number is typed or a box is ticked. Beside disabledIn, the node is disabled where either says so. A replay compares it in each situation it stops in.",
+          "examples": ["not vatGiven", "not accepted"]
+        },
         "emits": {
           "type": "string",
           "description": "The event the node sends when pressed: an event of the flow, UPPER_SNAKE.",

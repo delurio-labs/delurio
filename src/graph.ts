@@ -92,6 +92,7 @@ export interface UiNode {
   unless?: string[];
   when?: string;
   disabledIn?: string[];
+  disabledWhen?: string; // an expression over the context: where it holds, the node is shown but disabled (SPEC.md §4)
   emits?: string;
   initialFocus?: string;
   repeat?: string; // the node is drawn once per item of this data
@@ -247,5 +248,25 @@ export function load(
   for (const s of Object.keys(ui.focus ?? {})) {
     if (flow.states[s] === undefined) throw new GraphError(`ui focus names the unknown state ${s}`);
   }
+  disabledWhenReads(flow, ui);
   return { dir, flow, ui, catalog };
+}
+
+// a node's `disabledWhen` is an expression over the context (SPEC.md §3, §4), read where the node is shown: one that
+// does not parse, or names what is not a variable, a guard or `state`, keeps the graph from loading, as `checked` does
+function disabledWhenReads(flow: Flow, ui: Ui): void {
+  for (const [id, node] of Object.entries(ui.nodes)) {
+    if (typeof node.disabledWhen !== 'string') continue;
+    let names: Set<string>;
+    try {
+      names = identifiers(parseExpr(node.disabledWhen));
+    } catch (err) {
+      throw new GraphError(`ui node ${id}: disabledWhen: ${(err as Error).message}`);
+    }
+    for (const n of names) {
+      if (n !== 'state' && flow.context[n] === undefined && flow.guards[n] === undefined) {
+        throw new GraphError(`ui node ${id}: disabledWhen: ${node.disabledWhen} names ${n}, which is not a variable or a guard of the flow`);
+      }
+    }
+  }
 }

@@ -56,6 +56,7 @@ function chips(it: Item): string {
   const parts = [n.role ?? n.type];
   if (n.emits !== undefined) parts.push(`emits ${n.emits}`);
   if (it.disabled) parts.push('disabled');
+  else if (n.disabledWhen !== undefined) parts.push(`disabled when ${n.disabledWhen}`);
   if (n.when !== undefined) parts.push(`when ${n.when}`);
   if (it.focus) parts.push('first focus');
   return `<span class="chip">${esc(parts.join(' · '))}</span>`;
@@ -165,7 +166,7 @@ function renderTree(g: Graph, items: Item[], warn: Warn): string {
   for (const it of items) {
     const n = it.node;
     const depth = n.component === 'Page' ? 0 : n.component === 'ListItem' ? 2 : 1;
-    const flags = [it.disabled ? 'disabled' : '', n.when !== undefined ? `when ${n.when}` : '', it.focus ? 'first focus' : '', n.emits !== undefined ? `→ ${n.emits}` : '']
+    const flags = [it.disabled ? 'disabled' : n.disabledWhen !== undefined ? `disabled when ${n.disabledWhen}` : '', n.when !== undefined ? `when ${n.when}` : '', it.focus ? 'first focus' : '', n.emits !== undefined ? `→ ${n.emits}` : '']
       .filter((f) => f !== '')
       .join(', ');
     const suffix = flags === '' ? '' : `  [${flags}]`;
