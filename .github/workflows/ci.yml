@@ -457,7 +457,7 @@ jobs:
           grep -E "edit/ui\.yaml:[0-9]+:1: error: the flow's name for its users, Edit\.task, is not in the tr catalog \(SPEC\.md §4\) \[task-locale\]" "$RUNNER_TEMP/task.txt"
       - name: A flow's needs are held to their evidence, and the example app's tests pass
         run: |
-          node --test examples/notes/app/
+          node --test examples/notes/app/notes.test.js
           node dist/cli.js check examples/notes --strict > "$RUNNER_TEMP/needs.txt" 2> "$RUNNER_TEMP/needs.err"
           cat "$RUNNER_TEMP/needs.txt" "$RUNNER_TEMP/needs.err"
           grep -F 'restore/needs.yaml:47:5: note: need says-when-it-is-erased is missing: archived notes are not erased yet' "$RUNNER_TEMP/needs.txt" | grep -F '[need-gap]'
