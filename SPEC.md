@@ -153,8 +153,9 @@ locales: [en]
 kit: ../kit                 # optional: the kit the screens are drawn with
 samples: { client: "Acme Notes" }   # values for catalog parameters, on the page and in videos
 changes: { key: Changes.note }      # optional: what the flow changes and what follows, in its users' words
+focus: { <state>: <node> }          # optional: the node that has focus once a step has led into the state
 nodes: { <node>: { .. } }
-edges: [ { labelledBy: [node, node] }, { triggers: [node, state] } ]
+edges: [ { labelledBy: [node, node] }, { triggers: [node, state] }, { returnsFocus: [dialog, node] } ]
 rules: [ { id, rule } ]
 ```
 
@@ -170,16 +171,39 @@ rules: [ { id, rule } ]
 | `when` | a guard or context flag that must hold for the node to show |
 | `disabledIn` | states where the node is shown but disabled |
 | `emits` | the event the node sends when pressed |
-| `initialFocus` | on a page: the node that has focus when it opens |
+| `initialFocus` | on a page: the node that has focus when it opens (Focus, below) |
 | `repeat` | the node is drawn once per item of this data (`request.scopes`) |
 | `frame` | for a page: whether it may be framed (`never`) |
+| `value` | on a field: what it holds when it is shown, until someone types in it: `{ key, params }`, `{ literal }` or `{ oneOf }`; `{ literal: "" }` is an empty field |
+| `checked` | on a node whose role is `checkbox`, `menuitemcheckbox`, `menuitemradio`, `option`, `radio` or `switch`: whether it is checked (an `option`: selected) when it is shown, as an expression over the context (§3), or `true` or `false` |
+| `script` | on a page: `optional` when the page and its actions work without JavaScript. Without it, the page needs JavaScript |
 | `source` | the code that draws it |
 
 `changes` is a catalog message that tells the flow's users, in their own words, what the flow changes and what follows from it: what is created, sent, charged or removed, who sees it, and whether it can be undone. Rehber shows it before it guides the flow and again at the step that makes the change, and it guides a flow whose steps write something only when the flow has one (rehber.install, rehber.guide; Taha, 24 Oct 2026: "readonly olmayan her akış için nelerin değişeceğini ve ne etkilerinin olacağını okuyabilecekleri bi not olsun"). The step that makes the change is found from the graph: the one that leads into a step invoking an action that writes. `graph-viz --strict` fails a flow whose steps invoke a writing action of its domain and whose ui has no `changes`, and a `changes` key missing from any locale's catalog (`tools/graph-viz/README.md`).
 
 A `role` is a WAI-ARIA 1.2 role, and `name` is the accessible name that Accessible Name and Description Computation 1.2 gives the node; `kit check` reads both from the browser's accessibility tree.
 
-A node is shown in a state when the state is in `in`, not in `unless`, and `when` holds. `edges` records relations the page and the checks use: a node labelled by another, an action that leads to a state. `rules` are written but no tool reads them yet; checking them, together with dialogs, focus return, confirmation before a destructive action and events handled where shown, is [#3](https://github.com/delurio-labs/delurio/issues/3).
+A node is shown in a state when the state is in `in`, not in `unless`, and `when` holds. `edges` records relations the page and the checks use: a node labelled by another, an action that leads to a state, the node a dialog gives the focus back to. `rules` are written but no tool reads them yet; checking them, together with labelled dialogs, confirmation before a destructive action and events handled where shown, is [#3](https://github.com/delurio-labs/delurio/issues/3). The focus return of #3 is partly answered: a dialog says where the focus returns with `returnsFocus` (below), and `check` holds that it starts at a dialog and gives the focus to a node shown where the dialog closes. That every dialog says it is still #3.
+
+### Focus
+
+A page that opens gives the focus to its `initialFocus`. `focus` and `returnsFocus` say where it goes after that, when someone acts or a step ends. A page opens when the flow enters a state that shows it from a state that does not, or starts in a state that shows it. The flow moves from one state it stops in to the next: a state with `always` is passed at once, so the focus is never said there. When the flow moves from one state into another, the node that has focus in the new state is the first of these that applies:
+
+1. the node of `{ returnsFocus: [<dialog>, <node>] }` in `edges`, when the dialog closes (the state before shows it and the new one does not) and the new state shows the node. The dialog is a page node whose role is `dialog` or `alertdialog`, and the node is usually the one that opened it, as the dialog pattern of the ARIA Authoring Practices Guide asks;
+2. the `initialFocus` of a page that opens and has one; when a dialog opens over a page, the dialog's;
+3. `focus.<state>`, the node that has focus when the flow enters that state from another one: on a page that stays open, the alert a failed step shows, or the status that says a step is done.
+
+When none applies, and when the flow moves from a state to itself, the graph says nothing of the focus. `focusAfter` in `@delurio/cli/graph` gives this order. A replay checks, in each state it stops in, that the node the graph gives has the focus: the browser's focused element is that node, found by its role and name or by its binding (§7).
+
+A state that `focus` names that is not a state of the flow keeps the graph from loading. `check` gives an error (`focus-not-shown`) where `focus` gives the focus to a node its state does not show (by `in` and `unless`; a replay reads `when`), or a `returnsFocus` to a node no state the dialog closes into shows, and one (`returns-focus-not-dialog`) where a `returnsFocus` starts at a node that is not a dialog.
+
+### What a control holds, and pages without JavaScript
+
+`value` is what a field holds when it is shown, until someone types in it. It takes the forms of a node's words except `labelledBy`: `{ key, params }` from the catalog, `{ literal }`, or `{ oneOf }`, and `{ literal: "" }` is an empty field. A replay compares it in each state that shows the field, up to the step at which its walk types in that field. `checked` says whether a control is checked, or for an `option` selected, in each state that shows it: an expression over the context there (§3), or `true` or `false`. A control someone checks during the flow is checked by an event, and the expression reads what that event's effect sets; one that the flow finds already checked is said over the context, such as the radio of the role a member already has (`checked: "role == 'admin'"`). A replay compares it in each state that shows the node. On a node drawn more than once (`repeat`, or words given as `oneOf`), `value` and `checked` hold for each control it draws; controls that differ are written as separate nodes.
+
+`script: optional` on a page says that the page and its actions work without JavaScript: its forms are posted and its links followed by the browser itself, and JavaScript only adds to them. Without it the page needs JavaScript, and the graph says nothing of it without. A replay with `--no-js` (§7) walks the flow a second time with JavaScript off, through the pages marked `script: optional`, and checks them as on the first walk; the walk stops where a step leads to a page that needs JavaScript.
+
+The `schema` rule refuses `value` on a node that is not a field, `checked` on a node of another role, and `script` on a node that is not a page. A `checked` expression that names neither a variable, a guard nor `state` keeps the graph from loading. A `value` from the catalog is held as a node's text is (`catalog-key-missing`, `sample-missing`).
 
 ### Catalog
 
@@ -320,7 +344,7 @@ A kit says how the components of `ui.yaml` look in one product: `tokens` and `da
 |---|---|
 | 0 | the graph loads and, under `--strict`, nothing is wrong |
 | 1 | the graph cannot be loaded: a YAML error, unsupported YAML (§1), an unknown state, an unknown name in an expression, a non-exhaustive `always`, an unsupported construct |
-| 2 | under `--strict`: an assertion is violated, a catalog key or a sample value is missing, a component has no renderer, the kit does not cover a component, the main story cannot be walked, a domain's files clash or a server function has what only a route has (§5), or a state of a captured flow names no code (§9) |
+| 2 | under `--strict`: an assertion is violated, a catalog key or a sample value is missing, a component has no renderer, the kit does not cover a component, the main story cannot be walked, the focus goes to a node that is not shown or a `returnsFocus` does not start at a dialog (§4), a domain's files clash or a server function has what only a route has (§5), or a state of a captured flow names no code (§9) |
 
 **As text.** A finding is one line in the GNU error format, which compilers, editors and most CI logs read:
 
@@ -376,7 +400,8 @@ Where a standard covers a part, delurio uses it rather than writing its own. Sur
 | OpenAPI 3.1 | an action with a route is an operation (§5); a server function is not | export and import: #13 |
 | RFC 9457, problem details | the body of a refusal (§5) | as it is |
 | SCXML (W3C, 2015) | what a flow means (§2) | a subset; export: #14 |
-| WAI-ARIA 1.2, Accessible Name and Description Computation 1.2 | roles and names in `ui.yaml` (§4) | as they are |
+| WAI-ARIA 1.2, Accessible Name and Description Computation 1.2 | roles, names and checked states in `ui.yaml` (§4) | as they are |
+| ARIA Authoring Practices Guide (W3C WAI) | where the focus goes when a dialog opens and closes (§4) | its dialog pattern, as it is |
 | WCAG 2.2 | the UI rules (#4), and their taxonomy in SARIF (§10) | as it is |
 | ICU MessageFormat; MessageFormat 2 | catalog messages (§4) | simple arguments today; MF2 when an app uses it |
 | BCP 47 | locale names (§4) | as it is |

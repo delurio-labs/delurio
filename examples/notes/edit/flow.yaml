@@ -1,0 +1,42 @@
+# Editing a note in the app: a page that works without JavaScript, a field and a checkbox that say what they hold
+# when shown, where the focus goes after a step, and a dialog that gives the focus back to the button that opened it
+# (SPEC.md §4). editNote is a server function of the split notes domain (../domain/).
+schema: delurio-graph/0
+kind: flow
+id: example.editNote
+status: proposed
+domain: example.notes
+ui: example.editNote
+title: Edit a note
+summary: The owner of a note changes its text, and may pin it; leaving without saving asks first.
+
+context:
+  pinned: { values: [false, true], initial: any, say: { "true": "the note is pinned", "false": "the note is not pinned" } }
+
+failures:
+  saving:
+    from: editNote
+    gone: [NOT_FOUND]
+
+main: [SAVE, DONE]
+initial: editing
+states:
+  editing:
+    title: Edit the note
+    on:
+      SAVE: saving
+      CANCEL: discarding
+  saving:
+    title: Save it
+    invoke: { action: editNote }
+    on:
+      DONE: saved
+      FAIL.gone: not_found
+  discarding:
+    title: Ask before discarding the changes
+    on:
+      KEEP: editing
+      DISCARD: left
+  saved: { type: final, title: Saved }
+  not_found: { type: final, title: No such note }
+  left: { type: final, title: The owner leaves without saving, leavesPage: true }

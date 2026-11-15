@@ -1,0 +1,14 @@
+{
+  "Edit.title": "Edit the note",
+  "Edit.body": "Text",
+  "Edit.bodyValue": "{body}",
+  "Edit.pin": "Pin it to the top of my notes",
+  "Edit.save": "Save",
+  "Edit.cancel": "Cancel",
+  "Edit.saving": "Saving the note",
+  "Edit.saved": "The note is saved",
+  "Discard.title": "Discard your changes?",
+  "Discard.keep": "Keep editing",
+  "Discard.discard": "Discard",
+  "Changes.note": "Saving replaces the note's text and pins or unpins it, for you alone. You can edit it again at any time."
+}

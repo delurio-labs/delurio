@@ -1,0 +1,119 @@
+# The page of a note being edited. It is a plain form, so it works without JavaScript (script: optional). The field
+# holds the note's text and the checkbox says whether it is pinned, when they are shown. Cancel asks first in a
+# dialog; keeping on gives the focus back to Cancel, and once saved the focus is on the note that says so.
+schema: delurio-graph/0
+kind: ui
+id: example.editNote
+flow: example.editNote
+status: proposed
+catalog: catalog/en.json
+locales: [en]
+samples: { body: "Milk, eggs, bread" }
+changes: { key: Changes.note }
+
+focus:
+  saved: savedStatus # the page stays; the focus moves to what the step did
+
+nodes:
+  page:
+    type: page
+    component: Page
+    role: main
+    name: { labelledBy: title }
+    in: [editing, saving, saved]
+    initialFocus: title
+    script: optional # a form posted by the browser; nothing on it needs JavaScript
+  title:
+    type: text
+    component: Heading
+    role: heading
+    text: { key: Edit.title }
+    in: [editing, saving, saved]
+  bodyField:
+    type: field
+    component: TextField
+    role: textbox
+    text: { key: Edit.body }
+    value: { key: Edit.bodyValue, params: { body: note.body } } # the note's text, until the owner types
+    in: [editing, saving]
+    disabledIn: [saving]
+  options:
+    type: list
+    component: List
+    role: list
+    in: [editing, saving]
+  pinBox:
+    type: field
+    component: ListItem
+    role: checkbox
+    text: { key: Edit.pin }
+    checked: pinned
+    in: [editing, saving]
+    disabledIn: [saving]
+  save:
+    type: action
+    component: Button
+    role: button
+    intent: confirm
+    text: { key: Edit.save }
+    in: [editing, saving]
+    disabledIn: [saving]
+    emits: SAVE
+  cancel:
+    type: action
+    component: Button
+    role: button
+    intent: secondary
+    text: { key: Edit.cancel }
+    in: [editing, saving]
+    disabledIn: [saving]
+    emits: CANCEL
+  working:
+    type: status
+    component: Status
+    role: status
+    text: { key: Edit.saving }
+    in: [saving]
+  savedStatus:
+    type: status
+    component: Status
+    role: status
+    text: { key: Edit.saved }
+    in: [saved]
+
+  discardDialog:
+    type: page
+    component: Page
+    role: alertdialog
+    name: { labelledBy: discardTitle }
+    in: [discarding]
+    initialFocus: discardTitle
+  discardTitle:
+    type: text
+    component: Heading
+    role: heading
+    text: { key: Discard.title }
+    in: [discarding]
+  keep:
+    type: action
+    component: Button
+    role: button
+    intent: dismiss
+    text: { key: Discard.keep }
+    in: [discarding]
+    emits: KEEP
+  discard:
+    type: action
+    component: Button
+    role: button
+    intent: confirm
+    text: { key: Discard.discard }
+    in: [discarding]
+    emits: DISCARD
+
+edges:
+  - { labelledBy: [page, title] }
+  - { labelledBy: [discardDialog, discardTitle] }
+  - { triggers: [save, saving] }
+  - { triggers: [cancel, discarding] }
+  - { returnsFocus: [discardDialog, cancel] }

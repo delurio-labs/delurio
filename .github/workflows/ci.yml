@@ -98,3 +98,60 @@ jobs:
         run: |
           grep -F 'a server function, POST, called only by the product' "$RUNNER_TEMP/pages/notes/restore/index.html"
           grep -F 'an HTTP operation, POST /notes/{id}/archive' "$RUNNER_TEMP/pages/notes/archive/index.html"
+      - name: The focus goes to a node shown where it goes, and a returnsFocus starts at a dialog
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/focus"
+          sed -i 's/^  saved: savedStatus/  saved: working/' "$RUNNER_TEMP/focus/edit/ui.yaml"
+          sed -i 's/returnsFocus: \[discardDialog, cancel\]/returnsFocus: [discardDialog, keep]/' "$RUNNER_TEMP/focus/edit/ui.yaml"
+          sed -i 's/^  - { labelledBy: \[page, title\] }$/&\n  - { returnsFocus: [page, title] }/' "$RUNNER_TEMP/focus/edit/ui.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/focus" --strict > "$RUNNER_TEMP/focus.txt" || code=$?
+          cat "$RUNNER_TEMP/focus.txt"
+          test "$code" -eq 2
+          test "$(grep -c '\[focus-not-shown\]' "$RUNNER_TEMP/focus.txt")" -eq 2
+          grep -F 'focus.saved gives the focus to working, which saved does not show' "$RUNNER_TEMP/focus.txt"
+          grep -F 'returnsFocus gives the focus of discardDialog to keep, but no state discardDialog closes into shows it (editing and left)' "$RUNNER_TEMP/focus.txt"
+          grep -F 'returnsFocus starts at page, which is not a dialog' "$RUNNER_TEMP/focus.txt" | grep -F '[returns-focus-not-dialog]'
+
+          cp -r examples/notes "$RUNNER_TEMP/focus-state"
+          sed -i 's/^  saved: savedStatus/  savd: savedStatus/' "$RUNNER_TEMP/focus-state/edit/ui.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/focus-state" --strict > "$RUNNER_TEMP/focus-state.txt" || code=$?
+          cat "$RUNNER_TEMP/focus-state.txt"
+          test "$code" -eq 1
+          grep -F 'ui focus names the unknown state savd [load]' "$RUNNER_TEMP/focus-state.txt"
+      - name: A value is on a field, checked on a checkable role and script on a page; checked reads the context
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/controls"
+          sed -i 's/^    emits: SAVE$/&\n    value: { literal: "" }\n    checked: true/; s/^    text: { key: Edit.title }$/&\n    script: optional/; s/value: { key: Edit.bodyValue,/value: { key: Edit.bodyText,/' "$RUNNER_TEMP/controls/edit/ui.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/controls" --strict > "$RUNNER_TEMP/controls.txt" || code=$?
+          cat "$RUNNER_TEMP/controls.txt"
+          test "$code" -eq 2
+          grep -F 'nodes.save.value: is not allowed here (value is only on a field' "$RUNNER_TEMP/controls.txt"
+          grep -F 'nodes.save.checked: is not allowed here (checked is only on a node whose role is checkbox' "$RUNNER_TEMP/controls.txt"
+          grep -F 'nodes.title.script: is not allowed here (initialFocus, frame and script are only on a page)' "$RUNNER_TEMP/controls.txt"
+          grep -F 'catalog key Edit.bodyText is missing [catalog-key-missing]' "$RUNNER_TEMP/controls.txt"
+
+          cp -r examples/notes "$RUNNER_TEMP/checked"
+          sed -i 's/^    checked: pinned$/    checked: "pined == true"/' "$RUNNER_TEMP/checked/edit/ui.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/checked" --strict > "$RUNNER_TEMP/checked.txt" || code=$?
+          cat "$RUNNER_TEMP/checked.txt"
+          test "$code" -eq 1
+          grep -F 'ui node pinBox: checked: pined == true names pined, which is not a variable or a guard of the flow [load]' "$RUNNER_TEMP/checked.txt"
+      - name: The focus after a step is the first of returnsFocus, initialFocus and focus
+        run: |
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { focusAfter, load } from "./dist/graph.js";
+
+            const edit = load("examples/notes/edit");
+            const at = (from, to) => { const f = focusAfter(edit.ui, from, to); return f === null ? null : `${f.by} ${f.node}`; };
+            assert.equal(at(null, "editing"), "initialFocus title");
+            assert.equal(at("editing", "discarding"), "initialFocus discardTitle");
+            assert.equal(at("discarding", "editing"), "returnsFocus cancel");
+            assert.equal(at("saving", "saved"), "focus savedStatus");
+            assert.equal(at("editing", "saving"), null);
+            assert.equal(at("editing", "editing"), null);
+          '
