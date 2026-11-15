@@ -258,3 +258,24 @@ jobs:
           ! grep -F 'warning: the catalog' "$RUNNER_TEMP/known.txt"
           grep -F 'schema/flow.yaml' "$RUNNER_TEMP/known.txt" | grep -F 'warning:' | grep -F '[schema]'
           grep -E 'delurio check: 2 graphs, 1 error, [1-9][0-9]* warnings?; exit 1' "$RUNNER_TEMP/known.txt"
+      - name: A state no situation reaches, or one that is no exit and has no way out, fails the check
+        run: |
+          mkdir -p "$RUNNER_TEMP/reach"
+          printf 'schema: delurio-graph/0\nkind: flow\nid: example.checkout\nstatus: proposed\ntitle: Check out\ninitial: cart\nstates:\n  cart: { by: human, on: { CONTINUE: done } }\n  pay: { by: human }\n  done: { type: final }\n' > "$RUNNER_TEMP/reach/flow.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/reach" --strict > "$RUNNER_TEMP/reach.txt" || code=$?
+          cat "$RUNNER_TEMP/reach.txt"
+          test "$code" -eq 2
+          grep -F 'reach/flow.yaml:9:3: error: state pay is not an exit and has no way out' "$RUNNER_TEMP/reach.txt" | grep -F '[state-no-way-out]'
+          grep -F 'reach/flow.yaml:9:3: error: state pay is reached by no situation the flow starts in: no transition leads to it' "$RUNNER_TEMP/reach.txt" | grep -F '[state-unreachable]'
+          node dist/cli.js check "$RUNNER_TEMP/reach"
+
+          cp -r examples/notes "$RUNNER_TEMP/guarded"
+          sed -i 's/^      CANCEL: discarding$/      CANCEL: { target: discarding, guard: "pinned and not pinned" }/' "$RUNNER_TEMP/guarded/edit/flow.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/guarded" --strict > "$RUNNER_TEMP/guarded.txt" || code=$?
+          cat "$RUNNER_TEMP/guarded.txt"
+          test "$code" -eq 2
+          test "$(grep -c '\[state-unreachable\]' "$RUNNER_TEMP/guarded.txt")" -eq 2
+          grep -F 'state discarding is reached by no situation the flow starts in: the transitions that lead to it are never taken' "$RUNNER_TEMP/guarded.txt"
+          ! grep -F '[state-no-way-out]' "$RUNNER_TEMP/guarded.txt"
