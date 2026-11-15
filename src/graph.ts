@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { readYaml } from './yaml.ts';
+import { lineAndColumn, readYaml } from './yaml.ts';
 import { identifiers, parseExpr } from './expr.ts';
 
 export type Scalar = string | number | boolean;
@@ -136,7 +136,72 @@ export interface Graph {
   catalog: Record<string, string>;
 }
 
-export class GraphError extends Error {}
+// where in a graph's files a load error is (SPEC.md §10): the file, relative to the graph's folder, and the keys that
+// lead to the place in it, or the line and column a parser gave
+export interface ErrorPlace {
+  file: string; // flow.yaml, ui.yaml, catalog/en.json
+  path?: string[];
+  line?: number;
+  column?: number;
+}
+
+export class GraphError extends Error {
+  readonly place: ErrorPlace | undefined;
+  constructor(message: string, place?: ErrorPlace) {
+    super(message);
+    this.place = place;
+  }
+}
+
+// the place of an error that a reader of the graph's files threw, given to it when it has none yet: a YAML error of
+// ui.yaml then says it is in ui.yaml, and the line the parser gave is kept
+export function placed<E>(err: E, place: ErrorPlace): E {
+  if (err instanceof Error && (err as { place?: ErrorPlace }).place === undefined) Object.assign(err, { place });
+  return err;
+}
+
+// the file a graph names, read as YAML, a YAML error carrying the file it is in
+function readGraphFile(read: (file: string) => string, file: string): unknown {
+  try {
+    return readYaml(read(file));
+  } catch (err) {
+    throw placed(err, { file });
+  }
+}
+
+const isMapValue = (v: unknown): boolean => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+// the place of a transition in flow.yaml: `on.<event>`, the item of a list of alternatives, or an item of `always`
+export function transitionPath(state: string, st: State, event: string | null, i: number): string[] {
+  if (event === null) return ['states', state, 'always', String(i)];
+  return Array.isArray(st.on?.[event]) ? ['states', state, 'on', event, String(i)] : ['states', state, 'on', event];
+}
+
+// a catalog: a JSON object, read from the file ui.yaml names; one that is not there, or is not JSON, keeps the graph
+// from loading, at the place that names it or at the place the JSON parser gave
+function readCatalog(read: (file: string) => string, exists: (file: string) => boolean, ui: Ui): Record<string, string> {
+  if (typeof ui.catalog !== 'string' || ui.catalog === '') {
+    throw new GraphError('ui.yaml names no catalog: it gives the words of its screens as catalog: catalog/<locale>.json (SPEC.md §4)', { file: 'ui.yaml', path: [] });
+  }
+  if (!exists(ui.catalog)) throw new GraphError(`the catalog ${ui.catalog} that ui.yaml names does not exist`, { file: 'ui.yaml', path: ['catalog'] });
+  let text: string;
+  try {
+    text = read(ui.catalog);
+  } catch (err) {
+    throw new GraphError(`the catalog ${ui.catalog} that ui.yaml names cannot be read: ${(err as Error).message}`, { file: 'ui.yaml', path: ['catalog'] });
+  }
+  try {
+    return JSON.parse(text) as Record<string, string>;
+  } catch (err) {
+    const message = (err as Error).message;
+    const at = /line (\d+) column (\d+)/.exec(message);
+    const offset = /position (\d+)/.exec(message);
+    const place: ErrorPlace = { file: ui.catalog };
+    if (at !== null) Object.assign(place, { line: Number(at[1]), column: Number(at[2]) });
+    else if (offset !== null) Object.assign(place, lineAndColumn(text, Number(offset[1])));
+    throw new GraphError(`the catalog ${ui.catalog} is not JSON: ${message}`, place);
+  }
+}
 
 // 'silentRedirect' -> 'silent redirect'; used only when the graph gives no title
 export function humanize(id: string): string {
@@ -190,62 +255,76 @@ export function load(
   read = (file: string): string => readFileSync(join(dir, file), 'utf8'),
   exists = (file: string): boolean => existsSync(join(dir, file)),
 ): Graph {
-  const flow = readYaml(read('flow.yaml')) as Flow;
+  const flow = readGraphFile(read, 'flow.yaml') as Flow;
+  if (!isMapValue(flow)) throw new GraphError('flow.yaml is not a map of keys (SPEC.md §2)', { file: 'flow.yaml', path: [] });
+  if (!isMapValue(flow.states)) throw new GraphError('flow.yaml has no states: a flow gives them as states: { <state>: { .. } } (SPEC.md §2)', { file: 'flow.yaml', path: ['states'] });
   // a flow with no context, guards or effects leaves the key out; every reader expects an object
   flow.context ??= {};
   flow.guards ??= {};
   flow.effects ??= {};
   // a flow with no screens (an endpoint, a webhook, a CI job) has no ui.yaml and no catalog
-  const ui: Ui = exists('ui.yaml') ? (readYaml(read('ui.yaml')) as Ui) : { absent: true, id: flow.id, catalog: '', samples: {}, nodes: {} };
-  const catalog = ui.absent === true ? {} : (JSON.parse(read(ui.catalog)) as Record<string, string>);
+  const ui: Ui = exists('ui.yaml') ? (readGraphFile(read, 'ui.yaml') as Ui) : { absent: true, id: flow.id, catalog: '', samples: {}, nodes: {} };
+  if (!isMapValue(ui)) throw new GraphError('ui.yaml is not a map of keys (SPEC.md §4)', { file: 'ui.yaml', path: [] });
+  ui.nodes ??= {};
+  ui.samples ??= {};
+  const catalog = ui.absent === true ? {} : readCatalog(read, exists, ui);
 
-  if (flow.states[flow.initial] === undefined) throw new GraphError(`initial state ${flow.initial} does not exist`);
+  if (flow.states[flow.initial] === undefined) throw new GraphError(`initial state ${flow.initial} does not exist`, { file: 'flow.yaml', path: ['initial'] });
   for (const [name, st] of Object.entries(flow.states)) {
+    if (!isMapValue(st)) throw new GraphError(`state ${name} is not a map of keys: write it as ${name}: { .. } (SPEC.md §2)`, { file: 'flow.yaml', path: ['states', name] });
     if (st.states !== undefined || st.type === 'parallel' || st.type === 'history') {
-      throw new GraphError(`state ${name}: nested, parallel and history states are not supported by graph-viz yet`);
+      throw new GraphError(`state ${name}: nested, parallel and history states are not supported by graph-viz yet`, { file: 'flow.yaml', path: ['states', name, st.states !== undefined ? 'states' : 'type'] });
     }
-    const targets = [
-      ...(st.always ?? []).map((a) => a.target),
-      ...Object.values(st.on ?? {}).flatMap((spec) => alternatives(spec).map((a) => a.target)),
+    const ways: Array<[string | null, number, Transition]> = [
+      ...(st.always ?? []).map((a, i): [null, number, Transition] => [null, i, a]),
+      ...Object.entries(st.on ?? {}).flatMap(([event, spec]) => alternatives(spec).map((a, i): [string, number, Transition] => [event, i, a])),
     ];
-    for (const t of targets) {
-      if (flow.states[t] === undefined) throw new GraphError(`state ${name} goes to ${t}, which does not exist`);
-    }
-    const ways = [...(st.always ?? []), ...Object.values(st.on ?? {}).flatMap((spec) => alternatives(spec))];
-    for (const w of ways) {
+    for (const [event, i, w] of ways) {
+      const path = transitionPath(name, st, event, i);
+      if (flow.states[w.target] === undefined) throw new GraphError(`state ${name} goes to ${w.target}, which does not exist`, { file: 'flow.yaml', path });
       if (w.starts === undefined) continue;
-      if (typeof w.starts.flow !== 'string') throw new GraphError(`state ${name}: \`starts\` names no flow`);
+      if (typeof w.starts.flow !== 'string') throw new GraphError(`state ${name}: \`starts\` names no flow`, { file: 'flow.yaml', path: [...path, 'starts'] });
       for (const [k, v] of Object.entries(w.starts.given ?? {})) {
         if (typeof v !== 'string') continue;
-        for (const id of identifiers(parseExpr(v))) {
+        const at: ErrorPlace = { file: 'flow.yaml', path: [...path, 'starts', 'given', k] };
+        let names: Set<string>;
+        try {
+          names = identifiers(parseExpr(v));
+        } catch (err) {
+          throw new GraphError(`state ${name} starts ${w.starts.flow} with ${k} = ${v}: ${(err as Error).message}`, at);
+        }
+        for (const id of names) {
           if (id !== 'state' && flow.context[id] === undefined && flow.guards[id] === undefined) {
-            throw new GraphError(`state ${name} starts ${w.starts.flow} with ${k} = ${v}: ${id} is not a variable or a guard of this flow (a value is quoted: '${id}')`);
+            throw new GraphError(`state ${name} starts ${w.starts.flow} with ${k} = ${v}: ${id} is not a variable or a guard of this flow (a value is quoted: '${id}')`, at);
           }
         }
       }
     }
   }
   for (const [id, node] of Object.entries(ui.nodes)) {
-    for (const s of [...(node.in ?? []), ...(node.unless ?? []), ...(node.disabledIn ?? [])]) {
-      if (flow.states[s] === undefined) throw new GraphError(`ui node ${id} names the unknown state ${s}`);
+    for (const key of ['in', 'unless', 'disabledIn'] as const) {
+      (node[key] ?? []).forEach((s, i) => {
+        if (flow.states[s] === undefined) throw new GraphError(`ui node ${id} names the unknown state ${s}`, { file: 'ui.yaml', path: ['nodes', id, key, String(i)] });
+      });
     }
     // `checked` is an expression over the context (SPEC.md §3), read when the node is shown
     if (typeof node.checked === 'string') {
+      const at: ErrorPlace = { file: 'ui.yaml', path: ['nodes', id, 'checked'] };
       let names: Set<string>;
       try {
         names = identifiers(parseExpr(node.checked));
       } catch (err) {
-        throw new GraphError(`ui node ${id}: checked: ${(err as Error).message}`);
+        throw new GraphError(`ui node ${id}: checked: ${(err as Error).message}`, at);
       }
       for (const n of names) {
         if (n !== 'state' && flow.context[n] === undefined && flow.guards[n] === undefined) {
-          throw new GraphError(`ui node ${id}: checked: ${node.checked} names ${n}, which is not a variable or a guard of the flow`);
+          throw new GraphError(`ui node ${id}: checked: ${node.checked} names ${n}, which is not a variable or a guard of the flow`, at);
         }
       }
     }
   }
   for (const s of Object.keys(ui.focus ?? {})) {
-    if (flow.states[s] === undefined) throw new GraphError(`ui focus names the unknown state ${s}`);
+    if (flow.states[s] === undefined) throw new GraphError(`ui focus names the unknown state ${s}`, { file: 'ui.yaml', path: ['focus', s] });
   }
   return { dir, flow, ui, catalog };
 }

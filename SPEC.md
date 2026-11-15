@@ -211,7 +211,7 @@ The `schema` rule refuses `value` on a node that is not a field, `checked` on a 
 
 A JSON object from key to an ICU MessageFormat message: the syntax of the catalogs apps already keep (ICU, FormatJS, next-intl), so a captured catalog is copied as it is. Today the tools fill simple arguments: `{param}` is filled from the node's `params`, which name sample or data values. A `plural` or `select` argument is read when a catalog first needs one. MessageFormat 2 (Unicode, stable since CLDR 47) is read when an app's own catalog is written in it.
 
-One file per locale; `ui.yaml` names the one the page uses. A locale is a BCP 47 tag, in the file name (`en.json`, `tr.json`, `pt-BR.json`) and in `locales` and `locale`.
+One file per locale; `ui.yaml` names the one the page uses, and a `ui.yaml` that names no catalog, or names one that is not there or is not JSON, cannot be loaded. A locale is a BCP 47 tag, in the file name (`en.json`, `tr.json`, `pt-BR.json`) and in `locales` and `locale`.
 
 ## 5. Domain (`kind: domain`)
 
@@ -361,8 +361,10 @@ A kit says how the components of `ui.yaml` look in one product: `tokens` and `da
 | Exit | Meaning |
 |---|---|
 | 0 | the graph loads and, under `--strict`, nothing is wrong |
-| 1 | the graph cannot be loaded: a YAML error, unsupported YAML (§1), an unknown state, an unknown name in an expression, a non-exhaustive `always`, an unsupported construct |
+| 1 | the graph cannot be loaded: a YAML error, unsupported YAML (§1), an unknown state, an unknown name in an expression or one that does not parse, a non-exhaustive `always`, an unsupported construct, a `ui.yaml` that names no catalog or a catalog that is not there or not JSON (§4) |
 | 2 | under `--strict`: an assertion is violated, a catalog key or a sample value is missing, a component has no renderer, the kit does not cover a component, the main story cannot be walked, the focus goes to a node that is not shown or a `returnsFocus` does not start at a dialog (§4), a domain's files clash or a server function has what only a route has (§5), or a state of a captured flow names no code (§9) |
+
+A graph that cannot be loaded is a finding of the rule `load`, at its place: the file and the line of what it is about (the transition that goes to a state that does not exist, the guard that does not parse, the `catalog` of `ui.yaml`), or the line and column a parser gave. The other graphs are checked as usual.
 
 **As text.** A finding is one line in the GNU error format, which compilers, editors and most CI logs read:
 
