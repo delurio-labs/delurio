@@ -279,3 +279,21 @@ jobs:
           test "$(grep -c '\[state-unreachable\]' "$RUNNER_TEMP/guarded.txt")" -eq 2
           grep -F 'state discarding is reached by no situation the flow starts in: the transitions that lead to it are never taken' "$RUNNER_TEMP/guarded.txt"
           ! grep -F '[state-no-way-out]' "$RUNNER_TEMP/guarded.txt"
+      - name: Every locale's catalog has the keys the screens use
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/locales"
+          sed -i 's/^locales: \[en\]$/locales: [en, tr, de]/' "$RUNNER_TEMP/locales/edit/ui.yaml"
+          node -e '
+            const fs = require("fs");
+            const dir = process.argv[1];
+            const words = JSON.parse(fs.readFileSync(`${dir}/en.json`, "utf8"));
+            delete words["Edit.save"];
+            fs.writeFileSync(`${dir}/tr.json`, JSON.stringify(words, null, 2));
+          ' "$RUNNER_TEMP/locales/edit/catalog"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/locales" --strict > "$RUNNER_TEMP/locales.txt" || code=$?
+          cat "$RUNNER_TEMP/locales.txt"
+          test "$code" -eq 2
+          grep -F 'error: catalog key Edit.save is missing from the tr catalog, catalog/tr.json [catalog-key-missing]' "$RUNNER_TEMP/locales.txt"
+          grep -F 'error: the de catalog, catalog/de.json, does not exist' "$RUNNER_TEMP/locales.txt" | grep -F '[catalog-key-missing]'
+          test "$(grep -c '\[catalog-key-missing\]' "$RUNNER_TEMP/locales.txt")" -eq 2

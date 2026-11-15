@@ -66,7 +66,7 @@ const RULES: Rule[] = [
   { id: 'server-fn-http', text: 'A server function is given a route, a query or an operationId, which only an HTTP operation has (SPEC.md §5)', level: 'error' },
   { id: 'assertion-violated', text: 'A guarantee of the flow is broken by a reachable situation', level: 'error' },
   { id: 'main-story-unwalkable', text: 'The declared main story cannot be walked', level: 'error' },
-  { id: 'catalog-key-missing', text: 'A catalog key the screens use is missing', level: 'error' },
+  { id: 'catalog-key-missing', text: "A catalog key the screens use is missing from a locale's catalog", level: 'error' },
   { id: 'sample-missing', text: 'A catalog message has a placeholder with no sample value', level: 'error' },
   { id: 'no-renderer', text: 'A component has no renderer', level: 'error' },
   { id: 'kit-uncovered', text: "The kit does not cover a component or an intent", level: 'error' },
@@ -154,6 +154,39 @@ function fromWarning(dir: string, graph: string, w: string): CheckResult {
   return result('graph-warning', existsSync(ui) ? ui : flow, { line: 1, column: 1 }, w, graph, w);
 }
 
+// the words of the screens in each locale but the one ui.yaml names (SPEC.md §4): a key the screens use that a locale's
+// catalog lacks, at the key's line, as for the catalog ui.yaml names; a locale whose catalog is not there, at `locales`
+function checkLocales(g: Graph, dir: string): CheckResult[] {
+  if (g.ui.absent === true) return [];
+  const ui = join(dir, 'ui.yaml');
+  const named = join(dir, g.ui.catalog);
+  const out: CheckResult[] = [];
+  for (const locale of g.ui.locales ?? []) {
+    const name = join(dirname(g.ui.catalog), `${locale}.json`);
+    const abs = join(dir, name);
+    if (abs === named) continue;
+    let catalog: Record<string, string>;
+    try {
+      catalog = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, string>;
+    } catch (err) {
+      const text = readFileSync(ui, 'utf8');
+      const why = existsSync(abs) ? `is not JSON: ${(err as Error).message}` : 'does not exist';
+      out.push(result('catalog-key-missing', ui, keyAt(text, ['locales']), `the ${locale} catalog, ${name}, ${why}: every word the screens use is missing in ${locale}`, g.flow.id, `catalog/${locale}`));
+      continue;
+    }
+    const missing: string[] = [];
+    const collect = (m: string): void => {
+      const key = /^catalog key (\S+) is missing/.exec(m)?.[1];
+      if (key !== undefined && !missing.includes(key)) missing.push(key);
+    };
+    const other: Graph = { ...g, catalog: catalog !== null && typeof catalog === 'object' ? catalog : {} };
+    renderScreens(other, collect, null);
+    checkUi(other, collect);
+    for (const key of missing) out.push(result('catalog-key-missing', ui, placeOf(ui, key), `catalog key ${key} is missing from the ${locale} catalog, ${name}`, g.flow.id, `${key}/${locale}`));
+  }
+  return out;
+}
+
 // the states that some transition leads to, whatever its guard
 function targeted(g: Graph): Set<string> {
   const out = new Set<string>();
@@ -211,6 +244,7 @@ function checkFlow(dir: string): CheckResult[] {
     const text = readFileSync(ui, 'utf8');
     for (const p of checkUi(g, warn)) out.push(result(p.rule, ui, keyAt(text, p.path), p.message, g.flow.id, p.element));
   }
+  out.push(...checkLocales(g, dir));
   for (const h of checkStarts(g, model, ex)) for (const p of h.problems) warn(`${h.from} starts ${h.flow}: ${p}`);
   for (const p of checkChanges(g)?.problems ?? []) warn(p);
   for (const w of warnings) out.push(fromWarning(dir, g.flow.id, w));

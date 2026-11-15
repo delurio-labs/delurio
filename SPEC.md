@@ -211,7 +211,7 @@ The `schema` rule refuses `value` on a node that is not a field, `checked` on a 
 
 A JSON object from key to an ICU MessageFormat message: the syntax of the catalogs apps already keep (ICU, FormatJS, next-intl), so a captured catalog is copied as it is. Today the tools fill simple arguments: `{param}` is filled from the node's `params`, which name sample or data values. A `plural` or `select` argument is read when a catalog first needs one. MessageFormat 2 (Unicode, stable since CLDR 47) is read when an app's own catalog is written in it.
 
-One file per locale; `ui.yaml` names the one the page uses, and a `ui.yaml` that names no catalog, or names one that is not there or is not JSON, cannot be loaded. A locale is a BCP 47 tag, in the file name (`en.json`, `tr.json`, `pt-BR.json`) and in `locales` and `locale`.
+One file per locale; `ui.yaml` names the one the page uses (`catalog`), and `locales` lists every locale its screens are written in, each in a file of its own beside that one, `<locale>.json`. A `ui.yaml` that names no catalog, or names one that is not there or is not JSON, cannot be loaded. `check` holds every locale's catalog to the same words: a key that a screen uses (a node's `name`, `text` or `value`) and that a locale's catalog lacks is an error (`catalog-key-missing`) at the key in `ui.yaml`, and so is a locale of `locales` whose file is not there. A placeholder with no sample value (`sample-missing`) is looked for in the catalog `ui.yaml` names. A locale is a BCP 47 tag, in the file name (`en.json`, `tr.json`, `pt-BR.json`) and in `locales` and `locale`.
 
 ## 5. Domain (`kind: domain`)
 
