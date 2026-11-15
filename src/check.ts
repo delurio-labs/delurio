@@ -20,8 +20,8 @@ import { schemaKindOf, validateFile } from './schemas.ts';
 import { inReadingOrder, mergeDomain } from './domain.ts';
 
 export const CHECK_USAGE = [
-  '  node src/cli.ts check <graphs folder> [--strict] [--baseline <sarif>] [--format sarif --output <file>]',
-  '    checks every graph under the folder and writes nothing else: GNU error lines on stdout, or SARIF 2.1.0;',
+  '  node src/cli.ts check <graphs folder>... [--strict] [--baseline <sarif>] [--format sarif --output <file>]',
+  '    checks every graph under the folders and writes nothing else: GNU error lines on stdout, or SARIF 2.1.0;',
   '    exit 0 clean, 1 a graph cannot be loaded or needs a newer format, 2 an error under --strict (new since --baseline)',
 ].join('\n');
 
@@ -328,12 +328,19 @@ export function checkMain(args: string[]): number {
     return i >= 0 ? args[i + 1] : undefined;
   };
   const withValue = ['--baseline', '--format', '--output'];
-  const dir = args.find((a, i) => !a.startsWith('--') && !withValue.includes(args[i - 1] ?? ''));
-  if (dir === undefined) {
+  const dirs = args.filter((a, i) => !a.startsWith('--') && !withValue.includes(args[i - 1] ?? ''));
+  if (dirs.length === 0) {
     console.error(`usage:\n${CHECK_USAGE}`);
     return 1;
   }
-  const root = resolve(dir);
+  const notFolder = dirs.find((d) => !existsSync(d) || !statSync(d).isDirectory());
+  if (notFolder !== undefined) {
+    console.error(`${notFolder} is not a folder\nusage:\n${CHECK_USAGE}`);
+    return 1;
+  }
+  // every folder given, each graph and file once though one folder holds another
+  const roots = dirs.map((d) => resolve(d));
+  const dirsOfGraphs = [...new Set(roots.flatMap((r) => graphDirs(r)))];
   const strict = args.includes('--strict');
   const format = flag('--format') ?? 'text';
   const output = flag('--output');
@@ -345,7 +352,7 @@ export function checkMain(args: string[]): number {
 
   const results: CheckResult[] = [];
   let broken = false;
-  for (const d of graphDirs(root)) {
+  for (const d of dirsOfGraphs) {
     const file = existsSync(join(d, 'flow.yaml')) ? join(d, 'flow.yaml') : join(d, 'nav.yaml');
     try {
       const newer = newerFormat(file);
@@ -363,7 +370,7 @@ export function checkMain(args: string[]): number {
     }
   }
   // every graph file against its kind's schema: what an editor with the schemas marks, check reports
-  const files = graphFiles(root);
+  const files = [...new Set(roots.flatMap((r) => graphFiles(r)))];
   for (const file of files) {
     for (const f of validateFile(file)) results.push(result('schema', file, f, f.message, f.graph ?? rel(file), f.element));
   }
@@ -388,7 +395,7 @@ export function checkMain(args: string[]): number {
       console.log(`${r.file}:${r.line}:${r.column}: ${level}: ${r.message} [${r.rule}]`);
       for (const n of r.notes) console.log(`${n.file}:${n.line}:${n.column}: note: ${n.message}`);
     }
-    const graphs = graphDirs(root).length;
+    const graphs = dirsOfGraphs.length;
     const errors = results.filter((r) => r.level === 'error').length;
     const warnings = results.filter((r) => r.level === 'warning').length;
     console.error(`delurio check: ${count(graphs, 'graph')}, ${count(errors, 'error')}, ${count(warnings, 'warning')}; exit ${exitCode}`);
