@@ -2,6 +2,10 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
+## Unreleased
+
+- `check` parses each file once however many graphs read it. Before, it parsed a flow's domain again for every flow that names it, and every flow again for every flow that starts another: on delurio's own 41 flows it took 12.7 s, of which more than half was parsing the same files again; it now takes 5.8 s. It judges nothing differently: the same graphs give the same findings, in text and in SARIF, as 0.8.0 gives.
+
 ## 0.8.0 (2026-11-15)
 
 - `ui.yaml` may say where the focus goes after a step, what a control holds, and which pages work without JavaScript (SPEC.md §4), so that a replay can check them on the app. Before, the `schema` rule refused all five keys.

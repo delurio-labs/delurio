@@ -81,18 +81,56 @@ function refusal(u: Unsupported): YAMLParseError {
   return err;
 }
 
-// the value of a graph file's text: the yaml library's `parse`, once nothing unsupported is found
+// what a run has read already, by text, so that a file many graphs share is parsed once in it: `check` parsed the
+// domain again for every flow that names it and every flow again for every flow that starts another, more than half
+// of its time on delurio's own graphs. Kept only for the run `parsingOnce` is given, so a process that imports these
+// modules and reads graph after graph (a server) keeps nothing between runs.
+interface Read {
+  values: Map<string, { value: unknown } | { refused: Unsupported }>;
+  documents: Map<string, { doc: ReturnType<typeof parseDocument>; lineCounter: LineCounter }>;
+}
+let read: Read | null = null;
+
+// `run`, with every text it reads through `readYaml` or `keyAt` parsed once; the same as `run` alone otherwise
+export function parsingOnce<T>(run: () => T): T {
+  if (read !== null) return run();
+  read = { values: new Map(), documents: new Map() };
+  try {
+    return run();
+  } finally {
+    read = null;
+  }
+}
+
+// the value of a graph file's text: the yaml library's `parse`, once nothing unsupported is found. Inside
+// `parsingOnce` each call gets its own copy, so a reader that changes the value changes no other reader's.
 export function readYaml(text: string): unknown {
+  const kept = read?.values.get(text);
+  if (kept !== undefined) {
+    if ('refused' in kept) throw refusal(kept.refused);
+    return structuredClone(kept.value);
+  }
   const u = unsupported(text);
-  if (u !== null) throw refusal(u);
-  return parse(text);
+  if (u !== null) {
+    read?.values.set(text, { refused: u });
+    throw refusal(u);
+  }
+  const value: unknown = parse(text);
+  if (read === null) return value;
+  read.values.set(text, { value });
+  return structuredClone(value);
 }
 
 // the 1-based line and column of the key at `path` in a YAML text (of the item, for a list index), else the file's
 // start; for a text `readYaml` has read
 export function keyAt(text: string, path: string[]): { line: number; column: number } {
-  const lineCounter = new LineCounter();
-  const doc = parseDocument(text, { lineCounter, prettyErrors: false });
+  let parsed = read?.documents.get(text);
+  if (parsed === undefined) {
+    const counter = new LineCounter();
+    parsed = { doc: parseDocument(text, { lineCounter: counter, prettyErrors: false }), lineCounter: counter };
+    read?.documents.set(text, parsed);
+  }
+  const { doc, lineCounter } = parsed;
   const keyOf = (pair: { key: unknown }): string => String((pair.key as { value?: unknown } | null)?.value ?? pair.key);
   let node: unknown = doc.contents;
   let at: number | undefined;

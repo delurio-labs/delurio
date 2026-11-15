@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
-import { keyAt, readYaml } from './yaml.ts';
+import { keyAt, parsingOnce, readYaml } from './yaml.ts';
 import type { DomainPart } from './domain.ts';
 import { GraphError, load } from './graph.ts';
 import { checkAssertions, explore, Model, ModelError } from './model.ts';
@@ -322,7 +322,12 @@ function sarif(results: CheckResult[], exitCode: number): object {
   };
 }
 
+// every text the check reads is parsed once in it (`parsingOnce`), however many graphs read it
 export function checkMain(args: string[]): number {
+  return parsingOnce(() => checkRun(args));
+}
+
+function checkRun(args: string[]): number {
   const flag = (name: string): string | undefined => {
     const i = args.indexOf(name);
     return i >= 0 ? args[i + 1] : undefined;
