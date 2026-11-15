@@ -1,0 +1,10 @@
+# The needs of the notes app that are missing, by flow (SPEC.md §13). A need that says `missing` and is not here fails
+# the check, and so does an entry here whose need is met, so the list only shrinks on its own: an entry leaves when its
+# need is met, and a new one is a line added in a change that a review reads.
+schema: delurio-graph/0
+kind: gaps
+id: example.notes
+status: proposed
+
+gaps:
+  example.restoreNote: [says-when-it-is-erased] # the second phase: archived notes erased after a while

@@ -1,0 +1,13 @@
+# Restoring a note, bound to the notes app for a replay (SPEC.md §7): where the app runs, who signs in, and the
+# scenario that a need of needs.yaml names as what walks it. The example app is not served, so nothing replays it here.
+schema: delurio-graph/0
+kind: binding
+flow: example.restoreNote
+apps:
+  notes: http://127.0.0.1:3000
+accounts:
+  owner: { address: owner@example.test }
+scenarios:
+  owner:
+    as: owner
+    open: "{notes}/notes/n1"
