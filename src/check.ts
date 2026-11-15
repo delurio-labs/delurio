@@ -22,6 +22,8 @@ import { KitError, resolveKit } from './kit.ts';
 import { checkGoals, findings, loadNav, viewOf } from './nav.ts';
 import { schemaKindOf, validateFile } from './schemas.ts';
 import { inReadingOrder, mergeDomain } from './domain.ts';
+import { checkDomainNames } from './domain-names.ts';
+import type { EntityElsewhere } from './domain-names.ts';
 import { checkNeeds } from './needs.ts';
 
 export const CHECK_USAGE = [
@@ -69,6 +71,8 @@ const RULES: Rule[] = [
   { id: 'domain-twice', text: 'A value of a domain is given in two of its files (SPEC.md §5)', level: 'error' },
   { id: 'domain-place', text: 'A domain file is not with the rest of its domain (SPEC.md §1)', level: 'error' },
   { id: 'server-fn-http', text: 'A server function is given a route, a query or an operationId, which only an HTTP operation has (SPEC.md §5)', level: 'error' },
+  { id: 'entity-unknown', text: "An action's returns or a references names an entity its domain does not have (SPEC.md §5)", level: 'error' },
+  { id: 'field-unknown', text: "An entity's key or required names a field the entity does not have (SPEC.md §5)", level: 'error' },
   { id: 'assertion-violated', text: 'A guarantee of the flow is broken by a reachable situation', level: 'error' },
   { id: 'main-story-unwalkable', text: 'The declared main story cannot be walked', level: 'error' },
   { id: 'catalog-key-missing', text: "A catalog key the screens use is missing from a locale's catalog", level: 'error' },
@@ -96,6 +100,7 @@ const RULES: Rule[] = [
   { id: 'need-gap', text: 'A need that is missing, listed in the gaps: counted, and fails nothing (SPEC.md §13)', level: 'note' },
   { id: 'invoke-unknown', text: "An invoke or a failures entry names an action its flow's domain does not have (SPEC.md §5)", level: 'warning' },
   { id: 'refusal-unknown', text: 'A failure class lists a code that is not a refusal of its action (SPEC.md §2)', level: 'warning' },
+  { id: 'policy-unknown', text: 'A policy names an action or an entity its domain does not have (SPEC.md §5)', level: 'warning' },
   { id: 'graph-warning', text: 'Another warning of the graph', level: 'error' },
   { id: 'nav-problem', text: 'A problem of the navigation graph', level: 'error' },
   { id: 'nav-note', text: 'A note on the navigation graph', level: 'warning' },
@@ -327,22 +332,49 @@ function checkServerFunctions(parts: DomainPart[], doc: Record<string, unknown>,
   return out;
 }
 
+// whether a domain's file gives the entity
+function givesEntity(text: string, entity: string): boolean {
+  try {
+    const entities = (readYaml(text) as { entities?: unknown } | null)?.entities;
+    return entities !== null && typeof entities === 'object' && Object.hasOwn(entities, entity);
+  } catch {
+    return false;
+  }
+}
+
 // the domains under root, each the domain files of one directory read as one (SPEC.md §5): a value given in two of
-// them, a file whose id is not its directory's, a domain whose files sit in two directories, and a server function
-// given what only an HTTP operation has
+// them, a file whose id is not its directory's, a domain whose files sit in two directories, a server function given
+// what only an HTTP operation has, and a name of an entity, a field or an action that the domain does not have
 function checkDomains(files: string[]): CheckResult[] {
   const byDir = new Map<string, string[]>();
   for (const f of files) if (schemaKindOf(f) === 'domain') byDir.set(dirname(f), [...(byDir.get(dirname(f)) ?? []), f]);
   const out: CheckResult[] = [];
   const dirsOf = new Map<string, string[]>(); // a domain's id -> the directories that hold it
-  for (const [dir, list] of byDir) {
+  const domains = [...byDir].map(([dir, list]) => {
     const parts = inReadingOrder(list).map((file) => ({ file, text: readFileSync(file, 'utf8') }));
-    const merged = mergeDomain(parts);
+    return { dir, parts, merged: mergeDomain(parts) };
+  });
+  // an entity of another domain, for the note of a name that this one does not have
+  const elsewhere = (self: string): EntityElsewhere => (entity) => {
+    for (const { dir, parts, merged } of domains) {
+      const id = merged.id ?? rel(dir);
+      const entities = merged.doc.entities as Record<string, unknown> | undefined;
+      if (id === self || entities === null || typeof entities !== 'object' || !Object.hasOwn(entities, entity)) continue;
+      const part = parts.find((p) => givesEntity(p.text, entity)) ?? parts[0];
+      return { domain: id, file: part.file, ...keyAt(part.text, ['entities', entity]) };
+    }
+    return null;
+  };
+  for (const { dir, parts, merged } of domains) {
+    const id = merged.id ?? rel(dir);
     for (const p of merged.problems) {
       const notes: Note[] = p.first === undefined ? [] : [{ file: rel(p.first.file), line: p.first.line, column: p.first.column, message: 'given first here' }];
-      out.push(result(p.rule, p.file, p, p.message, merged.id ?? rel(dir), p.element, notes));
+      out.push(result(p.rule, p.file, p, p.message, id, p.element, notes));
     }
-    out.push(...checkServerFunctions(parts, merged.doc, merged.id ?? rel(dir)));
+    out.push(...checkServerFunctions(parts, merged.doc, id));
+    for (const p of checkDomainNames(parts, merged.doc, id, elsewhere(id))) {
+      out.push(result(p.rule, p.file, p, p.message, id, p.element, p.notes.map((n) => ({ ...n, file: rel(n.file) }))));
+    }
     if (merged.id !== null) dirsOf.set(merged.id, [...(dirsOf.get(merged.id) ?? []), dir]);
   }
   for (const [id, dirs] of dirsOf) {
