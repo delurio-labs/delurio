@@ -306,3 +306,24 @@ jobs:
           grep -F 'warning: state issuing invokes issueCode, which is not an action of the domain qauth.authorize' "$RUNNER_TEMP/invokes.txt" | grep -F '[invoke-unknown]'
           grep -F 'warning: FAIL.unsafe of deciding stands for TOKEN_REUSED, which is not a refusal of decide' "$RUNNER_TEMP/invokes.txt" | grep -F '[refusal-unknown]'
           grep -F 'delurio check: 1 graph, 0 errors, 2 warnings; exit 0' "$RUNNER_TEMP/invokes.txt"
+      - name: A tutorial that no longer matches its flow fails the check at its step
+        run: |
+          t=edit/tutorial.yaml
+          broken() { rm -rf "$RUNNER_TEMP/tutorial"; cp -r examples/notes "$RUNNER_TEMP/tutorial"; sed -i "$2" "$RUNNER_TEMP/tutorial/$1"; code=0; node dist/cli.js check "$RUNNER_TEMP/tutorial" --strict > "$RUNNER_TEMP/tutorial.txt" || code=$?; cat "$RUNNER_TEMP/tutorial.txt"; test "$code" -eq 2; grep -F "$3" "$RUNNER_TEMP/tutorial.txt" | grep -F '[tutorial-mismatch]'; }
+          broken $t 's/    press: save/    press: submit/' 'tutorial.yaml:28:5: error: step 4: press submit, which is not a node of ui.yaml'
+          broken $t 's/after: \[DONE\]/after: [FINISHED]/' 'step 5: after FINISHED, which no state of example.editNote handles'
+          broken $t 's/{pinBox}/{pinButton}/' 'step 3: {pinButton} is neither a sample value nor a node of ui.yaml'
+          broken $t 's/scenario: { pinned: false }/scenario: { pinned: maybe }/' 'scenario: "maybe" is not a value of pinned'
+          broken $t 's/  - show: saving/  - show: editing/' 'step 5: shows editing, and the flow is in saving here'
+          broken edit/ui.yaml 's/^    disabledIn: \[saving\]$/    disabledIn: [editing, saving]/' 'step 4: press save, which is disabled in editing'
+          broken edit/flow.yaml 's/^      DONE: saved$/      DONE: editing/' 'step 6: the tutorial ends in saved, and the flow is in editing here'
+
+          cp -r examples/sign-out "$RUNNER_TEMP/diagram"
+          printf 'schema: delurio-graph/0\nkind: tutorial\nid: example.signOut.tutorial\nflow: example.signOut\ntitle: Signing out\nstage: diagram\nscenario: { token: valid, hasCookie: true }\nsteps:\n  - show: checking\n    say: "The app sends the token it holds."\n  - end: signed_out.cookie_cleared\n    say: "The session ends, and the cookie with it."\n' > "$RUNNER_TEMP/diagram/tutorial.yaml"
+          node dist/cli.js check "$RUNNER_TEMP/diagram" --strict
+          sed -i 's/  - end: signed_out.cookie_cleared/  - end: signed_out/' "$RUNNER_TEMP/diagram/tutorial.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/diagram" --strict > "$RUNNER_TEMP/diagram.txt" || code=$?
+          cat "$RUNNER_TEMP/diagram.txt"
+          test "$code" -eq 2
+          grep -F 'step 2: signed_out is not reached from checking without an event (the way stops in signed_out.cookie_cleared) [tutorial-mismatch]' "$RUNNER_TEMP/diagram.txt"
