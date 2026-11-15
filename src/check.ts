@@ -13,8 +13,10 @@ import { checkAssertions, explore, Model, ModelError } from './model.ts';
 import { stepsByEvents } from './story.ts';
 import { renderScreens } from './wireframe.ts';
 import { checkStarts } from './starts.ts';
-import { checkChanges } from './changes.ts';
+import { checkChanges, flowDomain } from './changes.ts';
+import type { Domain } from './changes.ts';
 import { checkUi } from './ui-check.ts';
+import { checkInvokes } from './invokes.ts';
 import { KitError, resolveKit } from './kit.ts';
 import { checkGoals, findings, loadNav, viewOf } from './nav.ts';
 import { schemaKindOf, validateFile } from './schemas.ts';
@@ -79,6 +81,8 @@ const RULES: Rule[] = [
   { id: 'returns-focus-not-dialog', text: 'A returnsFocus does not start at a dialog (SPEC.md §4)', level: 'error' },
   { id: 'state-no-way-out', text: 'A state that is not an exit has no way out (SPEC.md §2)', level: 'error' },
   { id: 'state-unreachable', text: 'No situation the flow starts in reaches the state (SPEC.md §2)', level: 'error' },
+  { id: 'invoke-unknown', text: "An invoke or a failures entry names an action its flow's domain does not have (SPEC.md §5)", level: 'warning' },
+  { id: 'refusal-unknown', text: 'A failure class lists a code that is not a refusal of its action (SPEC.md §2)', level: 'warning' },
   { id: 'graph-warning', text: 'Another warning of the graph', level: 'error' },
   { id: 'nav-problem', text: 'A problem of the navigation graph', level: 'error' },
   { id: 'nav-note', text: 'A note on the navigation graph', level: 'warning' },
@@ -197,7 +201,7 @@ function targeted(g: Graph): Set<string> {
   return out;
 }
 
-function checkFlow(dir: string): CheckResult[] {
+function checkFlow(dir: string, domains: Map<string, Domain | null>): CheckResult[] {
   const file = join(dir, 'flow.yaml');
   const g = load(dir);
   let kit: ReturnType<typeof resolveKit>;
@@ -246,8 +250,12 @@ function checkFlow(dir: string): CheckResult[] {
   }
   out.push(...checkLocales(g, dir));
   for (const h of checkStarts(g, model, ex)) for (const p of h.problems) warn(`${h.from} starts ${h.flow}: ${p}`);
-  for (const p of checkChanges(g)?.problems ?? []) warn(p);
+  // the flow's domain, looked up once for the rules that read it
+  let domain: Domain | null | undefined;
+  const domainOf = (): Domain | null => (domain === undefined ? (domain = flowDomain(g, domains)) : domain);
+  for (const p of checkChanges(g, domainOf)?.problems ?? []) warn(p);
   for (const w of warnings) out.push(fromWarning(dir, g.flow.id, w));
+  for (const p of checkInvokes(g, domainOf)) out.push(result(p.rule, file, keyAt(flowText, p.path), p.message, g.flow.id, p.element));
   // a captured flow is read from code, so every state names the code that makes it true; an exit may leave it out, as
   // the transition into it names that code (SPEC.md §9)
   if (g.flow.status === 'captured') {
@@ -440,6 +448,7 @@ function checkRun(args: string[]): number {
   }
 
   const results: CheckResult[] = [];
+  const domains = new Map<string, Domain | null>(); // the domains found, for every flow that names one
   let broken = false;
   for (const d of dirsOfGraphs) {
     const file = existsSync(join(d, 'flow.yaml')) ? join(d, 'flow.yaml') : join(d, 'nav.yaml');
@@ -450,7 +459,7 @@ function checkRun(args: string[]): number {
         results.push(result('format-newer', file, placeOf(file, 'schema:'), `written in ${newer}; this checker reads ${FORMAT}: pin a version that reads it`, rel(d), 'schema'));
         continue;
       }
-      results.push(...(file.endsWith('flow.yaml') ? checkFlow(d) : checkNav(d)));
+      results.push(...(file.endsWith('flow.yaml') ? checkFlow(d, domains) : checkNav(d)));
     } catch (err) {
       if (!(err instanceof GraphError || err instanceof ModelError || err instanceof KitError || (err instanceof Error && err.name === 'YAMLParseError'))) throw err;
       broken = true;

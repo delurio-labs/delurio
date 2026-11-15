@@ -297,3 +297,12 @@ jobs:
           grep -F 'error: catalog key Edit.save is missing from the tr catalog, catalog/tr.json [catalog-key-missing]' "$RUNNER_TEMP/locales.txt"
           grep -F 'error: the de catalog, catalog/de.json, does not exist' "$RUNNER_TEMP/locales.txt" | grep -F '[catalog-key-missing]'
           test "$(grep -c '\[catalog-key-missing\]' "$RUNNER_TEMP/locales.txt")" -eq 2
+      - name: What a flow invokes is held to its domain, as warnings
+        run: |
+          cp -r examples/qauth-authorize "$RUNNER_TEMP/invokes"
+          sed -i 's/invoke: { action: issue }/invoke: { action: issueCode }/; s/    unsafe: \[CSRF_MISMATCH, REQUEST_EXPIRED\]/    unsafe: [CSRF_MISMATCH, REQUEST_EXPIRED, TOKEN_REUSED]/' "$RUNNER_TEMP/invokes/flow.yaml"
+          node dist/cli.js check "$RUNNER_TEMP/invokes" --strict > "$RUNNER_TEMP/invokes.txt" 2>&1
+          cat "$RUNNER_TEMP/invokes.txt"
+          grep -F 'warning: state issuing invokes issueCode, which is not an action of the domain qauth.authorize' "$RUNNER_TEMP/invokes.txt" | grep -F '[invoke-unknown]'
+          grep -F 'warning: FAIL.unsafe of deciding stands for TOKEN_REUSED, which is not a refusal of decide' "$RUNNER_TEMP/invokes.txt" | grep -F '[refusal-unknown]'
+          grep -F 'delurio check: 1 graph, 0 errors, 2 warnings; exit 0' "$RUNNER_TEMP/invokes.txt"
