@@ -208,6 +208,81 @@ jobs:
             const driven = cover(m, "states", m.initials(), (_, s) => s.event !== "CANCEL");
             assert.deepEqual(driven.unreached, ["discarding", "left"]);
           '
+      - name: A graph that cannot be loaded is reported at its place, and the other graphs are still checked
+        run: |
+          mkdir -p "$RUNNER_TEMP/load/no-catalog" "$RUNNER_TEMP/load/no-catalog-file" "$RUNNER_TEMP/load/guard" "$RUNNER_TEMP/load/starter" "$RUNNER_TEMP/load/not-yaml"
+          printf 'schema: delurio-graph/0\nkind: flow\nid: example.form\ninitial: form\nstates:\n  form: { on: { SEND: done } }\n  done: { type: final }\n' > "$RUNNER_TEMP/load/no-catalog/flow.yaml"
+          printf 'schema: delurio-graph/0\nkind: ui\nid: example.form\nflow: example.form\nnodes:\n  send: { type: action, component: Button, role: button, text: { key: Form.send }, in: [form], emits: SEND }\n' > "$RUNNER_TEMP/load/no-catalog/ui.yaml"
+          cp "$RUNNER_TEMP/load/no-catalog/flow.yaml" "$RUNNER_TEMP/load/no-catalog-file/flow.yaml"
+          sed 's/^flow: example.form$/&\ncatalog: catalog\/en.json/' "$RUNNER_TEMP/load/no-catalog/ui.yaml" > "$RUNNER_TEMP/load/no-catalog-file/ui.yaml"
+          printf 'schema: delurio-graph/0\nkind: flow\nid: example.guard\ncontext: { a: { values: [x, y], initial: any } }\ninitial: s\nstates:\n  s: { on: { GO: { target: done, guard: "a ==" } } }\n  done: { type: final }\n' > "$RUNNER_TEMP/load/guard/flow.yaml"
+          printf 'schema: delurio-graph/0\nkind: flow\nid: example.starter\ninitial: s\nstates:\n  s: { on: { GO: { target: done, starts: { flow: example.signOut } } } }\n  done: { type: final }\n' > "$RUNNER_TEMP/load/starter/flow.yaml"
+          printf 'schema: delurio-graph/0\nkind: flow\nid: example.notYaml\nstates: [\n' > "$RUNNER_TEMP/load/not-yaml/flow.yaml"
+          cp -r examples/sign-out "$RUNNER_TEMP/load/sign-out"
+          cp -r examples/qauth-authorize "$RUNNER_TEMP/load/target"
+          sed -i 's/      DONE: codeIssued/      DONE: codeIsued/' "$RUNNER_TEMP/load/target/flow.yaml"
+          cp -r examples/notes "$RUNNER_TEMP/load/notes"
+          printf 'oops: [\n' >> "$RUNNER_TEMP/load/notes/edit/ui.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/load" > "$RUNNER_TEMP/load.txt" 2> "$RUNNER_TEMP/load.err" || code=$?
+          cat "$RUNNER_TEMP/load.txt" "$RUNNER_TEMP/load.err"
+          test "$code" -eq 1
+          grep -F 'delurio check: 10 graphs' "$RUNNER_TEMP/load.err"
+          ! grep -E 'ERR_INVALID_ARG_TYPE|ENOENT|    at ' "$RUNNER_TEMP/load.err"
+          grep -F 'no-catalog/ui.yaml:1:1: error: ui.yaml names no catalog' "$RUNNER_TEMP/load.txt" | grep -F '[load]'
+          grep -F 'no-catalog-file/ui.yaml:5:1: error: the catalog catalog/en.json that ui.yaml names does not exist [load]' "$RUNNER_TEMP/load.txt"
+          grep -F 'guard/flow.yaml:7:14: error: unexpected end in: a == [load]' "$RUNNER_TEMP/load.txt"
+          grep -F 'target/flow.yaml:129:7: error: state issuing goes to codeIsued, which does not exist [load]' "$RUNNER_TEMP/load.txt"
+          grep -E 'notes/edit/ui\.yaml:[0-9]+:1: error: .*\[load\]' "$RUNNER_TEMP/load.txt"
+          ! grep -F 'notes/edit/flow.yaml' "$RUNNER_TEMP/load.txt"
+          ! grep -F 'starter/flow.yaml' "$RUNNER_TEMP/load.txt"
+          node dist/cli.js check "$RUNNER_TEMP/load" --format sarif --output "$RUNNER_TEMP/load.sarif" > /dev/null 2>&1 || true
+          node -e '
+            const run = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).runs[0];
+            const at = run.results.filter((r) => r.ruleId === "load").map((r) => `${r.locations[0].physicalLocation.artifactLocation.uri.split("/load/")[1]}:${r.locations[0].physicalLocation.region.startLine}`);
+            for (const want of ["no-catalog/ui.yaml:1", "no-catalog-file/ui.yaml:5", "guard/flow.yaml:7", "target/flow.yaml:129"]) if (!at.includes(want)) throw new Error(`no load result at ${want}: ${at.join(", ")}`);
+          ' "$RUNNER_TEMP/load.sarif"
+      - name: Under --baseline, a known error that keeps a graph from loading is still an error
+        run: |
+          mkdir -p "$RUNNER_TEMP/known/no-catalog-file"
+          printf 'schema: delurio-graph/0\nkind: flow\nid: example.form\ninitial: form\nstates:\n  form: { on: { SEND: done } }\n  done: { type: final }\n' > "$RUNNER_TEMP/known/no-catalog-file/flow.yaml"
+          printf 'schema: delurio-graph/0\nkind: ui\nid: example.form\nflow: example.form\ncatalog: catalog/en.json\nnodes:\n  send: { type: action, component: Button, role: button, text: { key: Form.send }, in: [form], emits: SEND }\n' > "$RUNNER_TEMP/known/no-catalog-file/ui.yaml"
+          cp -r examples/qauth-authorize "$RUNNER_TEMP/known/schema"
+          sed -i 's/left: { type: final, title: The user leaves, leavesPage: true }/left: { type: final, title: The user leaves, and nothing is sent, leavesPage: true }/' "$RUNNER_TEMP/known/schema/flow.yaml"
+          node dist/cli.js check "$RUNNER_TEMP/known" --format sarif --output "$RUNNER_TEMP/known.sarif" > /dev/null 2>&1 || true
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/known" --strict --baseline "$RUNNER_TEMP/known.sarif" > "$RUNNER_TEMP/known.txt" 2>&1 || code=$?
+          cat "$RUNNER_TEMP/known.txt"
+          test "$code" -eq 1
+          grep -F 'no-catalog-file/ui.yaml:5:1: error: the catalog catalog/en.json that ui.yaml names does not exist [load]' "$RUNNER_TEMP/known.txt"
+          ! grep -F 'warning: the catalog' "$RUNNER_TEMP/known.txt"
+          grep -F 'schema/flow.yaml' "$RUNNER_TEMP/known.txt" | grep -F 'warning:' | grep -F '[schema]'
+          grep -E 'delurio check: 2 graphs, 1 error, [1-9][0-9]* warnings?; exit 1' "$RUNNER_TEMP/known.txt"
+      - name: A state no situation reaches, or one that is no exit and has no way out, fails the check
+        run: |
+          mkdir -p "$RUNNER_TEMP/reach"
+          printf 'schema: delurio-graph/0\nkind: flow\nid: example.checkout\nstatus: proposed\ntitle: Check out\ninitial: cart\nstates:\n  cart: { by: human, on: { CONTINUE: done } }\n  pay: { by: human }\n  done: { type: final }\n' > "$RUNNER_TEMP/reach/flow.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/reach" --strict > "$RUNNER_TEMP/reach.txt" || code=$?
+          cat "$RUNNER_TEMP/reach.txt"
+          test "$code" -eq 2
+          grep -F 'reach/flow.yaml:9:3: error: state pay is not an exit and has no way out' "$RUNNER_TEMP/reach.txt" | grep -F '[state-no-way-out]'
+          grep -F 'reach/flow.yaml:9:3: error: state pay is reached by no situation the flow starts in: no transition leads to it' "$RUNNER_TEMP/reach.txt" | grep -F '[state-unreachable]'
+          node dist/cli.js check "$RUNNER_TEMP/reach"
+
+          cp -r examples/notes "$RUNNER_TEMP/guarded"
+          sed -i 's/^      CANCEL: discarding$/      CANCEL: { target: discarding, guard: "pinned and not pinned" }/' "$RUNNER_TEMP/guarded/edit/flow.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/guarded" --strict > "$RUNNER_TEMP/guarded.txt" || code=$?
+          cat "$RUNNER_TEMP/guarded.txt"
+          test "$code" -eq 2
+          test "$(grep -c '\[state-unreachable\]' "$RUNNER_TEMP/guarded.txt")" -eq 2
+          grep -F 'state discarding is reached by no situation the flow starts in: the transitions that lead to it are never taken' "$RUNNER_TEMP/guarded.txt"
+          ! grep -F '[state-no-way-out]' "$RUNNER_TEMP/guarded.txt"
+      - name: Every locale's catalog has the keys the screens use
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/locales"
+          sed -i 's/^locales: \[en\]$/locales: [en, tr, de]/' "$RUNNER_TEMP/locales/edit/ui.yaml"
       - name: A control may be disabled by what the context holds (disabledWhen), read as checked is
         run: |
           cp -r examples/notes "$RUNNER_TEMP/disabled-when"
@@ -297,6 +372,68 @@ jobs:
             const fs = require("fs");
             const dir = process.argv[1];
             const words = JSON.parse(fs.readFileSync(`${dir}/en.json`, "utf8"));
+            delete words["Edit.save"];
+            fs.writeFileSync(`${dir}/tr.json`, JSON.stringify(words, null, 2));
+          ' "$RUNNER_TEMP/locales/edit/catalog"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/locales" --strict > "$RUNNER_TEMP/locales.txt" || code=$?
+          cat "$RUNNER_TEMP/locales.txt"
+          test "$code" -eq 2
+          grep -F 'error: catalog key Edit.save is missing from the tr catalog, catalog/tr.json [catalog-key-missing]' "$RUNNER_TEMP/locales.txt"
+          grep -F 'error: the de catalog, catalog/de.json, does not exist' "$RUNNER_TEMP/locales.txt" | grep -F '[catalog-key-missing]'
+          test "$(grep -c '\[catalog-key-missing\]' "$RUNNER_TEMP/locales.txt")" -eq 2
+      - name: What a flow invokes is held to its domain, as warnings
+        run: |
+          cp -r examples/qauth-authorize "$RUNNER_TEMP/invokes"
+          sed -i 's/invoke: { action: issue }/invoke: { action: issueCode }/; s/    unsafe: \[CSRF_MISMATCH, REQUEST_EXPIRED\]/    unsafe: [CSRF_MISMATCH, REQUEST_EXPIRED, TOKEN_REUSED]/' "$RUNNER_TEMP/invokes/flow.yaml"
+          node dist/cli.js check "$RUNNER_TEMP/invokes" --strict > "$RUNNER_TEMP/invokes.txt" 2>&1
+          cat "$RUNNER_TEMP/invokes.txt"
+          grep -F 'warning: state issuing invokes issueCode, which is not an action of the domain qauth.authorize' "$RUNNER_TEMP/invokes.txt" | grep -F '[invoke-unknown]'
+          grep -F 'warning: FAIL.unsafe of deciding stands for TOKEN_REUSED, which is not a refusal of decide' "$RUNNER_TEMP/invokes.txt" | grep -F '[refusal-unknown]'
+          grep -F 'delurio check: 1 graph, 0 errors, 2 warnings; exit 0' "$RUNNER_TEMP/invokes.txt"
+      - name: A tutorial that no longer matches its flow fails the check at its step
+        run: |
+          t=edit/tutorial.yaml
+          broken() { rm -rf "$RUNNER_TEMP/tutorial"; cp -r examples/notes "$RUNNER_TEMP/tutorial"; sed -i "$2" "$RUNNER_TEMP/tutorial/$1"; code=0; node dist/cli.js check "$RUNNER_TEMP/tutorial" --strict > "$RUNNER_TEMP/tutorial.txt" || code=$?; cat "$RUNNER_TEMP/tutorial.txt"; test "$code" -eq 2; grep -F "$3" "$RUNNER_TEMP/tutorial.txt" | grep -F '[tutorial-mismatch]'; }
+          broken $t 's/    press: save/    press: submit/' 'tutorial.yaml:28:5: error: step 4: press submit, which is not a node of ui.yaml'
+          broken $t 's/after: \[DONE\]/after: [FINISHED]/' 'step 5: after FINISHED, which no state of example.editNote handles'
+          broken $t 's/{pinBox}/{pinButton}/' 'step 3: {pinButton} is neither a sample value nor a node of ui.yaml'
+          broken $t 's/scenario: { pinned: false }/scenario: { pinned: maybe }/' 'scenario: "maybe" is not a value of pinned'
+          broken $t 's/  - show: saving/  - show: editing/' 'step 5: shows editing, and the flow is in saving here'
+          broken edit/ui.yaml 's/^    disabledIn: \[saving\]$/    disabledIn: [editing, saving]/' 'step 4: press save, which is disabled in editing'
+          broken edit/flow.yaml 's/^      DONE: saved$/      DONE: editing/' 'step 6: the tutorial ends in saved, and the flow is in editing here'
+
+          cp -r examples/sign-out "$RUNNER_TEMP/diagram"
+          printf 'schema: delurio-graph/0\nkind: tutorial\nid: example.signOut.tutorial\nflow: example.signOut\ntitle: Signing out\nstage: diagram\nscenario: { token: valid, hasCookie: true }\nsteps:\n  - show: checking\n    say: "The app sends the token it holds."\n  - end: signed_out.cookie_cleared\n    say: "The session ends, and the cookie with it."\n' > "$RUNNER_TEMP/diagram/tutorial.yaml"
+          node dist/cli.js check "$RUNNER_TEMP/diagram" --strict
+          sed -i 's/  - end: signed_out.cookie_cleared/  - end: signed_out/' "$RUNNER_TEMP/diagram/tutorial.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/diagram" --strict > "$RUNNER_TEMP/diagram.txt" || code=$?
+          cat "$RUNNER_TEMP/diagram.txt"
+          test "$code" -eq 2
+          grep -F 'step 2: signed_out is not reached from checking without an event (the way stops in signed_out.cookie_cleared) [tutorial-mismatch]' "$RUNNER_TEMP/diagram.txt"
+      - name: The example kit draws the notes screens, and a kit that is not data is refused
+        run: |
+          page="$RUNNER_TEMP/pages/notes/edit/index.html"
+          grep -F '<div class="wf kit"' "$page"
+          grep -F '<button type="button" class="k-button k-primary">Save</button>' "$page"
+          grep -F '<li class="k-item" data-node="pinBox"><label class="k-check"><input type="checkbox"' "$page"
+          grep -F -- '--color-accent: #2a54d5;' "$page"
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { loadKit } from "./dist/kit.js";
+            const kit = loadKit("examples/notes/kit");
+            for (const c of ["Heading", "Text", "Button", "LinkButton", "TextField", "Checkbox", "Radio", "Select", "List", "ListItem", "Status", "Alert"]) assert.ok(kit.components[c] !== undefined, `no template for ${c}`);
+            assert.deepEqual(kit.dark.map(([n]) => n).filter((n) => !kit.light.some(([m]) => m === n)), []);
+          '
+
+          cp -r examples/notes "$RUNNER_TEMP/kit-script"
+          sed -i "s|    template: '<p class=\"k-text\">{text}</p>'|    template: '<p class=\"k-text\" onclick=\"go()\">{text}</p>'|" "$RUNNER_TEMP/kit-script/kit/kit.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/kit-script" --strict > "$RUNNER_TEMP/kit-script.txt" || code=$?
+          cat "$RUNNER_TEMP/kit-script.txt"
+          test "$code" -eq 1
+          grep -F 'event handlers are not allowed: a kit is data, never code [load]' "$RUNNER_TEMP/kit-script.txt"
             words["Edit.task"] = "Edit a note";
             fs.writeFileSync(`${dir}/en.json`, JSON.stringify(words, null, 2));
             fs.writeFileSync(`${dir}/tr.json`, JSON.stringify({ ...words, "Edit.task": "Notu düzenle" }, null, 2));

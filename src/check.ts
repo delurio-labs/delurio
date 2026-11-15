@@ -7,13 +7,17 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from '
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { keyAt, parsingOnce, readYaml } from './yaml.ts';
 import type { DomainPart } from './domain.ts';
-import { GraphError, load } from './graph.ts';
+import { alternatives, GraphError, load, placed } from './graph.ts';
+import type { ErrorPlace, Graph } from './graph.ts';
 import { checkAssertions, explore, Model, ModelError } from './model.ts';
 import { stepsByEvents } from './story.ts';
 import { renderScreens } from './wireframe.ts';
 import { checkStarts } from './starts.ts';
-import { checkChanges } from './changes.ts';
+import { checkChanges, flowDomain } from './changes.ts';
+import type { Domain } from './changes.ts';
 import { checkUi } from './ui-check.ts';
+import { checkInvokes } from './invokes.ts';
+import { checkTutorial } from './tutorial-check.ts';
 import { KitError, resolveKit } from './kit.ts';
 import { checkGoals, findings, loadNav, viewOf } from './nav.ts';
 import { schemaKindOf, validateFile } from './schemas.ts';
@@ -65,7 +69,7 @@ const RULES: Rule[] = [
   { id: 'server-fn-http', text: 'A server function is given a route, a query or an operationId, which only an HTTP operation has (SPEC.md §5)', level: 'error' },
   { id: 'assertion-violated', text: 'A guarantee of the flow is broken by a reachable situation', level: 'error' },
   { id: 'main-story-unwalkable', text: 'The declared main story cannot be walked', level: 'error' },
-  { id: 'catalog-key-missing', text: 'A catalog key the screens use is missing', level: 'error' },
+  { id: 'catalog-key-missing', text: "A catalog key the screens use is missing from a locale's catalog", level: 'error' },
   { id: 'sample-missing', text: 'A catalog message has a placeholder with no sample value', level: 'error' },
   { id: 'no-renderer', text: 'A component has no renderer', level: 'error' },
   { id: 'kit-uncovered', text: "The kit does not cover a component or an intent", level: 'error' },
@@ -77,11 +81,18 @@ const RULES: Rule[] = [
   { id: 'source-missing', text: 'A state of a captured flow names no code (SPEC.md §9)', level: 'error' },
   { id: 'focus-not-shown', text: 'A focus or a returnsFocus gives the focus to a node that is not shown there (SPEC.md §4)', level: 'error' },
   { id: 'returns-focus-not-dialog', text: 'A returnsFocus does not start at a dialog (SPEC.md §4)', level: 'error' },
+  { id: 'state-no-way-out', text: 'A state that is not an exit has no way out (SPEC.md §2)', level: 'error' },
+  { id: 'state-unreachable', text: 'No situation the flow starts in reaches the state (SPEC.md §2)', level: 'error' },
+  { id: 'tutorial-mismatch', text: 'A tutorial no longer matches its flow (SPEC.md §7)', level: 'error' },
+  { id: 'invoke-unknown', text: "An invoke or a failures entry names an action its flow's domain does not have (SPEC.md §5)", level: 'warning' },
+  { id: 'refusal-unknown', text: 'A failure class lists a code that is not a refusal of its action (SPEC.md §2)', level: 'warning' },
   { id: 'graph-warning', text: 'Another warning of the graph', level: 'error' },
   { id: 'nav-problem', text: 'A problem of the navigation graph', level: 'error' },
   { id: 'nav-note', text: 'A note on the navigation graph', level: 'warning' },
 ];
 const LEVEL = new Map(RULES.map((r) => [r.id, r.level]));
+// the rules whose errors stop the run (exit 1) however --strict and --baseline read them
+const BREAKING = new Set(['load', 'format-newer']);
 
 export const count = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -150,13 +161,76 @@ function fromWarning(dir: string, graph: string, w: string): CheckResult {
   return result('graph-warning', existsSync(ui) ? ui : flow, { line: 1, column: 1 }, w, graph, w);
 }
 
-function checkFlow(dir: string): CheckResult[] {
+// the words of the screens in each locale but the one ui.yaml names (SPEC.md §4): a key the screens use that a locale's
+// catalog lacks, at the key's line, as for the catalog ui.yaml names; a locale whose catalog is not there, at `locales`
+function checkLocales(g: Graph, dir: string): CheckResult[] {
+  if (g.ui.absent === true) return [];
+  const ui = join(dir, 'ui.yaml');
+  const named = join(dir, g.ui.catalog);
+  const out: CheckResult[] = [];
+  for (const locale of g.ui.locales ?? []) {
+    const name = join(dirname(g.ui.catalog), `${locale}.json`);
+    const abs = join(dir, name);
+    if (abs === named) continue;
+    let catalog: Record<string, string>;
+    try {
+      catalog = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, string>;
+    } catch (err) {
+      const text = readFileSync(ui, 'utf8');
+      const why = existsSync(abs) ? `is not JSON: ${(err as Error).message}` : 'does not exist';
+      out.push(result('catalog-key-missing', ui, keyAt(text, ['locales']), `the ${locale} catalog, ${name}, ${why}: every word the screens use is missing in ${locale}`, g.flow.id, `catalog/${locale}`));
+      continue;
+    }
+    const missing: string[] = [];
+    const collect = (m: string): void => {
+      const key = /^catalog key (\S+) is missing/.exec(m)?.[1];
+      if (key !== undefined && !missing.includes(key)) missing.push(key);
+    };
+    const other: Graph = { ...g, catalog: catalog !== null && typeof catalog === 'object' ? catalog : {} };
+    renderScreens(other, collect, null);
+    checkUi(other, collect);
+    for (const key of missing) out.push(result('catalog-key-missing', ui, placeOf(ui, key), `catalog key ${key} is missing from the ${locale} catalog, ${name}`, g.flow.id, `${key}/${locale}`));
+  }
+  return out;
+}
+
+// the states that some transition leads to, whatever its guard
+function targeted(g: Graph): Set<string> {
+  const out = new Set<string>();
+  for (const st of Object.values(g.flow.states)) {
+    for (const a of st.always ?? []) out.add(a.target);
+    for (const spec of Object.values(st.on ?? {})) for (const a of alternatives(spec)) out.add(a.target);
+  }
+  return out;
+}
+
+function checkFlow(dir: string, domains: Map<string, Domain | null>): CheckResult[] {
   const file = join(dir, 'flow.yaml');
   const g = load(dir);
-  const kit = resolveKit(dir, g.ui.kit, undefined);
+  let kit: ReturnType<typeof resolveKit>;
+  try {
+    kit = resolveKit(dir, g.ui.kit, undefined);
+  } catch (err) {
+    throw g.ui.kit === undefined ? err : placed(err, { file: 'ui.yaml', path: ['kit'] });
+  }
   const model = new Model(g.flow);
   const ex = explore(model);
   const out: CheckResult[] = [];
+  const flowText = readFileSync(file, 'utf8');
+  // a state the flow stops in for good though it is no exit, and a state no situation reaches (SPEC.md §2)
+  const led = targeted(g);
+  for (const [name, st] of Object.entries(g.flow.states)) {
+    const at = (): { line: number; column: number } => keyAt(flowText, ['states', name]);
+    const element = `states/${name}`;
+    const ways = Object.keys(st.on ?? {}).length + (st.always ?? []).length;
+    if (st.type !== 'final' && ways === 0 && st.invoke === undefined) {
+      out.push(result('state-no-way-out', file, at(), `state ${name} is not an exit and has no way out: it has no on, always or invoke, so the flow stops there; make it an exit (type: final) or give it a transition (SPEC.md §2)`, g.flow.id, element));
+    }
+    if (!ex.atState.has(name)) {
+      const why = led.has(name) ? 'the transitions that lead to it are never taken: the states they leave are not reached, or their guards never hold' : 'no transition leads to it';
+      out.push(result('state-unreachable', file, at(), `state ${name} is reached by no situation the flow starts in: ${why} (SPEC.md §2)`, g.flow.id, element));
+    }
+  }
   const warnings: string[] = [];
   const warn = (m: string): void => {
     if (!warnings.includes(m)) warnings.push(m);
@@ -177,16 +251,28 @@ function checkFlow(dir: string): CheckResult[] {
     const text = readFileSync(ui, 'utf8');
     for (const p of checkUi(g, warn)) out.push(result(p.rule, ui, keyAt(text, p.path), p.message, g.flow.id, p.element));
   }
+  out.push(...checkLocales(g, dir));
   for (const h of checkStarts(g, model, ex)) for (const p of h.problems) warn(`${h.from} starts ${h.flow}: ${p}`);
-  for (const p of checkChanges(g)?.problems ?? []) warn(p);
+  // the flow's domain, looked up once for the rules that read it
+  let domain: Domain | null | undefined;
+  const domainOf = (): Domain | null => (domain === undefined ? (domain = flowDomain(g, domains)) : domain);
+  for (const p of checkChanges(g, domainOf)?.problems ?? []) warn(p);
   for (const w of warnings) out.push(fromWarning(dir, g.flow.id, w));
+  for (const p of checkInvokes(g, domainOf)) out.push(result(p.rule, file, keyAt(flowText, p.path), p.message, g.flow.id, p.element));
+  const tutorial = join(dir, 'tutorial.yaml');
+  if (existsSync(tutorial)) {
+    const text = readFileSync(tutorial, 'utf8');
+    for (const p of checkTutorial(g, model, ex, text)) {
+      const at = p.line === undefined ? keyAt(text, p.path) : { line: p.line, column: p.column ?? 1 };
+      out.push(result('tutorial-mismatch', tutorial, at, p.message, g.flow.id, `tutorial.yaml#/${p.path.join('/')}`));
+    }
+  }
   // a captured flow is read from code, so every state names the code that makes it true; an exit may leave it out, as
   // the transition into it names that code (SPEC.md §9)
   if (g.flow.status === 'captured') {
-    const text = readFileSync(file, 'utf8');
     for (const [name, st] of Object.entries(g.flow.states)) {
       if (st.source !== undefined || st.type === 'final') continue;
-      out.push(result('source-missing', file, keyAt(text, ['states', name]), `state ${name} names no code: in a captured flow every state but an exit carries source: <path>:<line> (SPEC.md §9)`, g.flow.id, `states/${name}`));
+      out.push(result('source-missing', file, keyAt(flowText, ['states', name]), `state ${name} names no code: in a captured flow every state but an exit carries source: <path>:<line> (SPEC.md §9)`, g.flow.id, `states/${name}`));
     }
   }
   return out;
@@ -268,6 +354,22 @@ function checkNav(dir: string): CheckResult[] {
   );
   for (const w of warnings) out.push(result('graph-warning', file, { line: 1, column: 1 }, w, g.id, w));
   return out;
+}
+
+// the level a finding is printed at, and counted at: an error known from the baseline is a warning, as it fails no
+// run, but one that stops the run (it cannot be loaded) is an error however often it was seen
+const printedLevel = (r: CheckResult): Level => (r.level === 'error' && r.baselineState === 'unchanged' && !BREAKING.has(r.rule) ? 'warning' : r.level);
+
+// where a load error is (SPEC.md §10): the place the loader or the model gave it, at the keys it names or the line a
+// parser gave, in the file it names; else the line a YAML parser gave; else the start of the graph's own file
+function loadPlace(dir: string, file: string, err: Error): Place {
+  const place = (err as { place?: ErrorPlace }).place;
+  const at = place === undefined ? file : join(dir, place.file);
+  if (place?.line !== undefined) return { file: at, line: place.line, column: place.column ?? 1 };
+  const linePos = (err as { linePos?: Array<{ line: number; col: number }> }).linePos?.[0];
+  if (linePos !== undefined) return { file: at, line: linePos.line, column: linePos.col };
+  if (place?.path !== undefined && existsSync(at)) return { file: at, ...keyAt(readFileSync(at, 'utf8'), place.path) };
+  return { file: at, line: 1, column: 1 };
 }
 
 const fingerprint = (r: CheckResult): string => createHash('sha256').update(`${r.rule}|${r.graph}|${r.element}`).digest('hex').slice(0, 32);
@@ -357,6 +459,7 @@ function checkRun(args: string[]): number {
   }
 
   const results: CheckResult[] = [];
+  const domains = new Map<string, Domain | null>(); // the domains found, for every flow that names one
   let broken = false;
   for (const d of dirsOfGraphs) {
     const file = existsSync(join(d, 'flow.yaml')) ? join(d, 'flow.yaml') : join(d, 'nav.yaml');
@@ -367,12 +470,12 @@ function checkRun(args: string[]): number {
         results.push(result('format-newer', file, placeOf(file, 'schema:'), `written in ${newer}; this checker reads ${FORMAT}: pin a version that reads it`, rel(d), 'schema'));
         continue;
       }
-      results.push(...(file.endsWith('flow.yaml') ? checkFlow(d) : checkNav(d)));
+      results.push(...(file.endsWith('flow.yaml') ? checkFlow(d, domains) : checkNav(d)));
     } catch (err) {
       if (!(err instanceof GraphError || err instanceof ModelError || err instanceof KitError || (err instanceof Error && err.name === 'YAMLParseError'))) throw err;
       broken = true;
-      const linePos = (err as { linePos?: Array<{ line: number; col: number }> }).linePos?.[0];
-      results.push(result('load', file, linePos === undefined ? { line: 1, column: 1 } : { line: linePos.line, column: linePos.col }, err.message.split('\n')[0], rel(d), 'load'));
+      const at = loadPlace(d, file, err);
+      results.push(result('load', at.file, at, err.message.split('\n')[0], rel(d), 'load'));
     }
   }
   // every graph file against its kind's schema: what an editor with the schemas marks, check reports
@@ -387,7 +490,7 @@ function checkRun(args: string[]): number {
     const prints = baselinePrints(baseline);
     for (const r of results) r.baselineState = prints.has(fingerprint(r)) ? 'unchanged' : 'new';
   }
-  const failing = results.filter((r) => r.level === 'error' && r.rule !== 'load' && r.rule !== 'format-newer' && (r.baselineState === undefined || r.baselineState === 'new'));
+  const failing = results.filter((r) => r.level === 'error' && !BREAKING.has(r.rule) && (r.baselineState === undefined || r.baselineState === 'new'));
   const exitCode = broken ? 1 : strict && failing.length > 0 ? 2 : 0;
 
   if (format === 'sarif') {
@@ -397,13 +500,12 @@ function checkRun(args: string[]): number {
   }
   if (format === 'text' || output !== undefined) {
     for (const r of results) {
-      const level = r.level === 'error' && r.baselineState === 'unchanged' ? 'warning' : r.level;
-      console.log(`${r.file}:${r.line}:${r.column}: ${level}: ${r.message} [${r.rule}]`);
+      console.log(`${r.file}:${r.line}:${r.column}: ${printedLevel(r)}: ${r.message} [${r.rule}]`);
       for (const n of r.notes) console.log(`${n.file}:${n.line}:${n.column}: note: ${n.message}`);
     }
     const graphs = dirsOfGraphs.length;
-    const errors = results.filter((r) => r.level === 'error').length;
-    const warnings = results.filter((r) => r.level === 'warning').length;
+    const errors = results.filter((r) => printedLevel(r) === 'error').length;
+    const warnings = results.filter((r) => printedLevel(r) === 'warning').length;
     console.error(`delurio check: ${count(graphs, 'graph')}, ${count(errors, 'error')}, ${count(warnings, 'warning')}; exit ${exitCode}`);
   }
   return exitCode;
