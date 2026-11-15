@@ -489,3 +489,118 @@ export function finalPaths(m: Model, ex: Exploration): FinalPath[] {
   }
   return out;
 }
+
+export interface CoverPath {
+  id: string; // a hash of its start and of the transitions it takes: the same path has the same id in every run
+  start: Record<string, Scalar>; // the starting situation, as pathTo gives it
+  events: string[]; // the events to send, in order; a transition with no event (`always`) is taken on its own
+  states: string[]; // the states it passes, in order, the initial one first
+  transitions: string[]; // the transitions it takes, in order, each as `<state>|<event or always>|<alternative>`
+  covers: string[]; // the states (or transitions) it is kept for: those no path before it passes (or takes)
+}
+
+export interface Cover {
+  by: 'states' | 'transitions';
+  paths: CoverPath[];
+  unreached: string[]; // the states (or transitions) of the flow that no reachable situation passes (or takes)
+}
+
+// every transition of the flow, named as a Step's `taken` names it
+export function transitionsOf(flow: Flow): string[] {
+  const out: string[] = [];
+  for (const [state, st] of Object.entries(flow.states)) {
+    if (st.type === 'final') continue;
+    if (st.always !== undefined) st.always.forEach((_, i) => out.push(`${state}|always|${i}`));
+    else for (const [event, spec] of Object.entries(st.on ?? {})) alternatives(spec).forEach((_, i) => out.push(`${state}|${event}|${i}`));
+  }
+  return out;
+}
+
+// 53 bits of a string, as 14 hex digits (cyrb53): a stable id with no dependency on a platform's crypto
+function hash(text: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, '0');
+}
+
+/**
+ * Event paths that together pass every reachable state (`states`) or take every reachable transition (`transitions`)
+ * of the flow (#4), from the same starts and through the same steps as `explore(m, from, keep)`. Each is a shortest
+ * way to the state or transition it is first kept for, so it repeats a state only on the way to something not yet
+ * covered. The longest are kept first and a path that covers nothing new is left out: a small set, never every path.
+ * The same flow gives the same paths, in the same order, with the same ids.
+ */
+export function cover(m: Model, by: 'states' | 'transitions', from: Scalar[][] = m.initials(), keep?: (at: Config, s: Step) => boolean): Cover {
+  const ex = explore(m, from, keep);
+  const stepsOf = (c: Config): Step[] => m.steps(c.state, c.ctx).filter((s) => keep === undefined || keep(c, s));
+  // the transition that made a situation: the first step of its parent that leads to it, as explore took it
+  const via = new Map<number, string>();
+  const made = (i: number): string => {
+    let t = via.get(i);
+    if (t === undefined) {
+      const c = ex.configs[i];
+      const p = ex.configs[c.parent];
+      const s = stepsOf(p).find((x) => x.target === c.state && x.event === c.event && x.ctx.every((v, j) => v === c.ctx[j]));
+      t = s?.taken ?? `${p.state}|${c.event ?? 'always'}|?`;
+      via.set(i, t);
+    }
+    return t;
+  };
+  const chain = (i: number): number[] => {
+    const out: number[] = [];
+    for (let k = i; k >= 0; k = ex.configs[k].parent) out.push(k);
+    return out.reverse();
+  };
+  interface Candidate {
+    at: number; // the situation the path reaches, or the one it takes its last step from
+    last?: Step; // for a transition: the step taken from there
+    depth: number;
+  }
+  const candidates: Candidate[] = [];
+  if (by === 'states') {
+    const first = new Map<string, number>();
+    ex.configs.forEach((c, i) => {
+      if (!first.has(c.state)) first.set(c.state, i);
+    });
+    for (const i of first.values()) candidates.push({ at: i, depth: chain(i).length });
+  } else {
+    // the first situation, in exploration order, at which each transition is taken: the end of a shortest way to it
+    const seen = new Set<string>();
+    for (let i = 0; i < ex.configs.length && seen.size < ex.taken.size; i++) {
+      for (const s of stepsOf(ex.configs[i])) {
+        if (seen.has(s.taken)) continue;
+        seen.add(s.taken);
+        candidates.push({ at: i, last: s, depth: chain(i).length + 1 });
+      }
+    }
+  }
+  const covered = new Set<string>();
+  const paths: Array<CoverPath & { order: number }> = [];
+  const order = (c: Candidate): number => c.at * 2 + (c.last === undefined ? 0 : 1);
+  for (const c of [...candidates].sort((a, b) => b.depth - a.depth || order(a) - order(b))) {
+    const links = chain(c.at);
+    const states = links.map((k) => ex.configs[k].state);
+    const transitions = links.slice(1).map(made);
+    const events = links.slice(1).flatMap((k) => (ex.configs[k].event === null ? [] : [ex.configs[k].event as string]));
+    if (c.last !== undefined) {
+      states.push(c.last.target);
+      transitions.push(c.last.taken);
+      if (c.last.event !== null) events.push(c.last.event);
+    }
+    const covers = [...new Set(by === 'states' ? states : transitions)].filter((x) => !covered.has(x));
+    if (covers.length === 0) continue;
+    for (const x of covers) covered.add(x);
+    const start = m.scenario(ex.configs[links[0]].ctx);
+    paths.push({ id: hash(JSON.stringify([start, transitions])), start, events, states, transitions, covers, order: order(c) });
+  }
+  paths.sort((a, b) => a.order - b.order);
+  const all = by === 'states' ? Object.keys(m.flow.states) : transitionsOf(m.flow);
+  return { by, paths: paths.map(({ order: _, ...p }) => p), unreached: all.filter((x) => !covered.has(x)) };
+}
