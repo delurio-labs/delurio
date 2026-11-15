@@ -17,6 +17,7 @@ import { checkChanges, flowDomain } from './changes.ts';
 import type { Domain } from './changes.ts';
 import { checkUi } from './ui-check.ts';
 import { checkInvokes } from './invokes.ts';
+import { checkTutorial } from './tutorial-check.ts';
 import { KitError, resolveKit } from './kit.ts';
 import { checkGoals, findings, loadNav, viewOf } from './nav.ts';
 import { schemaKindOf, validateFile } from './schemas.ts';
@@ -81,6 +82,7 @@ const RULES: Rule[] = [
   { id: 'returns-focus-not-dialog', text: 'A returnsFocus does not start at a dialog (SPEC.md §4)', level: 'error' },
   { id: 'state-no-way-out', text: 'A state that is not an exit has no way out (SPEC.md §2)', level: 'error' },
   { id: 'state-unreachable', text: 'No situation the flow starts in reaches the state (SPEC.md §2)', level: 'error' },
+  { id: 'tutorial-mismatch', text: 'A tutorial no longer matches its flow (SPEC.md §7)', level: 'error' },
   { id: 'invoke-unknown', text: "An invoke or a failures entry names an action its flow's domain does not have (SPEC.md §5)", level: 'warning' },
   { id: 'refusal-unknown', text: 'A failure class lists a code that is not a refusal of its action (SPEC.md §2)', level: 'warning' },
   { id: 'graph-warning', text: 'Another warning of the graph', level: 'error' },
@@ -256,6 +258,14 @@ function checkFlow(dir: string, domains: Map<string, Domain | null>): CheckResul
   for (const p of checkChanges(g, domainOf)?.problems ?? []) warn(p);
   for (const w of warnings) out.push(fromWarning(dir, g.flow.id, w));
   for (const p of checkInvokes(g, domainOf)) out.push(result(p.rule, file, keyAt(flowText, p.path), p.message, g.flow.id, p.element));
+  const tutorial = join(dir, 'tutorial.yaml');
+  if (existsSync(tutorial)) {
+    const text = readFileSync(tutorial, 'utf8');
+    for (const p of checkTutorial(g, model, ex, text)) {
+      const at = p.line === undefined ? keyAt(text, p.path) : { line: p.line, column: p.column ?? 1 };
+      out.push(result('tutorial-mismatch', tutorial, at, p.message, g.flow.id, `tutorial.yaml#/${p.path.join('/')}`));
+    }
+  }
   // a captured flow is read from code, so every state names the code that makes it true; an exit may leave it out, as
   // the transition into it names that code (SPEC.md §9)
   if (g.flow.status === 'captured') {

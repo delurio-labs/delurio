@@ -1,0 +1,43 @@
+# Editing a note, told to its owner: a tutorial written against the flow (SPEC.md §7). `check` replays every show,
+# cut, press and after on the flow, so a change to the graph that this tutorial no longer matches fails at its step.
+# Words in {braces} are a sample value ({body}) or the visible text of a node of ui.yaml ({save}).
+schema: delurio-graph/0
+kind: tutorial
+id: example.editNote.tutorial
+flow: example.editNote
+title: Editing a note
+audience: For anyone who keeps notes
+locale: en
+appName: Notes
+scenario: { pinned: false }
+
+steps:
+  - intro: true
+
+  - chapter: Change the text
+    show: editing
+    focus: [title, bodyField]
+    say: "This page is {title}. The field holds the note's text, {body}: type over it."
+
+  - show: editing
+    focus: [pinBox]
+    say: "Tick {pinBox}, and the note stays first."
+
+  - chapter: Save it
+    show: editing
+    press: save
+    say: "When you are done, press {save}."
+
+  - show: saving
+    focus: [working]
+    after: [DONE]
+    say: "{working}. The buttons wait until it is done."
+
+  - end: saved
+    card: { title: "{savedStatus}", body: "You can edit it again at any time." }
+    say: "{savedStatus}, and you can edit it again at any time."
+
+  - chapter: Leaving without saving
+    cut: discarding
+    focus: [discardTitle, keep, discard]
+    say: "If you press {cancel}, the app asks first: {discardTitle} {keep} takes you back to the note, and {discard} leaves it as it was."
