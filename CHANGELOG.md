@@ -2,7 +2,7 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
-## Unreleased
+## 0.8.0 (2026-11-15)
 
 - `ui.yaml` may say where the focus goes after a step, what a control holds, and which pages work without JavaScript (SPEC.md §4), so that a replay can check them on the app. Before, the `schema` rule refused all five keys.
   - `focus: { <state>: <node> }`: the node that has focus when the flow enters the state from another one, such as the alert a failed step shows on a page that stays open.
