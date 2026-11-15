@@ -50,7 +50,18 @@ Several folders may be given (`check graphs examples`); a graph under two of the
 |---|---|
 | 0 | every graph loads, and under `--strict` nothing is wrong |
 | 1 | a graph cannot be loaded, or is written for a newer format than this version reads |
-| 2 | under `--strict`: a guarantee is broken, a state cannot be reached or has no way out, a catalog key is missing from a locale or a sample is missing, the main story cannot be walked, a tutorial no longer matches its flow, a writing flow has no changes note… |
+| 2 | under `--strict`: a guarantee is broken, a state cannot be reached or has no way out, a catalog key is missing from a locale or a sample is missing, the main story cannot be walked, a tutorial no longer matches its flow, a writing flow has no changes note, a need's evidence is not there or a product's gaps and its needs disagree… |
+
+## What a product must have: needs and gaps
+
+A flow draws what the product does and may leave the rest out, so a feature that is missing is simply not drawn. Beside the flow, `needs.yaml` lists what must exist for its users, as a closed list: each need names its evidence (the code, a test, a scenario of a binding that walks it, the states and nodes it is drawn as, a setting a deployment gives), or says that it is `missing`, and why. Every missing need of a product is listed in one file at the root of its graphs, `needs.gaps.yaml` (SPEC.md §13). [`examples/notes/restore/needs.yaml`](examples/notes/restore/needs.yaml) has three needs that are met and one gap.
+
+```
+examples/notes/restore/needs.yaml:47:5: note: need says-when-it-is-erased is missing: archived notes are not erased yet; … [need-gap]
+delurio check: 5 graphs, 0 errors, 0 warnings, 1 gap of 4 needs; exit 0
+```
+
+`check --strict` fails where evidence names what is not there (a file, a line, a name, a scenario, a state, a node), where a missing need is not in the gaps, and where the gaps list a need that is met or that no flow has. A gap that is listed fails nothing: it is counted, and given as a note. So a product built in phases is written whole, the planned parts included, while its CI stays green, and the gaps only shrink: a need that is met must leave the list, and a new gap is a line added to it, which a review reads. Evidence paths are relative to the repository root, the folder `check` runs in; `--app <dir>` names another.
 
 ## A graph's page
 
@@ -86,7 +97,7 @@ A kit (SPEC.md §8) says how the components of `ui.yaml` look in one product, so
 
 ## Write a graph in an editor
 
-The package ships a JSON Schema (2020-12) for each kind of graph file in `schemas/`: `flow`, `ui`, `nav` (also `nav.extracted.yaml`), `domain` and `catalog`. With them an editor completes keys, explains each one from SPEC.md on hover, and marks a typo, a value of the wrong kind, or a title cut short by a comma inside `{ }`. In VS Code, with the YAML extension, put this in `.vscode/settings.json`:
+The package ships a JSON Schema (2020-12) for each kind of graph file in `schemas/`: `flow`, `ui`, `nav` (also `nav.extracted.yaml`), `domain`, `catalog`, `needs` and `gaps` (`needs.gaps.yaml`). With them an editor completes keys, explains each one from SPEC.md on hover, and marks a typo, a value of the wrong kind, or a title cut short by a comma inside `{ }`. In VS Code, with the YAML extension, put this in `.vscode/settings.json`:
 
 ```json
 {
@@ -94,7 +105,9 @@ The package ships a JSON Schema (2020-12) for each kind of graph file in `schema
     "https://unpkg.com/@delurio/cli@0.2.0/schemas/flow.schema.json": "**/flow.yaml",
     "https://unpkg.com/@delurio/cli@0.2.0/schemas/ui.schema.json": "**/ui.yaml",
     "https://unpkg.com/@delurio/cli@0.2.0/schemas/nav.schema.json": ["**/nav.yaml", "**/nav.extracted.yaml"],
-    "https://unpkg.com/@delurio/cli@0.2.0/schemas/domain.schema.json": ["**/domain.yaml", "**/domain/*.yaml"]
+    "https://unpkg.com/@delurio/cli@0.2.0/schemas/domain.schema.json": ["**/domain.yaml", "**/domain/*.yaml"],
+    "https://unpkg.com/@delurio/cli@0.9.0/schemas/needs.schema.json": "**/needs.yaml",
+    "https://unpkg.com/@delurio/cli@0.9.0/schemas/gaps.schema.json": "**/needs.gaps.yaml"
   },
   "json.schemas": [
     { "fileMatch": ["**/catalog/*.json"], "url": "https://unpkg.com/@delurio/cli@0.2.0/schemas/catalog.schema.json" }
@@ -132,7 +145,7 @@ const g = load('graphs/billing/billing.payment');
 const configurations = explore(new Model(g.flow)).configs.length;
 ```
 
-The entry points are `graph`, `model`, `story`, `wireframe`, `kit`, `edges`, `html`, `nav`, `expr` and `yaml`, each with its types. `yaml` reads a graph file's text as the CLI does (`readYaml`), refusing what SPEC.md §1 rules out before the text is resolved; a server that reads graphs it was sent should read them with it. While the version is 0.x their API may change in any minor release: pin an exact version.
+The entry points are `graph`, `model`, `story`, `wireframe`, `kit`, `edges`, `html`, `nav`, `expr`, `yaml` and `needs`, each with its types. `yaml` reads a graph file's text as the CLI does (`readYaml`), refusing what SPEC.md §1 rules out before the text is resolved; a server that reads graphs it was sent should read them with it. `needs` reads a flow's needs (`readNeeds`) and gives the states and nodes that only missing needs are drawn as (`planned`), which a tool that walks the flow on the app leaves out. While the version is 0.x their API may change in any minor release: pin an exact version.
 
 ## Licence
 
