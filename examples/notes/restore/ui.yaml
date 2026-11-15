@@ -1,4 +1,5 @@
-# The page of an archived note. Restore sends RESTORE; the page then calls the server function restoreNote.
+# The page of an archived note. Restore sends RESTORE; the page then calls the server function restoreNote. The page is
+# drawn on the server, so it reads without JavaScript, but Restore needs it (script: actions).
 schema: delurio-graph/0
 kind: ui
 id: example.restoreNote
@@ -16,6 +17,7 @@ nodes:
     name: { labelledBy: title }
     in: [archived, restoring]
     initialFocus: title
+    script: actions
   title:
     type: text
     component: Heading

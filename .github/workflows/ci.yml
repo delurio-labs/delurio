@@ -120,7 +120,7 @@ jobs:
           cat "$RUNNER_TEMP/focus-state.txt"
           test "$code" -eq 1
           grep -F 'ui focus names the unknown state savd [load]' "$RUNNER_TEMP/focus-state.txt"
-      - name: A value is on a field, checked on a checkable role and script on a page; checked reads the context
+      - name: A value is on a field, checked on a checkable role and script (optional or actions) on a page; checked reads the context
         run: |
           cp -r examples/notes "$RUNNER_TEMP/controls"
           sed -i 's/^    emits: SAVE$/&\n    value: { literal: "" }\n    checked: true/; s/^    text: { key: Edit.title }$/&\n    script: optional/; s/value: { key: Edit.bodyValue,/value: { key: Edit.bodyText,/' "$RUNNER_TEMP/controls/edit/ui.yaml"
@@ -132,6 +132,15 @@ jobs:
           grep -F 'nodes.save.checked: is not allowed here (checked is only on a node whose role is checkbox' "$RUNNER_TEMP/controls.txt"
           grep -F 'nodes.title.script: is not allowed here (initialFocus, frame and script are only on a page)' "$RUNNER_TEMP/controls.txt"
           grep -F 'catalog key Edit.bodyText is missing [catalog-key-missing]' "$RUNNER_TEMP/controls.txt"
+
+          cp -r examples/notes "$RUNNER_TEMP/script"
+          sed -i 's/^    script: optional # .*$/    script: readable/' "$RUNNER_TEMP/script/edit/ui.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/script" --strict > "$RUNNER_TEMP/script.txt" || code=$?
+          cat "$RUNNER_TEMP/script.txt"
+          test "$code" -eq 2
+          grep -F 'nodes.page.script: must be "optional" or "actions" [schema]' "$RUNNER_TEMP/script.txt"
+          ! grep -F 'restore/ui.yaml' "$RUNNER_TEMP/script.txt"
 
           cp -r examples/notes "$RUNNER_TEMP/checked"
           sed -i 's/^    checked: pinned$/    checked: "pined == true"/' "$RUNNER_TEMP/checked/edit/ui.yaml"
