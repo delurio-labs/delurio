@@ -1,0 +1,14 @@
+{
+  "color": {
+    "$type": "color",
+    "bg": { "$value": { "colorSpace": "srgb", "components": [0.067, 0.075, 0.094], "hex": "#111318" } },
+    "surface": { "$value": { "colorSpace": "srgb", "components": [0.102, 0.114, 0.141], "hex": "#1a1d24" } },
+    "ink": { "$value": { "colorSpace": "srgb", "components": [0.925, 0.933, 0.949], "hex": "#eceef2" } },
+    "muted": { "$value": { "colorSpace": "srgb", "components": [0.639, 0.663, 0.714], "hex": "#a3a9b6" } },
+    "line": { "$value": { "colorSpace": "srgb", "components": [0.173, 0.192, 0.231], "hex": "#2c313b" } },
+    "accent": { "$value": { "colorSpace": "srgb", "components": [0.541, 0.643, 1], "hex": "#8aa4ff" } },
+    "on-accent": { "$value": { "colorSpace": "srgb", "components": [0.043, 0.063, 0.125], "hex": "#0b1020" } },
+    "success": { "$value": { "colorSpace": "srgb", "components": [0.424, 0.914, 0.651], "hex": "#6ce9a6" } },
+    "danger": { "$value": { "colorSpace": "srgb", "components": [1, 0.541, 0.502], "hex": "#ff8a80" } }
+  }
+}

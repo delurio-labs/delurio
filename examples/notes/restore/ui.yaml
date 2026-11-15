@@ -6,6 +6,7 @@ id: example.restoreNote
 flow: example.restoreNote
 status: proposed
 catalog: catalog/en.json
+kit: ../kit # its screens are drawn with the example kit (../kit/kit.yaml)
 locales: [en]
 changes: { key: Changes.note }
 

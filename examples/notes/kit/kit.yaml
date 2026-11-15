@@ -1,0 +1,56 @@
+# An example kit (SPEC.md §8): how the kit-neutral components of ui.yaml look in one product. It is data: a template
+# per component, with slots ({text}, {name}, {id}, {intent}, {children}) and flags ({?disabled}..{/disabled}), design
+# tokens in the W3C format (tokens.json, dark.json) and CSS (kit.css). Nothing in it runs or is fetched. A ui.yaml
+# draws its screens with it by naming its folder, as the notes example does with `kit: ../kit`. Copy it and change
+# the templates and tokens until the screens look like your product's; the README says how.
+schema: delurio-graph/0
+kind: kit
+id: example
+title: Example kit
+tokens: tokens.json
+dark: dark.json
+css: kit.css
+components:
+  Heading:
+    template: '<h2 class="k-heading">{text}</h2>'
+  Text:
+    template: '<p class="k-text">{text}</p>'
+  Button:
+    # {intent} is the word `intents` gives the node's intent: a confirming button is the primary one
+    template: '<button type="button" class="k-button k-{intent}"{?named} aria-label="{name}"{/named}{?disabled} disabled{/disabled}>{text}</button>'
+    intents: { confirm: primary, dismiss: quiet, secondary: plain, default: plain }
+    roles:
+      link: '<a class="k-link" href="#{id}"{?named} aria-label="{name}"{/named}>{text}</a>'
+  LinkButton:
+    template: '<button type="button" class="k-link"{?named} aria-label="{name}"{/named}{?disabled} disabled{/disabled}>{text}</button>'
+    roles:
+      link: '<a class="k-link" href="#{id}"{?named} aria-label="{name}"{/named}>{text}</a>'
+  TextField:
+    # the field is named by its label, as a <label> around the input names it
+    template: '<label class="k-field"><span class="k-label">{text}</span><input class="k-input" type="text" tabindex="-1"{?disabled} disabled{/disabled}></label>'
+  Checkbox:
+    template: '<label class="k-check"><input type="checkbox" tabindex="-1"{?disabled} disabled{/disabled}><span>{text}</span></label>'
+  Radio:
+    template: '<label class="k-check"><input type="radio" tabindex="-1"{?disabled} disabled{/disabled}><span>{text}</span></label>'
+  Select:
+    template: '<label class="k-field"><span class="k-label">{text}</span><select class="k-input" tabindex="-1"{?disabled} disabled{/disabled}><option></option></select></label>'
+  List:
+    # one element, with {children} where its items go; a choice of options is a group the screen reader names
+    template: '<ul class="k-list">{children}</ul>'
+    roles:
+      radiogroup: '<ul class="k-choices" role="radiogroup"{?named} aria-label="{name}"{/named}>{children}</ul>'
+      group: '<ul class="k-choices" role="group"{?named} aria-label="{name}"{/named}>{children}</ul>'
+      tablist: '<ul class="k-tabs" role="tablist">{children}</ul>'
+  ListItem:
+    # one element each; a list item that is a control draws the control inside it
+    template: '<li class="k-item">{text}</li>'
+    roles:
+      checkbox: '<li class="k-item"><label class="k-check"><input type="checkbox" tabindex="-1"{?disabled} disabled{/disabled}><span>{text}</span></label></li>'
+      radio: '<li class="k-item"><label class="k-check"><input type="radio" tabindex="-1"{?disabled} disabled{/disabled}><span>{text}</span></label></li>'
+      tab: '<li class="k-tab" role="tab">{text}</li>'
+      link: '<li class="k-item"><a class="k-link" href="#{id}">{text}</a></li>'
+      button: '<li class="k-item"><button type="button" class="k-button k-plain"{?disabled} disabled{/disabled}>{text}</button></li>'
+  Status:
+    template: '<p class="k-status" role="status">{text}</p>'
+  Alert:
+    template: '<div class="k-alert" role="alert">{text}</div>'

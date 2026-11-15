@@ -1,0 +1,59 @@
+/* The example kit's look. The CLI scopes it to the drawn screen, so `&` is the screen itself and a rule here never
+   reaches the rest of the page. Every value comes from a token: change tokens.json, and the screens follow. */
+& {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  font-family: var(--font-body);
+  font-size: var(--font-size-body);
+  color: var(--color-ink);
+  background: var(--color-bg);
+}
+.k-heading {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-strong);
+  line-height: 1.25;
+}
+.k-text { margin: 0; color: var(--color-muted); }
+.k-button {
+  font: inherit;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+.k-primary { border-color: var(--color-accent); background: var(--color-accent); color: var(--color-on-accent); }
+.k-quiet { border-color: transparent; background: none; }
+.k-button:disabled, .k-input:disabled { opacity: 0.55; }
+.k-link {
+  font: inherit;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-accent);
+  text-decoration: underline;
+}
+.k-field { display: grid; gap: var(--space-1); }
+.k-label { font-weight: var(--font-weight-strong); }
+.k-input {
+  font: inherit;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-control);
+  background: var(--color-bg);
+  color: var(--color-ink);
+}
+.k-check { display: flex; gap: var(--space-2); align-items: center; }
+.k-list, .k-choices, .k-tabs { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.k-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--color-line); }
+.k-tab { padding: var(--space-2) var(--space-3); }
+.k-status { margin: 0; color: var(--color-success); }
+.k-alert {
+  padding: var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-danger);
+}

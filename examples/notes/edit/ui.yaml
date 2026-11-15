@@ -7,6 +7,7 @@ id: example.editNote
 flow: example.editNote
 status: proposed
 catalog: catalog/en.json
+kit: ../kit # its screens are drawn with the example kit (../kit/kit.yaml)
 locales: [en]
 samples: { body: "Milk, eggs, bread" }
 changes: { key: Changes.note }

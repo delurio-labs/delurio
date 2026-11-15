@@ -327,3 +327,25 @@ jobs:
           cat "$RUNNER_TEMP/diagram.txt"
           test "$code" -eq 2
           grep -F 'step 2: signed_out is not reached from checking without an event (the way stops in signed_out.cookie_cleared) [tutorial-mismatch]' "$RUNNER_TEMP/diagram.txt"
+      - name: The example kit draws the notes screens, and a kit that is not data is refused
+        run: |
+          page="$RUNNER_TEMP/pages/notes/edit/index.html"
+          grep -F '<div class="wf kit"' "$page"
+          grep -F '<button type="button" class="k-button k-primary">Save</button>' "$page"
+          grep -F '<li class="k-item" data-node="pinBox"><label class="k-check"><input type="checkbox"' "$page"
+          grep -F -- '--color-accent: #2a54d5;' "$page"
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { loadKit } from "./dist/kit.js";
+            const kit = loadKit("examples/notes/kit");
+            for (const c of ["Heading", "Text", "Button", "LinkButton", "TextField", "Checkbox", "Radio", "Select", "List", "ListItem", "Status", "Alert"]) assert.ok(kit.components[c] !== undefined, `no template for ${c}`);
+            assert.deepEqual(kit.dark.map(([n]) => n).filter((n) => !kit.light.some(([m]) => m === n)), []);
+          '
+
+          cp -r examples/notes "$RUNNER_TEMP/kit-script"
+          sed -i "s|    template: '<p class=\"k-text\">{text}</p>'|    template: '<p class=\"k-text\" onclick=\"go()\">{text}</p>'|" "$RUNNER_TEMP/kit-script/kit/kit.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/kit-script" --strict > "$RUNNER_TEMP/kit-script.txt" || code=$?
+          cat "$RUNNER_TEMP/kit-script.txt"
+          test "$code" -eq 1
+          grep -F 'event handlers are not allowed: a kit is data, never code [load]' "$RUNNER_TEMP/kit-script.txt"
