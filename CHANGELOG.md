@@ -5,6 +5,8 @@ While the version is 0.x, a release that can judge the same graphs differently (
 ## Unreleased
 
 - `check` parses each file once however many graphs read it. Before, it parsed a flow's domain again for every flow that names it, and every flow again for every flow that starts another: on delurio's own 41 flows it took 12.7 s, of which more than half was parsing the same files again; it now takes 5.8 s. It judges nothing differently: the same graphs give the same findings, in text and in SARIF, as 0.8.0 gives.
+- `examples/notes/kit`: a kit to start from (SPEC.md §8), which the screens of `examples/notes` are now drawn with (`kit: ../kit`). It has a template for every component of `ui.yaml`, and for the roles graphs most often give them: a `Button` or a `LinkButton` that is a link; a `List` that is a radio group, a group or a tab list; a `ListItem` that is a checkbox, a radio, a tab, a link or a button. It also draws `Checkbox`, `Radio` and `Select`, which `ui.yaml` does not name as components yet; a kit may give templates that no screen uses. Its colours, spaces, radius and type are design tokens in the W3C format, light and dark, each colour it draws text in at a contrast of at least 4.5:1 with its background, and its CSS takes every value from them. Nothing is judged differently: the examples give the same findings, and only the notes pages look different.
+- README: how to write a product's own kit, starting from that one.
 
 ## 0.8.0 (2026-11-15)
 
