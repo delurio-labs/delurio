@@ -33,6 +33,8 @@ Node 22.18 or later.
 npx @delurio/cli check graphs --strict
 ```
 
+Several folders may be given (`check graphs examples`); a graph under two of them is checked once.
+
 - **Findings:** one line each, in the GNU error format that compilers, editors and CI logs read:
 
   ```

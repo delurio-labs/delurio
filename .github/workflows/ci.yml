@@ -98,6 +98,26 @@ jobs:
         run: |
           grep -F 'a server function, POST, called only by the product' "$RUNNER_TEMP/pages/notes/restore/index.html"
           grep -F 'an HTTP operation, POST /notes/{id}/archive' "$RUNNER_TEMP/pages/notes/archive/index.html"
+      - name: Every folder given is checked, each graph once, and a path that is not a folder is refused
+        run: |
+          cp -r examples/qauth-authorize "$RUNNER_TEMP/second"
+          sed -i 's/left: { type: final, title: The user leaves, leavesPage: true }/left: { type: final, title: The user leaves, and nothing is sent, leavesPage: true }/' "$RUNNER_TEMP/second/flow.yaml"
+          code=0
+          node dist/cli.js check examples/notes "$RUNNER_TEMP/second" --strict > "$RUNNER_TEMP/second.txt" 2>&1 || code=$?
+          cat "$RUNNER_TEMP/second.txt"
+          test "$code" -eq 2
+          grep -F 'second/flow.yaml' "$RUNNER_TEMP/second.txt" | grep -F '[schema]'
+          grep -F 'delurio check: 4 graphs' "$RUNNER_TEMP/second.txt"
+
+          node dist/cli.js check examples examples/notes --strict > "$RUNNER_TEMP/twice.txt" 2>&1
+          cat "$RUNNER_TEMP/twice.txt"
+          grep -F 'delurio check: 5 graphs, 0 errors' "$RUNNER_TEMP/twice.txt"
+
+          code=0
+          node dist/cli.js check examples "$RUNNER_TEMP/nowhere" --strict > "$RUNNER_TEMP/nowhere.txt" 2>&1 || code=$?
+          cat "$RUNNER_TEMP/nowhere.txt"
+          test "$code" -eq 1
+          grep -F "$RUNNER_TEMP/nowhere is not a folder" "$RUNNER_TEMP/nowhere.txt"
       - name: The focus goes to a node shown where it goes, and a returnsFocus starts at a dialog
         run: |
           cp -r examples/notes "$RUNNER_TEMP/focus"
