@@ -2,7 +2,9 @@
 // changes and what follows. An action writes when its route or its server function is not a GET, when a policy lets
 // someone `write` with it, or when it is a step inside the service (neither a route nor a server function) that returns
 // an entity; all three are read from the flow's domain, looked up by id among the graphs beside this one, all its files
-// read as one (SPEC.md §5). A flow with no screens, or whose domain is not found, is not checked.
+// read as one (SPEC.md §5). A GET that a policy lists is held to what it does: it writes only when one of its
+// `sideEffects` is more than an audit record of the call (`audit:<event>`), as a policy names reads and writes together
+// (proposed in SPEC.md §4, for the owner to decide). A flow with no screens, or whose domain is not found, is not checked.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { Graph } from './graph.ts';
@@ -12,6 +14,7 @@ export interface DomainAction {
   route?: string;
   serverFn?: string;
   result?: { returns?: string };
+  sideEffects?: unknown[];
 }
 
 export interface Domain {
@@ -69,6 +72,13 @@ export function flowDomain(g: Graph, seen?: Map<string, Domain | null>): Domain 
 // the HTTP method of an action's route or server function; undefined for a step inside the service
 const methodOf = (a: DomainAction | null | undefined): string | undefined => (a?.route ?? a?.serverFn)?.trim().split(/\s+/)[0]?.toUpperCase();
 
+// a side effect that records the call and changes nothing the flow's users are told of: `audit:<event>` (SPEC.md §5)
+const isAudit = (s: unknown): boolean => typeof s === 'string' && s.trimStart().startsWith('audit:');
+
+// a GET that a writing policy lists writes only when it does more than record that it was called: a policy names its
+// actor's reads and writes together, and a GET reads (proposed in SPEC.md §4)
+const writesThroughPolicy = (a: DomainAction | null | undefined): boolean => methodOf(a) !== 'GET' || (Array.isArray(a?.sideEffects) && a.sideEffects.some((s) => !isAudit(s)));
+
 // `domainOf` finds the flow's domain, called at most once: a caller that reads the domain for another rule as well
 // hands over the one it found
 export function checkChanges(g: Graph, domainOf: () => Domain | null = () => flowDomain(g)): ChangesCheck | null {
@@ -80,7 +90,7 @@ export function checkChanges(g: Graph, domainOf: () => Domain | null = () => flo
     const method = methodOf(a);
     if ((method !== undefined && method !== 'GET') || (method === undefined && a?.result?.returns !== undefined)) writing.add(name);
   }
-  for (const p of domain.policies ?? []) if ((p.write ?? []).length > 0) for (const name of p.do ?? []) writing.add(name);
+  for (const p of domain.policies ?? []) if ((p.write ?? []).length > 0) for (const name of p.do ?? []) if (writesThroughPolicy(domain.actions?.[name])) writing.add(name);
   const invoked = Object.values(g.flow.states).map((s) => s.invoke?.action);
   const writes = [...new Set(invoked.filter((a): a is string => a !== undefined && writing.has(a)))].sort();
   const key = g.ui.changes?.key ?? null;
