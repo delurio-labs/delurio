@@ -12,7 +12,7 @@ A graph is a directory of YAML files. Every file starts with the same three keys
 
 ```yaml
 schema: delurio-graph/0
-kind: flow            # flow | ui | domain | nav | binding | tutorial | kit
+kind: flow            # flow | ui | domain | nav | binding | tutorial | kit | needs | gaps
 id: learning.enrollment
 ```
 
@@ -26,9 +26,11 @@ id: learning.enrollment
 | `binding` | `binding.yaml` | how a flow maps onto a running app, for replay and recording |
 | `tutorial` | `tutorial.yaml` | an end-user video written against a flow |
 | `kit` | `kit.yaml` | how the UI components look in one product |
+| `needs` | `needs.yaml` | what must exist for a flow's users, each need with the evidence that it does or why it does not yet (§13) |
+| `gaps` | `needs.gaps.yaml` | every need of a product's flows that is missing (§13) |
 | (generated) | `anchors.lock.yaml`, `viz/`, `video/` | written by the tools; never by hand |
 
-A flow directory holds `flow.yaml`; a flow with screens also holds `ui.yaml` and the catalog that `ui.yaml` names. It may hold `domain.yaml`, `binding.yaml` and `tutorial.yaml`. A domain shared by several flows sits in its own directory and each flow names it by id (`domain: learning.api`). A directory holds one domain and a domain sits in one directory, in `domain.yaml` or split across several files (§5). A navigation graph is a directory with `nav.yaml` and its catalog.
+A flow directory holds `flow.yaml`; a flow with screens also holds `ui.yaml` and the catalog that `ui.yaml` names. It may hold `domain.yaml`, `binding.yaml`, `tutorial.yaml` and `needs.yaml`; a product's `needs.gaps.yaml` sits at the root of its graphs (§13). A domain shared by several flows sits in its own directory and each flow names it by id (`domain: learning.api`). A directory holds one domain and a domain sits in one directory, in `domain.yaml` or split across several files (§5). A navigation graph is a directory with `nav.yaml` and its catalog.
 
 A graph file is YAML 1.2 without anchors (`&name`), aliases (`*name`), tags (`!name`) or keys that are lists or maps: a value is written where it is used, and a key is a string. No graph needs them, and a YAML reader can take minutes over a small file that uses them, so a file with one cannot be loaded ("unsupported YAML", at its line). `@delurio/cli/yaml` reads a file this way.
 
@@ -110,7 +112,7 @@ A transition is a target state id, or `{ target, guard, effect: [..], say, start
 ### Main story, scope, decisions
 
 - `main` is the story the page tells first and the path a tutorial and a replay take by default: the events, in order, from the `given` start. A plain list of events means no `given`. `--strict` fails when the events cannot be walked. Without `main`, the first success exit that passes a screen is the main story.
-- `scope` says what the view shows (`shows`) and how to read what it does not draw. `world: open` means that what is not drawn is not ruled out; only `assertions` and `outOfView` are binding. `world: closed` means the flow is complete.
+- `scope` says what the view shows (`shows`) and how to read what it does not draw. `world: open` means that what is not drawn is not ruled out; only `assertions` and `outOfView` are binding. `world: closed` means the flow is complete. What must exist for the flow's users, whether the flow draws it or not, is in its needs (§13).
 - `decisions` are the questions still open in this flow, each with a recommendation and the states it affects.
 
 ### Assertions and the checker
@@ -346,7 +348,7 @@ What a person types, or what a scenario's `setup` put in place, the graph may le
 
 Where several nodes on the screen send the event a step takes, such as two radios of one choice, the binding's `events.<EVENT>` says which is pressed, when it gives one; otherwise the first of them in `ui.yaml` that the state shows enabled is pressed.
 
-The **replay** walks a flow on the app through its binding and checks each state it stops in: the nodes the graph shows there (their role, name and text, whether they are disabled, which one has the focus, what a field holds and whether a control is checked, §4), the state's `url` and `text`, and the `effects` of the step that led there. `replay <flow dir> --bind <binding>` walks the main story (§2). `--to <state>` walks the shortest way to that state that the binding can drive. `--cover states` walks paths that together pass every reachable state, and `--cover transitions` paths that together take every reachable transition, from the binding's scenarios and through the steps it can drive (§2, `cover`). `--no-js` walks the pages marked `script` a second time with JavaScript off: those marked `optional` with their actions, those marked `actions` read only, their actions absent or disabled with a reason (§4). `--absent` also checks that a node the graph does not show in a state is not visible there; without it, the replay checks only what the graph shows, and a node it leaves out of a state may be there or not.
+The **replay** walks a flow on the app through its binding and checks each state it stops in: the nodes the graph shows there (their role, name and text, whether they are disabled, which one has the focus, what a field holds and whether a control is checked, §4), the state's `url` and `text`, and the `effects` of the step that led there. `replay <flow dir> --bind <binding>` walks the main story (§2). `--to <state>` walks the shortest way to that state that the binding can drive. `--cover states` walks paths that together pass every reachable state, and `--cover transitions` paths that together take every reachable transition, from the binding's scenarios and through the steps it can drive (§2, `cover`). `--no-js` walks the pages marked `script` a second time with JavaScript off: those marked `optional` with their actions, those marked `actions` read only, their actions absent or disabled with a reason (§4). `--absent` also checks that a node the graph does not show in a state is not visible there; without it, the replay checks only what the graph shows, and a node it leaves out of a state may be there or not. A state or a node that only missing needs are drawn as is planned, not built: every walk leaves it out, and the replay lists it with those needs (§13).
 
 `enter` says how a scenario's walk comes into the flow, after the scenario opens its page (`open`). `enter: { nav: <nav graph dir>, bind: <nav binding>, entry: <from>-><to> }` presses that entry of a navigation graph (§6), found as its own replay finds it (below), its menu opened first, and the address must become the route of the entry's page; `bind` may be left out when the entry's label alone finds it. `enter: { flow: <graph dir>, bind: <its binding>, given: { .. }, event: <EVENT> }` walks another flow from `given`, by the shortest way its binding can drive, to the transition on `<EVENT>` whose `starts` names this flow (§2, Several flows), and checks its screens on the way; what that `starts` hands over must be this scenario's own `given`. The paths are relative to the binding's file. On arrival the focus must be on the `initialFocus` of the entered flow's first screen, past its rules and server calls, and the flow's own walk then goes on from its initial state, so that every walk of the flow can begin where a person comes in.
 
@@ -382,7 +384,7 @@ A kit says how the components of `ui.yaml` look in one product: `tokens` and `da
 |---|---|
 | 0 | the graph loads and, under `--strict`, nothing is wrong |
 | 1 | the graph cannot be loaded: a YAML error, unsupported YAML (§1), an unknown state, an unknown name in an expression or one that does not parse, a non-exhaustive `always`, an unsupported construct, a `ui.yaml` that names no catalog or a catalog that is not there or not JSON (§4) |
-| 2 | under `--strict`: an assertion is violated, a state no situation reaches or a state that is no exit and has no way out (§2), a catalog key is missing from a locale's catalog or a sample value from the samples, a component has no renderer, the kit does not cover a component, the main story cannot be walked, the focus goes to a node that is not shown or a `returnsFocus` does not start at a dialog (§4), a domain's files clash or a server function has what only a route has (§5), a tutorial no longer matches its flow (§7), or a state of a captured flow names no code (§9) |
+| 2 | under `--strict`: an assertion is violated, a state no situation reaches or a state that is no exit and has no way out (§2), a catalog key is missing from a locale's catalog or a sample value from the samples, a component has no renderer, the kit does not cover a component, the main story cannot be walked, the focus goes to a node that is not shown or a `returnsFocus` does not start at a dialog (§4), a domain's files clash or a server function has what only a route has (§5), a tutorial no longer matches its flow (§7), a state of a captured flow names no code (§9), or a need's evidence does not resolve, a need that is not missing names none, or a product's gaps and its needs disagree (§13) |
 
 A graph that cannot be loaded is a finding of the rule `load`, at its place: the file and the line of what it is about (the transition that goes to a state that does not exist, the guard that does not parse, the `catalog` of `ui.yaml`), or the line and column a parser gave. The other graphs are checked as usual.
 
@@ -393,7 +395,7 @@ graphs/panel/nav/nav.yaml:42:5: error: the menu entry opens a page that refuses 
 graphs/product/flow.yaml:88:7: note: step 2: CODE_CHANGED from developing, with replayed = false
 ```
 
-`error` fails under `--strict` and `warning` does not; the `note` lines after a finding give its path or the places it relates to. With `--baseline`, an error the base run had is printed as a `warning`, as it fails nothing, but a `load` error fails the run however often it was seen and is printed as an `error`. The summary on the last line counts the findings at the levels they are printed at. On GitHub a problem matcher turns these lines into annotations on the pull request, at no cost and on pull requests from forks too.
+`error` fails under `--strict` and `warning` does not; the `note` lines after a finding give its path or the places it relates to. A gap of a product (§13) is a finding at the level `note`, which fails nothing. With `--baseline`, an error the base run had is printed as a `warning`, as it fails nothing, but a `load` error fails the run however often it was seen and is printed as an `error`. The summary on the last line counts the findings at the levels they are printed at, and once a flow has needs, the gaps among them (§13). On GitHub a problem matcher turns these lines into annotations on the pull request, at no cost and on pull requests from forks too.
 
 **As SARIF.** `--format sarif` writes SARIF 2.1.0 (OASIS), which code scanning on GitHub, GitLab and Azure DevOps, SonarQube and the SARIF viewer for VS Code read. A finding of a graph fills every part of SARIF it has:
 
@@ -408,6 +410,7 @@ graphs/product/flow.yaml:88:7: note: step 2: CODE_CHANGED from developing, with 
 | the flow itself, and the path drawn on it | `run.graphs` and `result.graphTraversals` |
 | the same finding in a later run, though its lines moved | `fingerprints` (`delurio/v1`: from the rule, the graph and the element, not the line) |
 | a finding dismissed with a reason (`finding.triage`) | `suppressions`, with `justification` |
+| a gap: a need that is missing and listed (§13) | a `result` of the rule `need-gap` at `level: note` |
 | new, unchanged or gone since a base run (`--baseline <file>`) | `baselineState` |
 | a replay mismatch: the screenshot, the trace, the HTTP exchange | `attachments`, `webRequest`, `webResponse` |
 | a mechanical fix, such as an anchor's new line | `fixes` |
@@ -456,4 +459,99 @@ Where a standard covers a part, delurio uses it rather than writing its own. Sur
 | SPDX | the licence identifiers of the packages | as it is |
 | Semantic Versioning | the versions of the CLI (#1) | as it is |
 
-delurio's own, because no standard covers them: one graph whose flows, screens, pages and API are checked against each other; the checker and the guarantees it proves; the expression language (§3); navigation graphs (§6); bindings and tutorials (§7); source anchors (§9); the revision diff in words.
+delurio's own, because no standard covers them: one graph whose flows, screens, pages and API are checked against each other; the checker and the guarantees it proves; the expression language (§3); navigation graphs (§6); bindings and tutorials (§7); source anchors (§9); needs and gaps (§13); the revision diff in words.
+
+## 13. Needs and gaps
+
+A flow draws what it does, and `world: open` (§2) leaves out the rest: what is not drawn is not ruled out. So nothing holds a product to what its users need: a feature that is missing is simply not drawn, and no check fails. A flow's needs are a closed list of what must exist for its users, each need with the evidence that it does, or with why it does not yet. The needs that are missing are the product's gaps, listed in one file. A product built in phases is so written whole, the phases to come included: its check passes while every gap is listed, and fails on a gap that is not, or on one that is met and still listed.
+
+### A flow's needs (`kind: needs`)
+
+```yaml
+schema: delurio-graph/0
+kind: needs
+id: example.restoreNote
+status: proposed
+needs:
+  - id: restore-from-its-page
+    need: The owner of an archived note restores it from the note's own page, and it is active again.
+    evidence:
+      - state: restoring
+      - node: restore
+      - source: app/notes.js
+        name: restoreNote
+      - test: app/notes.test.js
+        name: restores an archived note
+      - scenario: owner
+  - id: only-its-owner
+    need: Only the note's owner reads and restores it; to anyone else it is no note at all.
+    evidence:
+      - source: app/notes.js:12
+      - setting: NOTES_SESSION_SECRET
+        in: .env.example
+  - id: says-when-it-is-erased
+    need: The page of an archived note says how long the note is kept before it is erased.
+    evidence:
+      - node: keptFor
+    missing: archived notes are not erased yet; the second phase erases them
+```
+
+A flow's needs are in `needs.yaml`, in the flow's folder beside `flow.yaml`, and its `id` is the flow's. A need has:
+
+| Key | Meaning |
+|---|---|
+| `id` | the need's id in its flow, kebab-case |
+| `need` | what must exist, in a sentence of the graph's language, from the users' side: what they can do, or what they are told |
+| `evidence` | what shows that it exists (below) |
+| `missing` | that it does not exist yet, and why or where that is tracked: words, an issue, a finding's id |
+| `note` | the author's own words, which no tool reads |
+
+A need without `missing` is met, and its evidence names at least one thing outside the graph: a `source`, a `test`, a `scenario` or a `setting`. What the graph draws (`state`, `node`) says where the need is drawn, and alone shows nothing built. A need with `missing` is a gap. It may name evidence too: where it is drawn, and what exists of it so far. Needs are written from what the flow's users need, never from what the product does today, so a need the product does not meet yet is written all the same, with `missing`. A list is therefore `proposed` or `approved`, never `captured` (§1).
+
+| Evidence | What it says | It resolves when |
+|---|---|---|
+| `source: <path>:<line>`, `source: <path>` | the code that makes the need true, an anchor as in §9 | the file exists and has that line; with `name`, the file holds the name |
+| `test: <path>` | a test of the need | the file exists; with `name`, the file holds the test's name as it is written: in quotes, or a test function's name |
+| `scenario: <scenario>` | a scenario of a binding (§7) that walks the need on the app | the binding exists, binds this flow, and has that scenario, its `extends` included; without `binding`, the binding is the flow's own `binding.yaml` |
+| `state: <state>` | a state of the flow the need is drawn as | the flow has that state |
+| `node: <node>` | a node of the flow's screens the need is drawn as | the flow's `ui.yaml` has that node |
+| `setting: <NAME>` | an environment variable a deployment sets for the need | a line of the file `in` names sets it and is not commented out: `NAME=` or `export NAME=`, as a dotenv file has it, or `NAME:` or `- NAME=`, as the `environment` of a Compose file has it |
+
+A `source` or a `test` may say what its file holds (`name`), and a `scenario` which binding it is in (`binding: <path>`); a `setting` names the file that sets it (`in: <path>`). A file holds a name when the name is in it and is not part of a longer word. Every path is relative to the application's repository root, as a `source:` anchor's is (§9): the folder `check --app` names, or else the folder `check` runs in, as a CI runs it at the root of the repository it checked out. A piece of evidence is of one kind; a need names as many as it has.
+
+Evidence shows that something exists, not that it is right or that it passes. A test is run, and a scenario replayed, by the CI that runs them. Whoever writes and approves the list names only a test or a scenario that walks the need as its users meet it.
+
+### A product's gaps (`kind: gaps`)
+
+```yaml
+schema: delurio-graph/0
+kind: gaps
+id: example.notes
+gaps:
+  example.restoreNote: [says-when-it-is-erased]
+```
+
+`needs.gaps.yaml` lists every need of a product's flows that says `missing`: under each flow's id, the ids of its needs. Its `id` is the product's. It sits at the root of the product's graphs, `graphs/needs.gaps.yaml`, and covers the flows under its folder: a flow's gaps are listed in the nearest `needs.gaps.yaml` in its folder or above it, up to the root of its repository (the first folder that holds `.git`).
+
+### What the tools do with them
+
+`check` reads every `needs.yaml` and `needs.gaps.yaml` under the folders it is given, validates each against its schema (`schema`), and holds them to each other and to what they name:
+
+- `evidence-unresolved`, at a piece of evidence that does not resolve: a file that is not there, a line past the file's end, a name the file does not hold, a binding that is not there or binds another flow, a scenario it does not have, a state or a node the flow does not have, a setting no line of its file sets. So evidence that goes away takes its need with it.
+- `need-no-evidence`, at a need that is not missing and whose evidence names only what the graph draws.
+- `need-unlisted`, at a need that is missing and that its gaps file does not list, or that has no gaps file above it.
+- `gap-met`, at an entry of a gaps file whose need is met now; `gap-unknown`, at an entry that names a flow or a need that no `needs.yaml` under the file's folder has.
+- `need-twice`, at a need whose id is given earlier in its file; `needs-place`, at a `needs.yaml` that is beside no flow, or whose `id` is not the id of the flow beside it.
+
+Each is an error, and fails `--strict` (exit 2). A gap that is listed fails nothing: it is a finding of its own, `need-gap`, at the need's `missing`, with its words, at the level `note` in text and in SARIF. Once a flow has needs, the summary line counts the gaps among them:
+
+```
+examples/notes/restore/needs.yaml:47:5: note: need says-when-it-is-erased is missing: archived notes are not erased yet; … [need-gap]
+delurio check: 5 graphs, 0 errors, 0 warnings, 1 gap of 4 needs; exit 0
+```
+
+So the gaps only shrink on their own. A need that is met leaves the list, or `gap-met` fails; a need cannot become a gap unless the list says so, or `need-unlisted` fails. Each new gap is therefore a line added to `needs.gaps.yaml`, which the review of that change reads. With `--baseline` (§10), a gap the base run did not have is `new` in SARIF, and the summary says how many are new: `2 gaps of 4 needs (1 new)`.
+
+A tool that walks a flow on the app leaves out what only missing needs are drawn as, rather than failing on it: the states and the nodes that a need with `missing` names as its evidence, and that no met need names. A replay (§7) takes no step into such a state: a walk that would ends before it, and `--cover` keeps no path to it. It does not look for such a node, and it lists what it left out with the needs' ids. A tutorial (§7) whose steps show such a state or node is not made into a video until those needs are met. `check` replays a tutorial on the flow itself, where the planned parts are drawn, and holds it as before. `planned` in `@delurio/cli/needs` gives the planned states and nodes of a flow, each with the needs it waits on.
+
+A graph with no `needs.yaml` is checked as before. Decided on 15 Nov 2026.
