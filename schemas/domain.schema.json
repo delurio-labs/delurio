@@ -72,8 +72,8 @@
           "description": "The entity's fields, by name, each a JSON Schema (2020-12) with delurio's keywords.",
           "additionalProperties": { "$ref": "#/$defs/field" }
         },
-        "required": { "$ref": "#/$defs/names", "description": "The fields that must be present." },
-        "key": { "$ref": "#/$defs/names", "description": "The fields that identify the entity; `[id]` when left out.", "examples": [["userId", "clientId"]] },
+        "required": { "$ref": "#/$defs/names", "description": "The fields that must be present, each one of its `fields`." },
+        "key": { "$ref": "#/$defs/names", "description": "The fields that identify the entity, each one of its `fields`; `[id]` when left out.", "examples": [["userId", "clientId"]] },
         "lifecycle": {
           "type": "array",
           "description": "The entity's states, as `from -> to: why` sentences. Quote each: an unquoted item that contains `: ` is read as a map.",
@@ -193,7 +193,7 @@
         "contentMediaType": { "type": "string", "description": "JSON Schema: the media type of the string's content.", "examples": ["text/calendar", "application/json"] },
         "contentSchema": { "$ref": "#/$defs/schema", "description": "JSON Schema: the schema of the string's decoded content." },
 
-        "references": { "type": "string", "description": "delurio: the field holds the key of this other entity." },
+        "references": { "type": "string", "description": "delurio: the field holds the key of this other entity, one of the domain's own (SPEC.md §5)." },
         "unique": {
           "description": "delurio: no two entities have the same value: `true`, or `case-insensitive`.",
           "enum": [true, "case-insensitive"]
@@ -252,7 +252,7 @@
       "description": "The action's response: `returns` an entity, a `redirect`, a `status`, or a JSON Schema.",
       "$ref": "#/$defs/keywords",
       "properties": {
-        "returns": { "type": "string", "description": "The entity the action returns." },
+        "returns": { "type": "string", "description": "The entity the action returns, one of the domain's own (SPEC.md §5)." },
         "redirect": { "type": "string", "description": "Where the response redirects, in words or as a path." },
         "status": { "type": "integer", "minimum": 100, "maximum": 599, "description": "The HTTP status of the response." }
       },
@@ -283,9 +283,9 @@
         "actor": { "type": "string", "description": "Who the policy is for.", "examples": ["end-user", "anyone", "agent"] },
         "needs": { "type": "string", "description": "What the actor must hold.", "examples": ["session"] },
         "where": { "type": "string", "description": "The condition under which it holds, in words." },
-        "read": { "$ref": "#/$defs/names", "description": "The entities the actor may read." },
-        "write": { "$ref": "#/$defs/names", "description": "The entities the actor may write." },
-        "do": { "$ref": "#/$defs/names", "description": "The actions the actor may invoke." },
+        "read": { "$ref": "#/$defs/names", "description": "The entities of the domain the actor may read." },
+        "write": { "$ref": "#/$defs/names", "description": "The entities of the domain the actor may write." },
+        "do": { "$ref": "#/$defs/names", "description": "The actions of the domain the actor may invoke." },
         "source": { "$ref": "#/$defs/sourceAnchor" }
       }
     },
