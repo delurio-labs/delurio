@@ -2,5 +2,6 @@
   "Note.archived": "This note is archived",
   "Note.restore": "Restore",
   "Note.restoring": "Restoring the note",
+  "Note.keptFor": "An archived note is kept for 30 days, then erased.",
   "Changes.note": "Restoring puts the note back among your notes, as it was when you archived it. You can archive it again at any time."
 }

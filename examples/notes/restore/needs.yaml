@@ -1,0 +1,47 @@
+# What must exist for the owner of an archived note who restores it (SPEC.md §13): a closed list, written from what the
+# owner needs rather than from what the app does today. Three needs are met, and name the code, the tests, the scenario
+# and the setting that show it, under ../app/. One is still missing: the second phase of the app erases archived notes,
+# and the page that will say when is drawn already (the node keptFor), so the graph tells the whole product while a
+# replay leaves that node out. It is the product's one gap, in ../needs.gaps.yaml.
+schema: delurio-graph/0
+kind: needs
+id: example.restoreNote
+status: proposed
+
+needs:
+  - id: restore-from-its-page
+    need: The owner of an archived note restores it from the note's own page, and it is active again.
+    evidence:
+      - state: restoring
+      - node: restore
+      - source: examples/notes/app/notes.js
+        name: restoreNote
+      - test: examples/notes/app/notes.test.js
+        name: restores an archived note
+      - scenario: owner
+
+  - id: restored-meanwhile
+    need: A note restored meanwhile, in another window, is shown restored, not as an error.
+    evidence:
+      - state: restored
+      - source: examples/notes/app/notes.js
+        name: afterRestore
+      - test: examples/notes/app/notes.test.js
+        name: a note restored in another window meanwhile is shown restored
+
+  - id: only-its-owner
+    need: Only the note's owner reads and restores it; to anyone else it is no note at all.
+    evidence:
+      - state: not_found
+      - source: examples/notes/app/notes.js
+        name: readOwnNote
+      - test: examples/notes/app/notes.test.js
+        name: a note of someone else is no note at all
+      - setting: NOTES_SESSION_SECRET
+        in: examples/notes/app/.env.example
+
+  - id: says-when-it-is-erased
+    need: The page of an archived note says how long the note is kept before it is erased.
+    evidence:
+      - node: keptFor
+    missing: archived notes are not erased yet; the second phase erases them after NOTES_KEEP_ARCHIVED_DAYS

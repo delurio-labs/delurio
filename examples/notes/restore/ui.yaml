@@ -41,6 +41,11 @@ nodes:
     role: status
     text: { key: Note.restoring }
     in: [restoring]
+  keptFor: # planned: the second phase erases archived notes, and this says when (needs.yaml, says-when-it-is-erased)
+    type: text
+    component: Text
+    text: { key: Note.keptFor }
+    in: [archived]
 
 edges:
   - { labelledBy: [page, title] }

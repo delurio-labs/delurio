@@ -455,3 +455,99 @@ jobs:
           cat "$RUNNER_TEMP/task.txt"
           test "$code" -eq 2
           grep -E "edit/ui\.yaml:[0-9]+:1: error: the flow's name for its users, Edit\.task, is not in the tr catalog \(SPEC\.md §4\) \[task-locale\]" "$RUNNER_TEMP/task.txt"
+      - name: A flow's needs are held to their evidence, and the example app's tests pass
+        run: |
+          node --test examples/notes/app/
+          node dist/cli.js check examples/notes --strict > "$RUNNER_TEMP/needs.txt" 2> "$RUNNER_TEMP/needs.err"
+          cat "$RUNNER_TEMP/needs.txt" "$RUNNER_TEMP/needs.err"
+          grep -F 'restore/needs.yaml:47:5: note: need says-when-it-is-erased is missing: archived notes are not erased yet' "$RUNNER_TEMP/needs.txt" | grep -F '[need-gap]'
+          grep -Fx 'delurio check: 3 graphs, 0 errors, 0 warnings, 1 gap of 4 needs; exit 0' "$RUNNER_TEMP/needs.err"
+          node dist/cli.js check examples/qauth-authorize --strict 2>&1 | grep -Fx 'delurio check: 1 graph, 0 errors, 0 warnings; exit 0'
+
+          n=restore/needs.yaml
+          broken() { rm -rf "$RUNNER_TEMP/needs"; cp -r examples/notes "$RUNNER_TEMP/needs"; sed -i "$2" "$RUNNER_TEMP/needs/$1"; code=0; node dist/cli.js check "$RUNNER_TEMP/needs" --strict > "$RUNNER_TEMP/needs.txt" || code=$?; cat "$RUNNER_TEMP/needs.txt"; test "$code" -eq 2; grep -F "$3" "$RUNNER_TEMP/needs.txt" | grep -F "[$4]"; }
+          broken $n '0,/notes\.js$/s//note.js/' 'restore/needs.yaml:17:9: error: need restore-from-its-page: source examples/notes/app/note.js does not exist' evidence-unresolved
+          broken $n '0,/notes\.js$/s//notes.js:99/' "source examples/notes/app/notes.js:99 is past the file's end: it has 37 lines" evidence-unresolved
+          broken $n 's/^        name: restoreNote$/        name: restoreNotes/' 'source examples/notes/app/notes.js holds no restoreNotes' evidence-unresolved
+          broken $n 's/name: restores an archived note$/name: restores a note/' 'test examples/notes/app/notes.test.js holds no test named "restores a note"' evidence-unresolved
+          broken $n 's/^      - scenario: owner$/      - scenario: stranger/' "scenario stranger is not a scenario of the flow's own binding.yaml (it has owner)" evidence-unresolved
+          broken restore/binding.yaml 's/^flow: example.restoreNote$/flow: example.editNote/' "scenario owner: the flow's own binding.yaml binds example.editNote, not example.restoreNote" evidence-unresolved
+          broken $n 's/^      - state: restoring$/      - state: restorng/' 'state restorng is not a state of example.restoreNote' evidence-unresolved
+          broken $n 's/^      - node: keptFor$/      - node: keepFor/' "node keepFor is not a node of the flow's ui.yaml" evidence-unresolved
+          broken $n 's/^      - setting: NOTES_SESSION_SECRET$/      - setting: NOTES_KEEP_ARCHIVED_DAYS/' 'setting NOTES_KEEP_ARCHIVED_DAYS is not set in examples/notes/app/.env.example: no line sets it, or the one that does is commented out' evidence-unresolved
+          broken $n '/^  - id: restore-from-its-page$/,/^  - id: restored-meanwhile$/{/^      - \(source\|test\|scenario\):/d;/^        name:/d}' 'need restore-from-its-page is not missing and names no evidence outside the graph' need-no-evidence
+          broken $n 's/^  - id: restored-meanwhile$/  - id: restore-from-its-page/' 'need restore-from-its-page is given twice: it is given first at line 12' need-twice
+          broken $n 's/^id: example.restoreNote$/id: example.editNote/' 'needs.yaml is the needs of example.editNote, and the flow beside it is example.restoreNote' needs-place
+          broken $n 's/^      - state: restoring$/&\n        node: restore/' 'evidence.0.node: is not allowed here (a piece of evidence is of one kind: give each kind an item of its own)' schema
+
+          mkdir "$RUNNER_TEMP/needs/stray"
+          cp "$RUNNER_TEMP/needs/$n" "$RUNNER_TEMP/needs/stray/needs.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/needs" --strict > "$RUNNER_TEMP/needs.txt" || code=$?
+          cat "$RUNNER_TEMP/needs.txt"
+          test "$code" -eq 2
+          grep -F 'stray/needs.yaml:8:1: error: needs.yaml is beside no flow' "$RUNNER_TEMP/needs.txt" | grep -F '[needs-place]'
+      - name: A product's gaps list every missing need and only those, so they only shrink
+        run: |
+          broken() { rm -rf "$RUNNER_TEMP/gaps"; cp -r examples/notes "$RUNNER_TEMP/gaps"; sed -i "$2" "$RUNNER_TEMP/gaps/$1"; code=0; node dist/cli.js check "$RUNNER_TEMP/gaps" --strict > "$RUNNER_TEMP/gaps.txt" || code=$?; cat "$RUNNER_TEMP/gaps.txt"; test "$code" -eq 2; grep -F "$3" "$RUNNER_TEMP/gaps.txt" | grep -F "[$4]"; }
+          broken needs.gaps.yaml 's/^gaps:$/gaps: {}/; /^  example.restoreNote:/d' 'restore/needs.yaml:47:5: error: need says-when-it-is-erased is missing, and needs.gaps.yaml does not list it under example.restoreNote' need-unlisted
+          broken needs.gaps.yaml 's/\[says-when-it-is-erased\]/[says-when-it-is-erased, only-its-owner]/' 'needs.gaps.yaml:10:49: error: needs.gaps.yaml lists only-its-owner of example.restoreNote, which is met now: take it out' gap-met
+          broken restore/needs.yaml 's|^    missing: archived notes.*$|      - source: examples/notes/app/notes.js|' 'needs.gaps.yaml lists says-when-it-is-erased of example.restoreNote, which is met now' gap-met
+          broken needs.gaps.yaml 's/\[says-when-it-is-erased\]/[says-when-it-is-erased, restore-later]/' 'needs.gaps.yaml lists restore-later of example.restoreNote, which is no need of its needs.yaml' gap-unknown
+          broken needs.gaps.yaml 's/^  example.restoreNote: .*$/&\n  example.restorNote: [restore-later]/' 'needs.gaps.yaml lists gaps of example.restorNote, which is no flow with a needs.yaml under its folder' gap-unknown
+
+          rm -rf "$RUNNER_TEMP/gaps"
+          cp -r examples/notes "$RUNNER_TEMP/gaps"
+          rm "$RUNNER_TEMP/gaps/needs.gaps.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/gaps" --strict > "$RUNNER_TEMP/gaps.txt" || code=$?
+          cat "$RUNNER_TEMP/gaps.txt"
+          test "$code" -eq 2
+          grep -F 'need says-when-it-is-erased is missing, and there is no needs.gaps.yaml above it' "$RUNNER_TEMP/gaps.txt" | grep -F '[need-unlisted]'
+
+          rm -rf "$RUNNER_TEMP/gaps"
+          cp -r examples/notes "$RUNNER_TEMP/gaps"
+          node dist/cli.js check "$RUNNER_TEMP/gaps" --format sarif --output "$RUNNER_TEMP/gaps.sarif" 2> /dev/null
+          node -e '
+            const run = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).runs[0];
+            const [gap, ...rest] = run.results;
+            if (rest.length !== 0 || gap.ruleId !== "need-gap" || gap.level !== "note") throw new Error(`one gap, at note: ${JSON.stringify(run.results)}`);
+            if (gap.locations[0].physicalLocation.region.startLine !== 47) throw new Error("the gap is at its need");
+            if (run.tool.driver.rules.find((r) => r.id === "need-gap").defaultConfiguration.level !== "note") throw new Error("need-gap is a note");
+          ' "$RUNNER_TEMP/gaps.sarif"
+          sed -i 's/^    need: Only the note.s owner reads and restores it; to anyone else it is no note at all\.$/&\n    missing: the sessions are not signed yet/' "$RUNNER_TEMP/gaps/restore/needs.yaml"
+          sed -i 's/\[says-when-it-is-erased\]/[says-when-it-is-erased, only-its-owner]/' "$RUNNER_TEMP/gaps/needs.gaps.yaml"
+          node dist/cli.js check "$RUNNER_TEMP/gaps" --strict --baseline "$RUNNER_TEMP/gaps.sarif" > "$RUNNER_TEMP/gaps.txt" 2>&1
+          cat "$RUNNER_TEMP/gaps.txt"
+          grep -F 'note: need only-its-owner is missing: the sessions are not signed yet [need-gap]' "$RUNNER_TEMP/gaps.txt"
+          grep -Fx 'delurio check: 3 graphs, 0 errors, 0 warnings, 2 gaps of 4 needs (1 new); exit 0' "$RUNNER_TEMP/gaps.txt"
+      - name: Evidence is found under --app, and a walk leaves out what only missing needs draw
+        run: |
+          code=0
+          (cd examples && node ../dist/cli.js check notes --strict > "$RUNNER_TEMP/app.txt" 2>&1) || code=$?
+          cat "$RUNNER_TEMP/app.txt"
+          test "$code" -eq 2
+          grep -F 'test examples/notes/app/notes.test.js does not exist' "$RUNNER_TEMP/app.txt" | grep -F '[evidence-unresolved]'
+          (cd examples && node ../dist/cli.js check notes --strict --app ..)
+          code=0
+          node dist/cli.js check examples/notes --app "$RUNNER_TEMP/nowhere" > "$RUNNER_TEMP/app.txt" 2>&1 || code=$?
+          cat "$RUNNER_TEMP/app.txt"
+          test "$code" -eq 1
+          grep -F "$RUNNER_TEMP/nowhere is not a folder" "$RUNNER_TEMP/app.txt"
+
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { planned, readNeeds } from "./dist/needs.js";
+
+            const restore = readNeeds("examples/notes/restore");
+            assert.deepEqual([...planned(restore).nodes], [["keptFor", ["says-when-it-is-erased"]]]);
+            assert.deepEqual([...planned(restore).states], []);
+            assert.equal(readNeeds("examples/notes/edit"), null);
+            const shared = { kind: "needs", id: "x", needs: [
+              { id: "built", need: "A", evidence: [{ state: "a" }, { test: "t.js" }] },
+              { id: "later", need: "B", evidence: [{ state: "a" }, { state: "b" }, { node: "n" }], missing: "the second phase" },
+              { id: "after", need: "C", evidence: [{ state: "b" }], missing: "the third phase" },
+            ] };
+            assert.deepEqual([...planned(shared).states], [["b", ["later", "after"]]]);
+            assert.deepEqual([...planned(shared).nodes], [["n", ["later"]]]);
+          '
