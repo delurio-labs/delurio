@@ -1,0 +1,24 @@
+{
+  "name": "@delurio/cli-win32-x64-msvc",
+  "version": "0.11.0",
+  "description": "The native addon of @delurio/cli for win32-x64-msvc: install @delurio/cli, which depends on this package for this platform",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/delurio-labs/delurio.git"
+  },
+  "homepage": "https://delur.io",
+  "main": "delurio.win32-x64-msvc.node",
+  "files": [
+    "delurio.win32-x64-msvc.node"
+  ],
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "engines": {
+    "node": ">=26"
+  }
+}

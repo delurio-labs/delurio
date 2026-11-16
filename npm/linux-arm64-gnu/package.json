@@ -1,0 +1,27 @@
+{
+  "name": "@delurio/cli-linux-arm64-gnu",
+  "version": "0.11.0",
+  "description": "The native addon of @delurio/cli for linux-arm64-gnu: install @delurio/cli, which depends on this package for this platform",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/delurio-labs/delurio.git"
+  },
+  "homepage": "https://delur.io",
+  "main": "delurio.linux-arm64-gnu.node",
+  "files": [
+    "delurio.linux-arm64-gnu.node"
+  ],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "engines": {
+    "node": ">=26"
+  },
+  "libc": [
+    "glibc"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@delurio/cli-darwin-x64",
+  "version": "0.11.0",
+  "description": "The native addon of @delurio/cli for darwin-x64: install @delurio/cli, which depends on this package for this platform",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/delurio-labs/delurio.git"
+  },
+  "homepage": "https://delur.io",
+  "main": "delurio.darwin-x64.node",
+  "files": [
+    "delurio.darwin-x64.node"
+  ],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "engines": {
+    "node": ">=26"
+  }
+}
