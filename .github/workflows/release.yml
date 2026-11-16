@@ -216,10 +216,14 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/delurio-labs/delurio
             org.opencontainers.image.licenses=Apache-2.0
+      # Docker's containerd image store will not pull the same index digest for a second platform ("cannot overwrite
+      # digest", v0.11.0's arm64 check), so each architecture's pull is removed before the next
       - name: Each architecture's image checks the examples
         run: |
+          image="ghcr.io/delurio-labs/delurio@${{ steps.push.outputs.digest }}"
           for arch in amd64 arm64; do
-            docker run --rm --platform "linux/$arch" -v "$PWD/examples:/work/examples:ro" "ghcr.io/delurio-labs/delurio@${{ steps.push.outputs.digest }}" check examples --strict
+            docker run --rm --pull always --platform "linux/$arch" -v "$PWD/examples:/work/examples:ro" "$image" check examples --strict
+            docker image rm "$image" >/dev/null
           done
       - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Sign the image by its digest
