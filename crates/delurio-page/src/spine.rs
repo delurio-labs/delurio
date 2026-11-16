@@ -401,3 +401,45 @@ pub fn render_spine(g: &Graph, ex: &Exploration, view: View, story: Option<&[Pat
         .map_err(|e| Error::graph(format!("the diagram cannot be laid out: {e}"), None))?;
     Ok(spine_svg(g, ex, view, story, &laid))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use delurio_core::graph::load;
+    use delurio_core::model::{Model, explore};
+    use delurio_core::story::{main_story_index, steps_to};
+
+    // the fixtures are the TypeScript checker's: the graph renderSpine handed to `ELK.layout` (caught by wrapping
+    // elkjs's `layout` in node), and renderSpine's SVG, for the example flows
+    fn spine_of(dir: &str, view: View) -> (Value, String) {
+        let g = load(&format!("{}/../../examples/{dir}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let m = Model::new(g.flow.clone());
+        let ex = explore(&m, None, None).unwrap();
+        let story = main_story_index(&g, &ex).map(|i| steps_to(&m, &ex, i).unwrap());
+        (spine_graph(&g, &ex, view, story.as_deref()), render_spine(&g, &ex, view, story.as_deref()).unwrap())
+    }
+
+    #[test]
+    fn the_graph_elk_is_given() {
+        let (main, _) = spine_of("sign-out", View::Main);
+        assert_eq!(js::stringify(&main), include_str!("../tests/fixtures/sign-out-elk-main.json"));
+        let (full, svg) = spine_of("sign-out", View::Full);
+        assert_eq!(js::stringify(&full), include_str!("../tests/fixtures/sign-out-elk-full.json"));
+        assert_eq!(svg, include_str!("../tests/fixtures/sign-out-full.svg"));
+    }
+
+    #[test]
+    fn the_story_drawn_on_a_screen_flow() {
+        let (_, svg) = spine_of("notes/edit", View::Main);
+        assert_eq!(svg, include_str!("../tests/fixtures/notes-edit-main.svg"));
+    }
+
+    #[test]
+    fn numbers_as_javascript_rounds_and_writes_them() {
+        // node -e "for (const n of [12.25, -0.04, 3.05, 1e21]) console.log(String(Math.round(n * 10) / 10))"
+        assert_eq!(r1(12.25), "12.3");
+        assert_eq!(r1(-0.04), "0");
+        assert_eq!(r1(3.05), "3.1");
+        assert_eq!(r1(1e21), "1e+21");
+    }
+}

@@ -1,0 +1,44 @@
+<svg class="spine" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 371 606" style="max-width:371px" role="img" aria-label="Flowchart of Edit a note without failure paths. The text sections of this page describe every step.">
+<defs>
+<marker id="arrow-main-user" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="arrow arrow-user" d="M0 0 L10 5 L0 10 z"/></marker>
+<marker id="arrow-main-system" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="arrow arrow-system" d="M0 0 L10 5 L0 10 z"/></marker>
+<marker id="arrow-main-route" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="arrow arrow-route" d="M0 0 L10 5 L0 10 z"/></marker>
+<marker id="arrow-main-fail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="arrow arrow-fail" d="M0 0 L10 5 L0 10 z"/></marker>
+<marker id="arrow-main-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="arrow arrow-main" d="M0 0 L10 5 L0 10 z"/></marker>
+</defs>
+<path class="edge edge-system" d="M339.2 161 L339.2 183 L221.7 183 L221.7 217" marker-end="url(#arrow-main-system)"/>
+<path class="edge edge-user" data-from="editing" data-to="saving" d="M175.2 275 L175.2 410" marker-end="url(#arrow-main-user)"/>
+<path class="edge edge-user" data-from="editing" data-to="discarding" d="M128.7 217 L128.7 82" marker-end="url(#arrow-main-user)"/>
+<path class="edge edge-system" data-from="saving" data-to="saved" d="M175.2 468 L175.2 524" marker-end="url(#arrow-main-system)"/>
+<path class="edge edge-user" data-from="discarding" data-to="editing" d="M233.3 82 L233.3 104 L175.2 104 L175.2 217" marker-end="url(#arrow-main-user)"/>
+<g class="elabel" data-from="editing" data-to="saving"><rect x="112.2" y="331" width="57" height="23" rx="4"/>
+<text x="119.2" y="348">“Save”</text>
+</g>
+<g class="elabel" data-from="editing" data-to="discarding"><rect x="51.7" y="138" width="71" height="23" rx="4"/>
+<text x="58.7" y="155">“Cancel”</text>
+</g>
+<g class="elabel" data-from="discarding" data-to="editing"><rect x="182.2" y="138" width="114" height="23" rx="4"/>
+<text x="189.2" y="155">“Keep editing”</text>
+</g>
+<circle class="start" cx="339.2" cy="154" r="7"><title>start</title></circle>
+<a href="#screen-editing"><g class="node node-screen" data-state="editing"><title>editing</title>
+<rect x="82.2" y="217" width="186" height="58" rx="8"/>
+<text class="nname" x="175.2" y="242" text-anchor="middle">Edit the note</text>
+<text class="nline" x="175.2" y="261" text-anchor="middle">editing · screen</text>
+</g></a>
+<a href="#screen-saving"><g class="node node-screen" data-state="saving"><title>saving</title>
+<rect x="82.2" y="410" width="186" height="58" rx="8"/>
+<text class="nname" x="175.2" y="435" text-anchor="middle">Save it</text>
+<text class="nline" x="175.2" y="454" text-anchor="middle">saving · screen</text>
+</g></a>
+<a href="#screen-discarding"><g class="node node-screen" data-state="discarding"><title>discarding</title>
+<rect x="24" y="24" width="314" height="58" rx="8"/>
+<text class="nname" x="181" y="49" text-anchor="middle">Ask before discarding the changes</text>
+<text class="nline" x="181" y="68" text-anchor="middle">discarding · screen</text>
+</g></a>
+<g class="node node-exit exit-error" data-state="saved"><title>saved</title>
+<rect x="82.2" y="524" width="186" height="58" rx="28"/>
+<text class="nname" x="175.2" y="549" text-anchor="middle">Saved</text>
+<text class="nline" x="175.2" y="568" text-anchor="middle">ends here</text>
+</g>
+</svg>
