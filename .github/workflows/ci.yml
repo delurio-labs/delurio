@@ -1,5 +1,5 @@
 # The checker is the Rust one (crates/); the npm package (js/) runs it as a native addon. CI holds it to the
-# TypeScript checker it was ported from (290c61a): the behaviour cases of that checker's CI pass on the binary, and the
+# TypeScript checker it was ported from (b99f12f): the behaviour cases of that checker's CI pass on the binary, and the
 # differential harness finds the same output from both on the examples and on QAuth's and Medaris's graphs.
 name: ci
 
@@ -14,7 +14,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   # the TypeScript checker the port is held to, and the graph sets it is compared on (public repositories, fixed commits)
-  REFERENCE: 290c61a7381d84e7c7c927534b74ecd1a623331e
+  REFERENCE: b99f12f333d74093bfd1ce4300b9f39a1025caef
   QAUTH: 294b2554582225a037ec9b37ec1f9c5aed263964
   MEDARIS_395: dc22fd10ca755d74fbe4a72f6fd78e17db2e5e7e
   MEDARIS_MAIN: 32f2e6c8cba5aa2058da5392a9aa000ac15338dd
@@ -141,8 +141,7 @@ jobs:
       - name: Packed as it is published
         run: |
           mkdir -p "$RUNNER_TEMP/packs"
-          npx napi artifacts --output-dir . --npm-dir npm
-          cp LICENSE NOTICE npm/linux-x64-gnu/
+          cp delurio.linux-x64-gnu.node LICENSE NOTICE npm/linux-x64-gnu/
           npm pack --pack-destination "$RUNNER_TEMP/packs"
           npm pack ./npm/linux-x64-gnu --pack-destination "$RUNNER_TEMP/packs"
           tar -tzf "$RUNNER_TEMP/packs/delurio-cli-0"*.tgz | sort
