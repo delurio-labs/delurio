@@ -25,7 +25,7 @@ use crate::model::{Model, check_assertions, explore};
 use crate::nav::{LoadedNav, check_goals, findings, load_nav, view_of};
 use crate::needs::{check_needs, planned, read_needs};
 use crate::nodepath::{self, basename, dirname, join2, relative, resolve1};
-use crate::schemas::{SchemaKind, schema_kind_of};
+use crate::schemas::{SchemaKind, schema_kind_of, validate_file};
 use crate::starts::check_starts;
 use crate::story::steps_by_events;
 use crate::tutorial_check::check_tutorial;
@@ -1035,23 +1035,6 @@ fn sarif(results: &[CheckResult], exit_code: i32, said: &[String]) -> Value {
         ("version", "2.1.0".into()),
         ("runs", Value::Array(vec![run])),
     ])
-}
-
-/// a place where a file does not follow its kind's schema: `SchemaFinding` of schemas.ts
-// TODO(schemas port): `crate::schemas::validate_file` is not on rust/next yet. Until it lands, this stand-in finds
-// nothing, so `check` reports no `schema` finding; replace it, and this struct, with the schemas module's.
-#[allow(dead_code)]
-struct SchemaFinding {
-    line: usize,
-    column: usize,
-    message: String,
-    graph: Option<String>,
-    element: String,
-}
-
-// TODO(schemas port): the stand-in for `crate::schemas::validate_file` (see `SchemaFinding`)
-fn validate_file(_file: &str) -> Vec<SchemaFinding> {
-    Vec::new()
 }
 
 /// `delurio check <args>`: every text the check reads is parsed once in it (`parsing_once`), however many graphs read it
