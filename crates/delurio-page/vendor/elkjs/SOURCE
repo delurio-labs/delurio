@@ -1,0 +1,5 @@
+elkjs 0.12.1, lib/elk.bundled.js and LICENSE.md as published on npm, unchanged.
+Tarball: https://registry.npmjs.org/elkjs/-/elkjs-0.12.1.tgz
+Integrity: sha512-IhMYKHE4S2vtx0QrhBP3lYOIKDeIiJXBrdq9MGYkuB8ZHqhrBnHNfSUndjXFewrX1CPK8chwq+2NA0K0hliYuw==
+Source: https://github.com/kieler/elkjs (Eclipse Public License 2.0, see LICENSE.md)
+The page lays a flow's diagram out with it, as the TypeScript checker and delurio's dashboard do, so the three draw alike.
