@@ -5,6 +5,8 @@ pub mod command;
 pub mod elk;
 pub mod html;
 pub mod index_page;
+pub mod mermaid;
 pub mod nav_page;
 pub mod pan;
+pub mod spine;
 pub mod watch;
