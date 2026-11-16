@@ -97,7 +97,7 @@ A kit (SPEC.md §8) says how the components of `ui.yaml` look in one product, so
 
 ## Write a graph in an editor
 
-The package ships a JSON Schema (2020-12) for each kind of graph file in `schemas/`: `flow`, `ui`, `nav` (also `nav.extracted.yaml`), `domain`, `catalog`, `needs` and `gaps` (`needs.gaps.yaml`). With them an editor completes keys, explains each one from SPEC.md on hover, and marks a typo, a value of the wrong kind, or a title cut short by a comma inside `{ }`. In VS Code, with the YAML extension, put this in `.vscode/settings.json`:
+The package ships a JSON Schema (2020-12) for each kind of graph file in `schemas/`: `flow`, `ui`, `nav` (also `nav.extracted.yaml`), `domain`, `catalog`, `needs` and `gaps` (`needs.gaps.yaml`), and `binding`, which describes a binding's `ambient` answers so far and leaves its other keys open. With them an editor completes keys, explains each one from SPEC.md on hover, and marks a typo, a value of the wrong kind, or a title cut short by a comma inside `{ }`. In VS Code, with the YAML extension, put this in `.vscode/settings.json`:
 
 ```json
 {
@@ -107,7 +107,8 @@ The package ships a JSON Schema (2020-12) for each kind of graph file in `schema
     "https://unpkg.com/@delurio/cli@0.2.0/schemas/nav.schema.json": ["**/nav.yaml", "**/nav.extracted.yaml"],
     "https://unpkg.com/@delurio/cli@0.2.0/schemas/domain.schema.json": ["**/domain.yaml", "**/domain/*.yaml"],
     "https://unpkg.com/@delurio/cli@0.9.0/schemas/needs.schema.json": "**/needs.yaml",
-    "https://unpkg.com/@delurio/cli@0.9.0/schemas/gaps.schema.json": "**/needs.gaps.yaml"
+    "https://unpkg.com/@delurio/cli@0.9.0/schemas/gaps.schema.json": "**/needs.gaps.yaml",
+    "https://unpkg.com/@delurio/cli@0.10.1/schemas/binding.schema.json": ["**/binding.yaml", "**/*.binding.yaml"]
   },
   "json.schemas": [
     { "fileMatch": ["**/catalog/*.json"], "url": "https://unpkg.com/@delurio/cli@0.2.0/schemas/catalog.schema.json" }
@@ -115,7 +116,7 @@ The package ships a JSON Schema (2020-12) for each kind of graph file in `schema
 }
 ```
 
-A domain may be split across the files of its directory (SPEC.md §5); `**/domain/*.yaml` covers them in a directory named `domain`, and a file elsewhere names its schema on its first line: `# yaml-language-server: $schema=<the domain schema's URL>`. With the package installed, `./node_modules/@delurio/cli/schemas/<kind>.schema.json` works the same, offline. `check` reports the same as the editor, as errors of the rule `schema` that fail `--strict`, and finds what a schema cannot see, such as a state that does not exist or a catalog key that is missing.
+A domain may be split across the files of its directory (SPEC.md §5); `**/domain/*.yaml` covers them in a directory named `domain`, and a file elsewhere names its schema on its first line: `# yaml-language-server: $schema=<the domain schema's URL>`. With the package installed, `./node_modules/@delurio/cli/schemas/<kind>.schema.json` works the same, offline. `check` reports the same as the editor, as errors of the rule `schema` that fail `--strict` (a binding's, only in the editor: `check` does not read bindings), and finds what a schema cannot see, such as a state that does not exist or a catalog key that is missing.
 
 Next to the editor, keep the pages open and current:
 

@@ -1,5 +1,7 @@
 # Restoring a note, bound to the notes app for a replay (SPEC.md §7): where the app runs, who signs in, and the
 # scenario that a need of needs.yaml names as what walks it. The example app is not served, so nothing replays it here.
+# `ambient` answers what the graph does not hold: who is signed in, and the flags the page reads; anything else the
+# page asks for goes on to the app.
 schema: delurio-graph/0
 kind: binding
 flow: example.restoreNote
@@ -7,6 +9,13 @@ apps:
   notes: http://127.0.0.1:3000
 accounts:
   owner: { address: owner@example.test }
+ambient:
+  answers:
+    - call: { url: "**/api/session", method: GET }
+      json: { user: { address: owner@example.test } }
+    - call: "**/api/flags"
+      json: { trash: true }
+  others: pass
 scenarios:
   owner:
     as: owner

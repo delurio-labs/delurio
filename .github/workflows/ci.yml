@@ -26,6 +26,32 @@ jobs:
         run: node dist/cli.js check examples --strict
       - name: Write the examples' pages with the built package
         run: node dist/cli.js page examples --out "$RUNNER_TEMP/pages" --strict
+      - name: The binding schema compiles, the example's ambient answers follow it, and a wrong answer does not
+        run: |
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            import { Ajv2020 } from "ajv/dist/2020.js";
+            import addFormatsModule from "ajv-formats";
+            import { parse } from "yaml";
+            const ajv = new Ajv2020({ allErrors: true, strict: true, strictRequired: false, allowUnionTypes: true });
+            addFormatsModule.default(ajv);
+            const validate = ajv.compile(JSON.parse(readFileSync("schemas/binding.schema.json", "utf8")));
+            const example = parse(readFileSync("examples/notes/restore/binding.yaml", "utf8"));
+            if (!validate(example)) throw new Error(JSON.stringify(validate.errors));
+            const wrong = {
+              "a json value and a body": (b) => { b.ambient.answers[0].body = "{}"; },
+              "an abort with a body": (b) => { b.ambient.answers[1].abort = "timedout"; },
+              "an unknown network error": (b) => { b.ambient.answers[1] = { call: "**/api/flags", abort: "gone" }; },
+              "a key that is not one": (b) => { b.ambient.answers[0].stauts = 200; },
+              "others that is neither pass nor abort": (b) => { b.ambient.others = "block"; },
+              "a scenario answer with no call": (b) => { b.scenarios.owner.ambient = { answers: [{ status: 503 }] }; },
+            };
+            for (const [what, change] of Object.entries(wrong)) {
+              const b = structuredClone(example);
+              change(b);
+              if (validate(b)) throw new Error(`the binding schema took ${what}`);
+            }
+          '
       - name: A graph that breaks its schema fails the check
         run: |
           cp -r examples/qauth-authorize "$RUNNER_TEMP/broken"

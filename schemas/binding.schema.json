@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unpkg.com/@delurio/cli@0.10.1/schemas/binding.schema.json",
+  "title": "delurio binding (binding.yaml)",
+  "description": "A binding ties a flow, or a navigation graph, to a running app for replay and recording, in delurio-graph/0 (SPEC.md §7). This schema describes its `ambient` answers, the calls the graph does not hold, answered in the app's place. The binding's other keys (`flow`, `nav`, `extends`, `root`, `apps`, `browser`, `data`, `signIn`, `accounts`, `scenarios`, `events`, `effects`, `states`, `nodes`, and a navigation binding's own) are SPEC.md §7's and are left open here. `check` does not read bindings.",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "description": "The format and its version. Every graph file starts with it.",
+      "const": "delurio-graph/0"
+    },
+    "kind": { "description": "The kind of graph file. A binding is `binding`.", "const": "binding" },
+    "ambient": { "$ref": "#/$defs/ambient" },
+    "scenarios": {
+      "type": "object",
+      "description": "The starts of the walks, by name (SPEC.md §7). A scenario may give `ambient` answers of its own, looked at before the binding's; its other keys are left open here.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": { "ambient": { "$ref": "#/$defs/ambient" } }
+      }
+    }
+  },
+  "$defs": {
+    "ambient": {
+      "type": "object",
+      "description": "The calls the graph does not hold, answered in the app's place: what a page asks its server for that no state's `call` names, such as the session, the person signed in (`/me`), feature flags, translations or an analytics endpoint. A call is what a page sends with `fetch` or `XMLHttpRequest`, or opens as a WebSocket or an `EventSource`; loading a document, a script, a style sheet, an image, a font or a media file is no call. A request that a state's `call` names is the graph's own, and is never answered here.",
+      "additionalProperties": false,
+      "properties": {
+        "answers": {
+          "type": "array",
+          "description": "The answers, in order: a request is answered by the first that matches it, the scenario's own before the binding's, and the binding's before those of a binding it `extends`.",
+          "items": { "$ref": "#/$defs/answer" }
+        },
+        "others": {
+          "description": "What happens to a call that no state's `call` and no answer matches. `pass`, the default: it goes on to the app. `abort`: it fails as a failed network does, and the report names its address once, so a walk on a frontend served without its server reaches nothing the graph and the binding do not answer. A scenario's `others` takes the place of the binding's.",
+          "enum": ["pass", "abort"],
+          "default": "pass"
+        }
+      }
+    },
+    "call": {
+      "description": "Which requests an answer is for: a URL glob, or `{ url, method }`, as a state's `call` is (SPEC.md §7).",
+      "anyOf": [
+        { "type": "string", "minLength": 1, "examples": ["**/api/session"] },
+        {
+          "type": "object",
+          "required": ["url"],
+          "additionalProperties": false,
+          "properties": {
+            "url": { "type": "string", "minLength": 1, "description": "The URL glob." },
+            "method": {
+              "description": "The request's method; any method when it is left out.",
+              "enum": ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+            }
+          }
+        }
+      ]
+    },
+    "networkError": {
+      "description": "The name of a network error, as a browser names it.",
+      "enum": [
+        "aborted",
+        "accessdenied",
+        "addressunreachable",
+        "blockedbyclient",
+        "blockedbyresponse",
+        "connectionaborted",
+        "connectionclosed",
+        "connectionfailed",
+        "connectionrefused",
+        "connectionreset",
+        "internetdisconnected",
+        "namenotresolved",
+        "timedout",
+        "failed"
+      ]
+    },
+    "answer": {
+      "type": "object",
+      "description": "One answer: `{ call, status, json, body, contentType, headers }`, what the server would have answered, or `{ call, abort }`, no answer at all. A string in `json`, `body` or `headers` may hold `{<source>.<path>}` values of the binding's data, read when the request is answered.",
+      "required": ["call"],
+      "additionalProperties": false,
+      "properties": {
+        "call": { "$ref": "#/$defs/call" },
+        "status": { "type": "integer", "minimum": 200, "maximum": 599, "description": "The answer's HTTP status; 200 when it is left out." },
+        "json": { "description": "A value of any kind, sent as `application/json`." },
+        "body": { "type": "string", "description": "A text, sent with its `contentType`." },
+        "contentType": { "type": "string", "minLength": 1, "description": "The body's media type; `text/plain` when it is left out, and `application/json` for `json`." },
+        "headers": {
+          "type": "object",
+          "description": "Headers the answer carries besides its content type.",
+          "additionalProperties": { "type": "string" }
+        },
+        "abort": {
+          "description": "No answer, as a failed network gives: `true`, which is the error `failed`, or the error's name.",
+          "anyOf": [{ "const": true }, { "$ref": "#/$defs/networkError" }]
+        },
+        "note": { "type": "string", "description": "The author's own words. No tool reads them." }
+      },
+      "allOf": [
+        {
+          "$comment": "an answer sends one body: a JSON value or a text, not both",
+          "not": { "type": "object", "required": ["json", "body"] }
+        },
+        {
+          "$comment": "an answer that aborts sends nothing, so it has no status, body or headers",
+          "if": { "type": "object", "required": ["abort"] },
+          "then": {
+            "type": "object",
+            "properties": { "status": false, "json": false, "body": false, "contentType": false, "headers": false }
+          }
+        }
+      ],
+      "examples": [
+        { "call": { "url": "**/api/session", "method": "GET" }, "json": { "user": { "address": "owner@example.test" } } },
+        { "call": "**/api/flags", "json": { "trash": true } },
+        { "call": "**/analytics/**", "abort": "blockedbyclient" }
+      ]
+    }
+  }
+}

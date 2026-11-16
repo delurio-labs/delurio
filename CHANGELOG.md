@@ -2,6 +2,18 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
+## Unreleased
+
+- SPEC.md §7: a binding's `ambient` answers, in the app's place, the calls the graph does not hold, such as the session, the person signed in (`/me`), feature flags or translations.
+  - Each answer is a `call` (a URL glob, or `{ url, method }`), with a `status` and a `json` value or a `body`. Or it is `abort`, which fails the call as a failed network does.
+  - `others: abort` lets no other call reach the network.
+  - A scenario may give answers of its own, looked at first.
+  - A request that a state's `call` names stays the graph's own.
+
+  So a replay or a recording can walk a frontend served without its server, and a step need not depend on a service its flow is not about.
+
+  `schemas/binding.schema.json` describes the key for an editor and leaves a binding's other keys open. `check` does not read bindings, so it judges nothing differently. `examples/notes/restore/binding.yaml` answers the notes app's session and flags, and a CI step holds it to the schema.
+
 ## 0.10.0 (2026-11-16)
 
 - New warning of `check`, which fails nothing: `role-missing`, a node of type `field` or `action` that gives no `role` (SPEC.md §4). A screen reader, a replay and `kit check` find a control by its WAI-ARIA role; before, `kit check` expected such a node's type (`field`, `action`) as its role, which no drawn element can have, so every such node was a mismatch. `@delurio/cli/wireframe`'s `Expectation` says so with `roleGiven`, so a kit check holds that node's name and state only.
