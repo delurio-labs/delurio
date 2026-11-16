@@ -41,9 +41,7 @@ pub const PAGE_USAGE: &str = "  delurio page <graph dir | graphs folder> [--out 
 
 /// the usage of the whole command line, as cli.ts writes it
 pub fn usage() -> String {
-    ["usage:", CHECK_USAGE, PAGE_USAGE, &DIFF_USAGE.replace("node src/cli.ts", "delurio")]
-        .join("\n")
-        .replace("node src/cli.ts", "delurio")
+    ["usage:", CHECK_USAGE, PAGE_USAGE, DIFF_USAGE].join("\n")
 }
 
 fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
