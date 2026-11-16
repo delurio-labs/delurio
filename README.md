@@ -61,7 +61,7 @@ examples/notes/restore/needs.yaml:47:5: note: need says-when-it-is-erased is mis
 delurio check: 5 graphs, 0 errors, 0 warnings, 1 gap of 4 needs; exit 0
 ```
 
-`check --strict` fails where evidence names what is not there (a file, a line, a name, a scenario, a state, a node), where a missing need is not in the gaps, and where the gaps list a need that is met or that no flow has. A gap that is listed fails nothing: it is counted, and given as a note. So a product built in phases is written whole, the planned parts included, while its CI stays green, and the gaps only shrink: a need that is met must leave the list, and a new gap is a line added to it, which a review reads. Evidence paths are relative to the repository root, the folder `check` runs in; `--app <dir>` names another.
+`check --strict` fails where evidence names what is not there (a file, a line, a name, a scenario, a state, a node), where a missing need is not in the gaps, and where the gaps list a need that is met or that no flow has. A gap that is listed fails nothing: it is counted, and given as a note. So a product built in phases is written whole, the planned parts included, while its CI stays green, and the gaps only shrink: a need that is met must leave the list, and a new gap is a line added to it, which a review reads. Evidence paths, and every `source:` anchor, are relative to the repository root, the folder `check` runs in; `--app <dir>` names another, and `--no-app` checks the graphs without the code: what they name of it is not looked for, and the output says how much that was.
 
 ## A graph's page
 

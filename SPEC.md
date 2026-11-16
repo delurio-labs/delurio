@@ -413,6 +413,14 @@ A kit says how the components of `ui.yaml` look in one product: `tokens` and `da
 | 1 | the graph cannot be loaded: a YAML error, unsupported YAML (§1), an unknown state, an unknown name in an expression or one that does not parse, a non-exhaustive `always`, an unsupported construct, a `ui.yaml` that names no catalog or a catalog that is not there or not JSON (§4) |
 | 2 | under `--strict`: an assertion is violated, a state no situation reaches or a state that is no exit and has no way out (§2), a catalog key is missing from a locale's catalog or a sample value from the samples, a component has no renderer, the kit does not cover a component, the main story cannot be walked, the focus goes to a node that is not shown or a `returnsFocus` does not start at a dialog (§4), a domain's files clash, a server function has what only a route has, a domain names an entity or a field it does not have, a policy names an action or an entity its domain does not have, or a flow invokes an action its domain does not have, names a domain that is not found, or lists a failure code that is neither a refusal of its action nor a transport code (§5), a tutorial no longer matches its flow (§7), a state of a captured flow names no code or an anchor does not resolve (§9), or a need's evidence does not resolve, a need that is not missing names none, or a product's gaps and its needs disagree (§13) |
 
+**Where the code is.** What a graph names of the application is read from the application's repository root: the folder `check --app <dir>` names, or else the folder `check` runs in, as a CI runs it at the root of the repository it checked out. That is every `source:` anchor and every citation in words (§9), and a need's `source`, `test` and `setting`, and a `scenario` whose binding is named by its path (§13). A check that has a project's graphs without its code, such as the panel's check of a graphs folder alone, says `--no-app`: none of these is looked for, and rather than a finding for each, the output says once how many were not, on a line before the summary in text and as a notification of the run (`toolExecutionNotifications`, at the level `note`) in SARIF, as `check examples --no-app` gives it:
+
+```
+delurio check: note: --no-app: 0 source anchors, 0 citations in words and 7 pieces of evidence name files of the application, which are not here, and were not looked for (SPEC.md §10)
+```
+
+Everything else is checked as before, the graph's own evidence included: a need's `state` and `node`, and a scenario of the flow's own `binding.yaml`. `--app` and `--no-app` are not given together.
+
 A graph that cannot be loaded is a finding of the rule `load`, at its place: the file and the line of what it is about (the transition that goes to a state that does not exist, the guard that does not parse, the `catalog` of `ui.yaml`), or the line and column a parser gave. The other graphs are checked as usual.
 
 **As text.** A finding is one line in the GNU error format, which compilers, editors and most CI logs read:
@@ -443,7 +451,7 @@ graphs/product/flow.yaml:88:7: note: step 2: CODE_CHANGED from developing, with 
 | a mechanical fix, such as an anchor's new line | `fixes` |
 | the finding's page in the panel; the issue it was sent to | `hostedViewerUri`; `workItemUris` |
 | the files read, with their hashes; the repository and the commit | `artifacts`; `versionControlProvenance` |
-| the exit code; a file that cannot be loaded | `invocations` with `exitCode`; a result of the rule `load` and a `toolExecutionNotification` |
+| the exit code; a file that cannot be loaded; what `--no-app` did not look for | `invocations` with `exitCode`; a result of the rule `load` and a `toolExecutionNotification`; a `toolExecutionNotification` at `note` |
 | which graph and which check, so that uploads stay apart | `automationDetails.id` |
 | the messages in Turkish (`--locale tr`) | `run.language` and a `translations` component |
 
@@ -544,7 +552,7 @@ A need without `missing` is met, and its evidence names at least one thing outsi
 | `node: <node>` | a node of the flow's screens the need is drawn as | the flow's `ui.yaml` has that node |
 | `setting: <NAME>` | an environment variable a deployment sets for the need | a line of the file `in` names sets it and is not commented out: `NAME=` or `export NAME=`, as a dotenv file has it, or `NAME:` or `- NAME=`, as the `environment` of a Compose file has it |
 
-A `source` or a `test` may say what its file holds (`name`), and a `scenario` which binding it is in (`binding: <path>`); a `setting` names the file that sets it (`in: <path>`). A file holds a name when the name is in it and is not part of a longer word. Every path is relative to the application's repository root, as a `source:` anchor's is (§9): the folder `check --app` names, or else the folder `check` runs in, as a CI runs it at the root of the repository it checked out. A piece of evidence is of one kind; a need names as many as it has.
+A `source` or a `test` may say what its file holds (`name`), and a `scenario` which binding it is in (`binding: <path>`); a `setting` names the file that sets it (`in: <path>`). A file holds a name when the name is in it and is not part of a longer word. Every path is relative to the application's repository root, as a `source:` anchor's is (§9): the folder `check --app` names, or else the folder `check` runs in, as a CI runs it at the root of the repository it checked out. Under `--no-app` (§10) the evidence that names a file by its path, a `source`, a `test`, a `setting` and a `scenario` with `binding`, is not looked for. A piece of evidence is of one kind; a need names as many as it has.
 
 Evidence shows that something exists, not that it is right or that it passes. A test is run, and a scenario replayed, by the CI that runs them. Whoever writes and approves the list names only a test or a scenario that walks the need as its users meet it.
 
