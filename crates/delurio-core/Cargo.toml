@@ -1,0 +1,14 @@
+[package]
+name = "delurio-core"
+description = "The checker of delurio-graph/0: the graph model, the model checker and every rule of `delurio check`"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+icu_collator = "2.4.0"
+indexmap = "2.14.2"
+ryu-js = "1.0.3"
+serde = "1.0.229"
