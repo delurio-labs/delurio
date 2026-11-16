@@ -1,3 +1,6 @@
+# The checker is the Rust one (crates/); the npm package (js/) runs it as a native addon. CI holds it to the
+# TypeScript checker it was ported from (290c61a): the behaviour cases of that checker's CI pass on the binary, and the
+# differential harness finds the same output from both on the examples and on QAuth's and Medaris's graphs.
 name: ci
 
 on:
@@ -8,875 +11,175 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+  # the TypeScript checker the port is held to, and the graph sets it is compared on (public repositories, fixed commits)
+  REFERENCE: 290c61a7381d84e7c7c927534b74ecd1a623331e
+  QAUTH: 294b2554582225a037ec9b37ec1f9c5aed263964
+  MEDARIS_395: dc22fd10ca755d74fbe4a72f6fd78e17db2e5e7e
+  MEDARIS_MAIN: 32f2e6c8cba5aa2058da5392a9aa000ac15338dd
+
 jobs:
-  check:
+  rust:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The toolchain rust-toolchain.toml names
+        run: rustup toolchain install
+      - name: Formatted
+        run: cargo fmt --all --check
+      - name: Clippy, warnings as errors
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Tests
+        run: cargo test --workspace --locked
+      - name: The release binary
+        run: cargo build --release --locked -p delurio
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: delurio-linux-x64
+          path: target/release/delurio
+          if-no-files-found: error
+
+  # the steps of the TypeScript checker's CI that run its command line, as assertions on the binary: in order, in one
+  # shared folder, from a copy of the repository so that examples/ resolves as it did there
+  cases:
+    needs: rust
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 26
-          cache: npm
-      - run: npm ci
-      - name: Type-check
-        run: npm run check
-      - name: Build
+          node-version: 26.13.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: delurio-linux-x64
+          path: ${{ runner.temp }}/bin
+      - name: Every ci-* case passes on the binary
+        run: |
+          chmod +x "$RUNNER_TEMP/bin/delurio"
+          mkdir -p "$RUNNER_TEMP/cases/tmp"
+          cp -r . "$RUNNER_TEMP/cases/repo"
+          for c in tests/differential/cases/ci-*.sh; do
+            echo "::group::$c"
+            (cd "$RUNNER_TEMP/cases/repo" && DELURIO="$RUNNER_TEMP/bin/delurio" TMPDIR_CASE="$RUNNER_TEMP/cases/tmp" bash -e "$GITHUB_WORKSPACE/$c")
+            echo "::endgroup::"
+          done
+
+  # the TypeScript checker of the reference commit and the Rust one on the same cases, everything they write compared
+  differential:
+    needs: rust
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REFERENCE }}
+          path: reference
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.13.1
+      - name: The TypeScript checker, built
+        working-directory: reference
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: delurio-linux-x64
+          path: ${{ runner.temp }}/bin
+      - name: QAuth's and Medaris's graphs at fixed commits
+        run: |
+          fetch() { # <repository> <commit> <folder> [paths...]
+            git init -q "$3" && git -C "$3" remote add origin "https://github.com/$1.git"
+            if [ $# -gt 3 ]; then git -C "$3" sparse-checkout set --no-cone "${@:4}"; fi
+            git -C "$3" fetch -q --depth 1 origin "$2" && git -C "$3" checkout -q FETCH_HEAD && rm -rf "$3/.git"
+          }
+          sets="$RUNNER_TEMP/sets"
+          fetch qauth-labs/qauth "$QAUTH" "$sets/qauth" '/graphs/'
+          fetch amel-tech/medaris "$MEDARIS_395" "$sets/medaris-395"
+          fetch amel-tech/medaris "$MEDARIS_MAIN" "$sets/medaris-main" '/docs/' '/graphs/'
+      - name: The same output from both checkers (delurio's own graphs are private and stay out)
+        run: |
+          chmod +x "$RUNNER_TEMP/bin/delurio"
+          code=0
+          node tests/differential/run.mjs --ts "node $GITHUB_WORKSPACE/reference/dist/cli.js" --rust "$RUNNER_TEMP/bin/delurio" \
+            --sets "$RUNNER_TEMP/sets" --work "$RUNNER_TEMP/differential" || code=$?
+          cat "$RUNNER_TEMP/differential/report.md" >> "$GITHUB_STEP_SUMMARY"
+          exit $code
+      - name: The addon, built
+        run: |
+          npm ci --ignore-scripts --omit=optional
+          npm run build
+      - name: The package's modules give what the TypeScript modules gave
+        run: DELURIO_TS_REF="$GITHUB_WORKSPACE/reference/dist" DELURIO_SETS="$RUNNER_TEMP/sets/qauth/graphs" node --test tests/node/differential.test.mjs
+
+  # every crate Cargo.lock pins and every npm package package-lock.json pins was published at least 7 days ago
+  supply-chain:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.13.1
+      - run: node tests/supply-chain/crates-age.mjs
+      - run: node tests/supply-chain/npm-age.mjs
+
+  # the npm package as npm installs it: the main package and this platform's addon package, packed, installed into a
+  # project of their own, and held to the module API delurio's own code relies on
+  npm-package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.13.1
+      - run: npm ci --ignore-scripts --omit=optional
+      - name: The addon, built
         run: npm run build
-      - name: Check the examples with the built package
-        run: node dist/cli.js check examples --strict
-      - name: Write the examples' pages with the built package
-        run: node dist/cli.js page examples --out "$RUNNER_TEMP/pages" --strict
-      - name: A graph that breaks its schema fails the check
+      - name: The module API tests in the checkout
+        run: node --test tests/node/
+      - name: Packed as it is published
         run: |
-          cp -r examples/qauth-authorize "$RUNNER_TEMP/broken"
-          sed -i 's/left: { type: final, title: The user leaves, leavesPage: true }/left: { type: final, title: The user leaves, and nothing is sent, leavesPage: true }/' "$RUNNER_TEMP/broken/flow.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/broken" --strict > "$RUNNER_TEMP/broken.txt" || code=$?
-          cat "$RUNNER_TEMP/broken.txt"
-          test "$code" -eq 2
-          grep -F '[schema]' "$RUNNER_TEMP/broken.txt"
-      - name: Unsupported YAML is refused at once, not read for minutes
+          mkdir -p "$RUNNER_TEMP/packs"
+          npx napi artifacts --output-dir . --npm-dir npm
+          cp LICENSE NOTICE npm/linux-x64-gnu/
+          npm pack --pack-destination "$RUNNER_TEMP/packs"
+          npm pack ./npm/linux-x64-gnu --pack-destination "$RUNNER_TEMP/packs"
+          tar -tzf "$RUNNER_TEMP/packs/delurio-cli-0"*.tgz | sort
+      - name: Installed into a project, its modules and its bin pass the same tests
         run: |
-          node -e '
-            const fs = require("fs");
-            const dir = process.argv[1];
-            const put = (name, text) => { fs.mkdirSync(`${dir}/${name}`, { recursive: true }); fs.writeFileSync(`${dir}/${name}/flow.yaml`, text); };
-            let key = "x";
-            for (let d = 0; d < 400; d++) key = `{${key}: ${d}}`;
-            let keys = "";
-            for (let i = 0; keys.length < 40000; i++) keys += `? ${key.replace("x", "x" + i)}\n: v\n`;
-            put("map-keys", keys);
-            let aliases = `e: &e []\na: &a [${Array(50).fill("*e").join(", ")}]\nu: [`;
-            while (aliases.length < 43000) aliases += "*a, ";
-            put("aliases", aliases + "x]\n");
-            put("tag", "schema: delurio-graph/0\nkind: flow\nid: tagged\ntitle: !custom Tagged\n");
-          ' "$RUNNER_TEMP/yaml"
-          code=0
-          timeout 60 node dist/cli.js check "$RUNNER_TEMP/yaml" > "$RUNNER_TEMP/yaml.txt" || code=$?
-          cat "$RUNNER_TEMP/yaml.txt"
-          test "$code" -eq 1
-          test "$(grep -c 'unsupported YAML.*\[load\]' "$RUNNER_TEMP/yaml.txt")" -eq 3
-      - name: A state of a captured flow that names no code fails the check
+          app="$RUNNER_TEMP/app"
+          mkdir -p "$app" && cd "$app"
+          echo '{ "name": "app", "private": true, "type": "module" }' > package.json
+          npm install --ignore-scripts --omit=optional --no-audit --no-fund "$RUNNER_TEMP/packs/"delurio-cli-0*.tgz "$RUNNER_TEMP/packs/"delurio-cli-linux-x64-gnu-*.tgz
+          cp -r "$GITHUB_WORKSPACE/examples" "$GITHUB_WORKSPACE/tests" .
+          node --test tests/node/
+          npx delurio --help
+          node node_modules/@delurio/cli/js/cli.js check examples --strict
+
+  # the image as the release builds it (one architecture here): the static musl binary alone checks the examples
+  image:
+    runs-on: ubuntu-24.04
+    env:
+      ZIG: 0.17.1
+      CARGO_ZIGBUILD: 0.24.1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The toolchain, zig and cargo-zigbuild
         run: |
-          cp -r examples/qauth-authorize "$RUNNER_TEMP/captured"
-          sed -i 's/^status: proposed.*/status: captured/' "$RUNNER_TEMP/captured/flow.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/captured" --strict > "$RUNNER_TEMP/captured.txt" || code=$?
-          cat "$RUNNER_TEMP/captured.txt"
-          test "$code" -eq 2
-          grep -F '[source-missing]' "$RUNNER_TEMP/captured.txt"
-          ! grep -F 'state left names no code' "$RUNNER_TEMP/captured.txt"
-      - name: Every source anchor names a file and a line that are there, and words that cite the code warn where they do not
+          rustup toolchain install
+          rustup target add x86_64-unknown-linux-musl
+          curl -fsSL "https://ziglang.org/download/$ZIG/zig-x86_64-linux-$ZIG.tar.xz" -o zig.tar.xz
+          echo "3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a  zig.tar.xz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/zig" && tar -xJf zig.tar.xz -C "$RUNNER_TEMP/zig" --strip-components 1 && rm zig.tar.xz
+          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+          cargo install cargo-zigbuild --version "$CARGO_ZIGBUILD" --locked
+      - name: The static binary
         run: |
-          cp -r examples/notes "$RUNNER_TEMP/anchors"
-          f="$RUNNER_TEMP/anchors/restore/flow.yaml"
-          sed -i 's|^    title: Read the note$|&\n    source: examples/notes/app/notes.js:12|' "$f"
-          sed -i 's|^    title: The archived note$|&\n    source: examples/notes/app/note.js:3|' "$f"
-          sed -i 's|^    title: Restore it$|&\n    source: examples/notes/app/notes.js:99\n    description: restoreNote, at examples/notes/app/notes.js:30-40, app/notes.js:99 and https://example.com/examples/notes/app/notes.js:99|' "$f"
-          sed -i 's|^      DONE: restored$|      DONE: { target: restored, source: examples/notes/app }|' "$f"
-          sed -i 's|^    sideEffects: \[archivedAt = now\]$|&\n    source: examples/notes/app/notes.js:0|' "$RUNNER_TEMP/anchors/domain/note.yaml"
-          sed -i 's|^changes: { key: Changes.note }$|&\nsamples: { source: examples/notes/app/note.js:3 }|' "$RUNNER_TEMP/anchors/restore/ui.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/anchors" --strict > "$RUNNER_TEMP/anchors.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/anchors.txt"
-          test "$code" -eq 2
-          test "$(grep -c '\[source-unresolved\]' "$RUNNER_TEMP/anchors.txt")" -eq 4
-          grep -F 'restore/flow.yaml:34:5: error: states.archived: source examples/notes/app/note.js does not exist (SPEC.md §9) [source-unresolved]' "$RUNNER_TEMP/anchors.txt"
-          grep -F "error: states.restoring: source examples/notes/app/notes.js:99 is past the file's end: it has 37 lines" "$RUNNER_TEMP/anchors.txt"
-          grep -F 'error: states.restoring.on.DONE: source examples/notes/app is a folder: an anchor names a file' "$RUNNER_TEMP/anchors.txt"
-          grep -F "domain/note.yaml:23:5: error: actions.archiveNote: source examples/notes/app/notes.js:0 names line 0: a file's lines count from 1" "$RUNNER_TEMP/anchors.txt"
-          test "$(grep -c '\[citation-unresolved\]' "$RUNNER_TEMP/anchors.txt")" -eq 1
-          grep -F "warning: states.restoring.description cites examples/notes/app/notes.js:30-40, which is past the file's end: it has 37 lines" "$RUNNER_TEMP/anchors.txt"
-          grep -Fx 'delurio check: 3 graphs, 4 errors, 1 warning, 1 gap of 4 needs; exit 2' "$RUNNER_TEMP/anchors.txt"
-          (cd examples && node ../dist/cli.js check "$RUNNER_TEMP/anchors" > "$RUNNER_TEMP/anchors.txt" 2>&1)
-          test "$(grep -c '\[source-unresolved\]' "$RUNNER_TEMP/anchors.txt")" -eq 5
-          grep -F 'states.reading: source examples/notes/app/notes.js does not exist' "$RUNNER_TEMP/anchors.txt"
-          (cd examples && node ../dist/cli.js check "$RUNNER_TEMP/anchors" --app .. > "$RUNNER_TEMP/anchors.txt" 2>&1)
-          test "$(grep -c '\[source-unresolved\]' "$RUNNER_TEMP/anchors.txt")" -eq 4
-      - name: A server function is no HTTP operation, and its method says whether it writes
-        run: |
-          cp -r examples/notes "$RUNNER_TEMP/server-fn"
-          printf 'actions:\n  restoreNote:\n    route: POST /notes/{id}/restore\n' >> "$RUNNER_TEMP/server-fn/domain/domain.yaml"
-          sed -i 's/^    serverFn: GET$/    serverFn: GET\n    query: { type: object }/' "$RUNNER_TEMP/server-fn/domain/note.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/server-fn" --strict > "$RUNNER_TEMP/server-fn.txt" || code=$?
-          cat "$RUNNER_TEMP/server-fn.txt"
-          test "$code" -eq 2
-          test "$(grep -c '\[server-fn-http\]' "$RUNNER_TEMP/server-fn.txt")" -eq 2
-          grep -F 'domain.yaml' "$RUNNER_TEMP/server-fn.txt" | grep -F 'note: its route is given here'
-
-          cp -r examples/notes "$RUNNER_TEMP/server-fn-method"
-          sed -i 's/^    serverFn: POST$/    serverFn: PUT/' "$RUNNER_TEMP/server-fn-method/domain/note.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/server-fn-method" --strict > "$RUNNER_TEMP/server-fn-method.txt" || code=$?
-          cat "$RUNNER_TEMP/server-fn-method.txt"
-          test "$code" -eq 2
-          grep -F 'serverFn: must be "GET" or "POST" [schema]' "$RUNNER_TEMP/server-fn-method.txt"
-
-          cp -r examples/notes "$RUNNER_TEMP/server-fn-writes"
-          sed -i '/^changes:/d' "$RUNNER_TEMP/server-fn-writes/restore/ui.yaml"
-          sed -i 's/do: \[archiveNote, restoreNote\]/do: [archiveNote]/' "$RUNNER_TEMP/server-fn-writes/domain/note.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/server-fn-writes" --strict > "$RUNNER_TEMP/server-fn-writes.txt" || code=$?
-          cat "$RUNNER_TEMP/server-fn-writes.txt"
-          test "$code" -eq 2
-          grep -F 'its steps write (restoreNote), but ui.yaml has no changes note' "$RUNNER_TEMP/server-fn-writes.txt"
-      - name: The page says how each step's action is called
-        run: |
-          grep -F 'a server function, POST, called only by the product' "$RUNNER_TEMP/pages/notes/restore/index.html"
-          grep -F 'an HTTP operation, POST /notes/{id}/archive' "$RUNNER_TEMP/pages/notes/archive/index.html"
-      - name: Every folder given is checked, each graph once, and a path that is not a folder is refused
-        run: |
-          cp -r examples/qauth-authorize "$RUNNER_TEMP/second"
-          sed -i 's/left: { type: final, title: The user leaves, leavesPage: true }/left: { type: final, title: The user leaves, and nothing is sent, leavesPage: true }/' "$RUNNER_TEMP/second/flow.yaml"
-          code=0
-          node dist/cli.js check examples/notes "$RUNNER_TEMP/second" --strict > "$RUNNER_TEMP/second.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/second.txt"
-          test "$code" -eq 2
-          grep -F 'second/flow.yaml' "$RUNNER_TEMP/second.txt" | grep -F '[schema]'
-          grep -F 'delurio check: 4 graphs' "$RUNNER_TEMP/second.txt"
-
-          node dist/cli.js check examples examples/notes --strict > "$RUNNER_TEMP/twice.txt" 2>&1
-          cat "$RUNNER_TEMP/twice.txt"
-          grep -F 'delurio check: 5 graphs, 0 errors' "$RUNNER_TEMP/twice.txt"
-
-          code=0
-          node dist/cli.js check examples "$RUNNER_TEMP/nowhere" --strict > "$RUNNER_TEMP/nowhere.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/nowhere.txt"
-          test "$code" -eq 1
-          grep -F "$RUNNER_TEMP/nowhere is not a folder" "$RUNNER_TEMP/nowhere.txt"
-      - name: The focus goes to a node shown where it goes, and a returnsFocus starts at a dialog
-        run: |
-          cp -r examples/notes "$RUNNER_TEMP/focus"
-          sed -i 's/^  saved: savedStatus/  saved: working/' "$RUNNER_TEMP/focus/edit/ui.yaml"
-          sed -i 's/returnsFocus: \[discardDialog, cancel\]/returnsFocus: [discardDialog, keep]/' "$RUNNER_TEMP/focus/edit/ui.yaml"
-          sed -i 's/^  - { labelledBy: \[page, title\] }$/&\n  - { returnsFocus: [page, title] }/' "$RUNNER_TEMP/focus/edit/ui.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/focus" --strict > "$RUNNER_TEMP/focus.txt" || code=$?
-          cat "$RUNNER_TEMP/focus.txt"
-          test "$code" -eq 2
-          test "$(grep -c '\[focus-not-shown\]' "$RUNNER_TEMP/focus.txt")" -eq 2
-          grep -F 'focus.saved gives the focus to working, which saved does not show' "$RUNNER_TEMP/focus.txt"
-          grep -F 'returnsFocus gives the focus of discardDialog to keep, but no state discardDialog closes into shows it (editing and left)' "$RUNNER_TEMP/focus.txt"
-          grep -F 'returnsFocus starts at page, which is not a dialog' "$RUNNER_TEMP/focus.txt" | grep -F '[returns-focus-not-dialog]'
-
-          cp -r examples/notes "$RUNNER_TEMP/focus-state"
-          sed -i 's/^  saved: savedStatus/  savd: savedStatus/' "$RUNNER_TEMP/focus-state/edit/ui.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/focus-state" --strict > "$RUNNER_TEMP/focus-state.txt" || code=$?
-          cat "$RUNNER_TEMP/focus-state.txt"
-          test "$code" -eq 1
-          grep -F 'ui focus names the unknown state savd [load]' "$RUNNER_TEMP/focus-state.txt"
-      - name: A value is on a field, checked on a checkable role and script (optional or actions) on a page; checked reads the context
-        run: |
-          cp -r examples/notes "$RUNNER_TEMP/controls"
-          sed -i 's/^    emits: SAVE$/&\n    value: { literal: "" }\n    checked: true/; s/^    text: { key: Edit.title }$/&\n    script: optional/; s/value: { key: Edit.bodyValue,/value: { key: Edit.bodyText,/' "$RUNNER_TEMP/controls/edit/ui.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/controls" --strict > "$RUNNER_TEMP/controls.txt" || code=$?
-          cat "$RUNNER_TEMP/controls.txt"
-          test "$code" -eq 2
-          grep -F 'nodes.save.value: is not allowed here (value is only on a field' "$RUNNER_TEMP/controls.txt"
-          grep -F 'nodes.save.checked: is not allowed here (checked is only on a node whose role is checkbox' "$RUNNER_TEMP/controls.txt"
-          grep -F 'nodes.title.script: is not allowed here (initialFocus, frame and script are only on a page)' "$RUNNER_TEMP/controls.txt"
-          grep -F 'catalog key Edit.bodyText is missing [catalog-key-missing]' "$RUNNER_TEMP/controls.txt"
-
-          cp -r examples/notes "$RUNNER_TEMP/script"
-          sed -i 's/^    script: optional # .*$/    script: readable/' "$RUNNER_TEMP/script/edit/ui.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/script" --strict > "$RUNNER_TEMP/script.txt" || code=$?
-          cat "$RUNNER_TEMP/script.txt"
-          test "$code" -eq 2
-          grep -F 'nodes.page.script: must be "optional" or "actions" [schema]' "$RUNNER_TEMP/script.txt"
-          ! grep -F 'restore/ui.yaml' "$RUNNER_TEMP/script.txt"
-
-          cp -r examples/notes "$RUNNER_TEMP/checked"
-          sed -i 's/^    checked: pinned$/    checked: "pined == true"/' "$RUNNER_TEMP/checked/edit/ui.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/checked" --strict > "$RUNNER_TEMP/checked.txt" || code=$?
-          cat "$RUNNER_TEMP/checked.txt"
-          test "$code" -eq 1
-          grep -F 'ui node pinBox: checked: pined == true names pined, which is not a variable or a guard of the flow [load]' "$RUNNER_TEMP/checked.txt"
-      - name: The focus after a step is the first of returnsFocus, initialFocus and focus
-        run: |
-          node --input-type=module -e '
-            import assert from "node:assert/strict";
-            import { focusAfter, load } from "./dist/graph.js";
-
-            const edit = load("examples/notes/edit");
-            const at = (from, to) => { const f = focusAfter(edit.ui, from, to); return f === null ? null : `${f.by} ${f.node}`; };
-            assert.equal(at(null, "editing"), "initialFocus title");
-            assert.equal(at("editing", "discarding"), "initialFocus discardTitle");
-            assert.equal(at("discarding", "editing"), "returnsFocus cancel");
-            assert.equal(at("saving", "saved"), "focus savedStatus");
-            assert.equal(at("editing", "saving"), null);
-            assert.equal(at("editing", "editing"), null);
-          '
-      - name: Paths cover every reachable state and every transition, the same in every run
-        run: |
-          node --input-type=module -e '
-            import assert from "node:assert/strict";
-            import { load } from "./dist/graph.js";
-            import { cover, explore, Model } from "./dist/model.js";
-
-            for (const dir of ["examples/qauth-authorize", "examples/notes/edit", "examples/notes/restore", "examples/notes/archive", "examples/sign-out"]) {
-              const m = new Model(load(dir).flow);
-              const ex = explore(m);
-              for (const [by, want] of [["states", new Set(ex.configs.map((c) => c.state))], ["transitions", ex.taken]]) {
-                const c = cover(m, by);
-                assert.deepEqual(cover(m, by), c, `${dir} ${by}: the same paths in every run`);
-                const passed = new Set(c.paths.flatMap((p) => (by === "states" ? p.states : p.transitions)));
-                for (const x of want) assert.ok(passed.has(x), `${dir} ${by}: ${x} is on no path`);
-                for (const p of c.paths) assert.match(p.id, /^[0-9a-f]{14}$/);
-                assert.deepEqual(c.unreached, [], `${dir} ${by}: everything is reached`);
-                console.log(`${dir} ${by}: ${c.paths.length} paths`);
-              }
-            }
-            const m = new Model(load("examples/notes/edit").flow);
-            const driven = cover(m, "states", m.initials(), (_, s) => s.event !== "CANCEL");
-            assert.deepEqual(driven.unreached, ["discarding", "left"]);
-          '
-      - name: A graph that cannot be loaded is reported at its place, and the other graphs are still checked
-        run: |
-          mkdir -p "$RUNNER_TEMP/load/no-catalog" "$RUNNER_TEMP/load/no-catalog-file" "$RUNNER_TEMP/load/guard" "$RUNNER_TEMP/load/starter" "$RUNNER_TEMP/load/not-yaml"
-          printf 'schema: delurio-graph/0\nkind: flow\nid: example.form\ninitial: form\nstates:\n  form: { on: { SEND: done } }\n  done: { type: final }\n' > "$RUNNER_TEMP/load/no-catalog/flow.yaml"
-          printf 'schema: delurio-graph/0\nkind: ui\nid: example.form\nflow: example.form\nnodes:\n  send: { type: action, component: Button, role: button, text: { key: Form.send }, in: [form], emits: SEND }\n' > "$RUNNER_TEMP/load/no-catalog/ui.yaml"
-          cp "$RUNNER_TEMP/load/no-catalog/flow.yaml" "$RUNNER_TEMP/load/no-catalog-file/flow.yaml"
-          sed 's/^flow: example.form$/&\ncatalog: catalog\/en.json/' "$RUNNER_TEMP/load/no-catalog/ui.yaml" > "$RUNNER_TEMP/load/no-catalog-file/ui.yaml"
-          printf 'schema: delurio-graph/0\nkind: flow\nid: example.guard\ncontext: { a: { values: [x, y], initial: any } }\ninitial: s\nstates:\n  s: { on: { GO: { target: done, guard: "a ==" } } }\n  done: { type: final }\n' > "$RUNNER_TEMP/load/guard/flow.yaml"
-          printf 'schema: delurio-graph/0\nkind: flow\nid: example.starter\ninitial: s\nstates:\n  s: { on: { GO: { target: done, starts: { flow: example.signOut } } } }\n  done: { type: final }\n' > "$RUNNER_TEMP/load/starter/flow.yaml"
-          printf 'schema: delurio-graph/0\nkind: flow\nid: example.notYaml\nstates: [\n' > "$RUNNER_TEMP/load/not-yaml/flow.yaml"
-          cp -r examples/sign-out "$RUNNER_TEMP/load/sign-out"
-          cp -r examples/qauth-authorize "$RUNNER_TEMP/load/target"
-          sed -i 's/      DONE: codeIssued/      DONE: codeIsued/' "$RUNNER_TEMP/load/target/flow.yaml"
-          cp -r examples/notes "$RUNNER_TEMP/load/notes"
-          printf 'oops: [\n' >> "$RUNNER_TEMP/load/notes/edit/ui.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/load" > "$RUNNER_TEMP/load.txt" 2> "$RUNNER_TEMP/load.err" || code=$?
-          cat "$RUNNER_TEMP/load.txt" "$RUNNER_TEMP/load.err"
-          test "$code" -eq 1
-          grep -F 'delurio check: 10 graphs' "$RUNNER_TEMP/load.err"
-          ! grep -E 'ERR_INVALID_ARG_TYPE|ENOENT|    at ' "$RUNNER_TEMP/load.err"
-          grep -F 'no-catalog/ui.yaml:1:1: error: ui.yaml names no catalog' "$RUNNER_TEMP/load.txt" | grep -F '[load]'
-          grep -F 'no-catalog-file/ui.yaml:5:1: error: the catalog catalog/en.json that ui.yaml names does not exist [load]' "$RUNNER_TEMP/load.txt"
-          grep -F 'guard/flow.yaml:7:14: error: unexpected end in: a == [load]' "$RUNNER_TEMP/load.txt"
-          grep -F 'target/flow.yaml:129:7: error: state issuing goes to codeIsued, which does not exist [load]' "$RUNNER_TEMP/load.txt"
-          grep -E 'notes/edit/ui\.yaml:[0-9]+:1: error: .*\[load\]' "$RUNNER_TEMP/load.txt"
-          ! grep -F 'notes/edit/flow.yaml' "$RUNNER_TEMP/load.txt"
-          ! grep -F 'starter/flow.yaml' "$RUNNER_TEMP/load.txt"
-          node dist/cli.js check "$RUNNER_TEMP/load" --format sarif --output "$RUNNER_TEMP/load.sarif" > /dev/null 2>&1 || true
-          node -e '
-            const run = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).runs[0];
-            const at = run.results.filter((r) => r.ruleId === "load").map((r) => `${r.locations[0].physicalLocation.artifactLocation.uri.split("/load/")[1]}:${r.locations[0].physicalLocation.region.startLine}`);
-            for (const want of ["no-catalog/ui.yaml:1", "no-catalog-file/ui.yaml:5", "guard/flow.yaml:7", "target/flow.yaml:129"]) if (!at.includes(want)) throw new Error(`no load result at ${want}: ${at.join(", ")}`);
-          ' "$RUNNER_TEMP/load.sarif"
-      - name: Under --baseline, a known error that keeps a graph from loading is still an error
-        run: |
-          mkdir -p "$RUNNER_TEMP/known/no-catalog-file"
-          printf 'schema: delurio-graph/0\nkind: flow\nid: example.form\ninitial: form\nstates:\n  form: { on: { SEND: done } }\n  done: { type: final }\n' > "$RUNNER_TEMP/known/no-catalog-file/flow.yaml"
-          printf 'schema: delurio-graph/0\nkind: ui\nid: example.form\nflow: example.form\ncatalog: catalog/en.json\nnodes:\n  send: { type: action, component: Button, role: button, text: { key: Form.send }, in: [form], emits: SEND }\n' > "$RUNNER_TEMP/known/no-catalog-file/ui.yaml"
-          cp -r examples/qauth-authorize "$RUNNER_TEMP/known/schema"
-          sed -i 's/left: { type: final, title: The user leaves, leavesPage: true }/left: { type: final, title: The user leaves, and nothing is sent, leavesPage: true }/' "$RUNNER_TEMP/known/schema/flow.yaml"
-          node dist/cli.js check "$RUNNER_TEMP/known" --format sarif --output "$RUNNER_TEMP/known.sarif" > /dev/null 2>&1 || true
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/known" --strict --baseline "$RUNNER_TEMP/known.sarif" > "$RUNNER_TEMP/known.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/known.txt"
-          test "$code" -eq 1
-          grep -F 'no-catalog-file/ui.yaml:5:1: error: the catalog catalog/en.json that ui.yaml names does not exist [load]' "$RUNNER_TEMP/known.txt"
-          ! grep -F 'warning: the catalog' "$RUNNER_TEMP/known.txt"
-          grep -F 'schema/flow.yaml' "$RUNNER_TEMP/known.txt" | grep -F 'warning:' | grep -F '[schema]'
-          grep -E 'delurio check: 2 graphs, 1 error, [1-9][0-9]* warnings?; exit 1' "$RUNNER_TEMP/known.txt"
-      - name: A state no situation reaches, or one that is no exit and has no way out, fails the check
-        run: |
-          mkdir -p "$RUNNER_TEMP/reach"
-          printf 'schema: delurio-graph/0\nkind: flow\nid: example.checkout\nstatus: proposed\ntitle: Check out\ninitial: cart\nstates:\n  cart: { by: human, on: { CONTINUE: done } }\n  pay: { by: human }\n  done: { type: final }\n' > "$RUNNER_TEMP/reach/flow.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/reach" --strict > "$RUNNER_TEMP/reach.txt" || code=$?
-          cat "$RUNNER_TEMP/reach.txt"
-          test "$code" -eq 2
-          grep -F 'reach/flow.yaml:9:3: error: state pay is not an exit and has no way out' "$RUNNER_TEMP/reach.txt" | grep -F '[state-no-way-out]'
-          grep -F 'reach/flow.yaml:9:3: error: state pay is reached by no situation the flow starts in: no transition leads to it' "$RUNNER_TEMP/reach.txt" | grep -F '[state-unreachable]'
-          node dist/cli.js check "$RUNNER_TEMP/reach"
-
-          cp -r examples/notes "$RUNNER_TEMP/guarded"
-          sed -i 's/^      CANCEL: discarding$/      CANCEL: { target: discarding, guard: "pinned and not pinned" }/' "$RUNNER_TEMP/guarded/edit/flow.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/guarded" --strict > "$RUNNER_TEMP/guarded.txt" || code=$?
-          cat "$RUNNER_TEMP/guarded.txt"
-          test "$code" -eq 2
-          test "$(grep -c '\[state-unreachable\]' "$RUNNER_TEMP/guarded.txt")" -eq 2
-          grep -F 'state discarding is reached by no situation the flow starts in: the transitions that lead to it are never taken' "$RUNNER_TEMP/guarded.txt"
-          ! grep -F '[state-no-way-out]' "$RUNNER_TEMP/guarded.txt"
-      - name: Every locale's catalog has the keys the screens use
-        run: |
-          cp -r examples/notes "$RUNNER_TEMP/locales"
-          sed -i 's/^locales: \[en\]$/locales: [en, tr, de]/' "$RUNNER_TEMP/locales/edit/ui.yaml"
-          node -e '
-            const fs = require("fs");
-            const dir = process.argv[1];
-            const words = JSON.parse(fs.readFileSync(`${dir}/en.json`, "utf8"));
-            delete words["Edit.save"];
-            fs.writeFileSync(`${dir}/tr.json`, JSON.stringify(words, null, 2));
-          ' "$RUNNER_TEMP/locales/edit/catalog"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/locales" --strict > "$RUNNER_TEMP/locales.txt" || code=$?
-          cat "$RUNNER_TEMP/locales.txt"
-          test "$code" -eq 2
-          grep -F 'error: catalog key Edit.save is missing from the tr catalog, catalog/tr.json [catalog-key-missing]' "$RUNNER_TEMP/locales.txt"
-          grep -F 'error: the de catalog, catalog/de.json, does not exist' "$RUNNER_TEMP/locales.txt" | grep -F '[catalog-key-missing]'
-          test "$(grep -c '\[catalog-key-missing\]' "$RUNNER_TEMP/locales.txt")" -eq 2
-      - name: What a flow invokes is held to its domain, as errors, and a failure class may list network, timeout and 5xx
-        run: |
-          cp -r examples/qauth-authorize "$RUNNER_TEMP/invokes"
-          sed -i 's/    server: \[server_error\]/    server: [server_error, network, timeout, 5xx]/' "$RUNNER_TEMP/invokes/flow.yaml"
-          node dist/cli.js check "$RUNNER_TEMP/invokes" --strict > "$RUNNER_TEMP/invokes.txt" 2>&1
-          cat "$RUNNER_TEMP/invokes.txt"
-          grep -Fx 'delurio check: 1 graph, 0 errors, 0 warnings; exit 0' "$RUNNER_TEMP/invokes.txt"
-
-          sed -i 's/invoke: { action: issue }/invoke: { action: issueCode }/; s/    unsafe: \[CSRF_MISMATCH, REQUEST_EXPIRED\]/    unsafe: [CSRF_MISMATCH, REQUEST_EXPIRED, TOKEN_REUSED, unavailable]/' "$RUNNER_TEMP/invokes/flow.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/invokes" --strict > "$RUNNER_TEMP/invokes.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/invokes.txt"
-          test "$code" -eq 2
-          grep -F 'error: state issuing invokes issueCode, which is not an action of the domain qauth.authorize' "$RUNNER_TEMP/invokes.txt" | grep -F '[invoke-unknown]'
-          grep -F 'error: FAIL.unsafe of deciding stands for TOKEN_REUSED, which is not a refusal of decide in the domain qauth.authorize, nor network, timeout or 5xx' "$RUNNER_TEMP/invokes.txt" | grep -F '[refusal-unknown]'
-          grep -F 'error: FAIL.unsafe of deciding stands for unavailable,' "$RUNNER_TEMP/invokes.txt" | grep -F '[refusal-unknown]'
-          grep -Fx 'delurio check: 1 graph, 3 errors, 0 warnings; exit 2' "$RUNNER_TEMP/invokes.txt"
-
-          sed -i 's/^domain: qauth.authorize/domain: qauth.authorise/' "$RUNNER_TEMP/invokes/flow.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/invokes" --strict > "$RUNNER_TEMP/invokes.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/invokes.txt"
-          test "$code" -eq 2
-          grep -F 'error: the flow names the domain qauth.authorise, which no domain beside it is' "$RUNNER_TEMP/invokes.txt" | grep -F '[invoke-unknown]'
-      - name: A domain's names are held to what it has, an entity, a field or a policy's names as errors
-        run: |
-          cp -r examples/qauth-authorize "$RUNNER_TEMP/names"
-          sed -i '0,/references: Client }/s//references: Clinet }/; s/result: { returns: AuthorizationCode }/result: { returns: AuthCode }/; s/required: \[codeChallenge, codeChallengeMethod\]/required: [codeChallenge, challengeMethod]/; s/csrf: { type: string } }/csrf: { type: string, references: Session } }/; s/    do: \[decide\]/    do: [decide, revoke]/; s/    write: \[Consent\]/    write: [Consent, Grant]/' "$RUNNER_TEMP/names/domain.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/names" --strict > "$RUNNER_TEMP/names.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/names.txt"
-          test "$code" -eq 2
-          grep -F 'names/domain.yaml:76:15: error: the action issue returns AuthCode, which is not an entity of the domain qauth.authorize' "$RUNNER_TEMP/names.txt" | grep -F '[entity-unknown]'
-          grep -F 'names/domain.yaml:19:33: error: the field AuthorizationRequest.clientId references Clinet, which is not an entity' "$RUNNER_TEMP/names.txt" | grep -F '[entity-unknown]'
-          grep -F 'names/domain.yaml:69:126: error: the body of the action decide, at csrf, references Session, which is not an entity' "$RUNNER_TEMP/names.txt" | grep -F '[entity-unknown]'
-          grep -F 'names/domain.yaml:17:31: error: the entity AuthorizationRequest requires challengeMethod, which is not one of its fields' "$RUNNER_TEMP/names.txt" | grep -F '[field-unknown]'
-          grep -F 'names/domain.yaml:50:18: error: the policy for end-user names revoke in do, which is not an action of the domain qauth.authorize' "$RUNNER_TEMP/names.txt" | grep -F '[policy-unknown]'
-          grep -F 'names/domain.yaml:49:22: error: the policy for end-user names Grant in write, which is not an entity of the domain qauth.authorize' "$RUNNER_TEMP/names.txt" | grep -F '[policy-unknown]'
-          grep -F 'delurio check: 1 graph, 6 errors, 0 warnings; exit 2' "$RUNNER_TEMP/names.txt"
-          node dist/cli.js check "$RUNNER_TEMP/names" --format sarif --output "$RUNNER_TEMP/names.sarif"
-          node -e '
-            const run = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).runs[0];
-            const level = Object.fromEntries(run.tool.driver.rules.map((r) => [r.id, r.defaultConfiguration.level]));
-            const want = { "entity-unknown": "error", "field-unknown": "error", "policy-unknown": "error" };
-            for (const [id, l] of Object.entries(want)) if (level[id] !== l) throw new Error(`${id} is ${level[id]}, not ${l}`);
-            const where = run.results.map((r) => `${r.ruleId} ${r.level} ${r.locations[0].physicalLocation.region.startLine} ${r.locations[0].logicalLocations[0].fullyQualifiedName}`);
-            for (const w of ["entity-unknown error 76 qauth.authorize/actions/issue/result/returns", "policy-unknown error 50 qauth.authorize/policies/end-user/do/revoke"]) if (!where.includes(w)) throw new Error(`no ${w} in ${where.join("; ")}`);
-          ' "$RUNNER_TEMP/names.sarif"
-
-          cp -r examples/notes "$RUNNER_TEMP/split-names"
-          sed -i 's/^  Note:$/  Note:\n    key: [id]/' "$RUNNER_TEMP/split-names/domain/note.yaml"
-          sed -i '0,/properties: { id: { type: string, format: uuid } }/s//properties: { id: { type: string, format: uuid, references: Note } }/' "$RUNNER_TEMP/split-names/domain/note.yaml"
-          node dist/cli.js check "$RUNNER_TEMP/split-names" --strict > "$RUNNER_TEMP/split-names.txt" 2>&1
-          cat "$RUNNER_TEMP/split-names.txt"
-          grep -F 'delurio check: 3 graphs, 0 errors, 0 warnings' "$RUNNER_TEMP/split-names.txt"
-          sed -i 's/^    key: \[id\]$/    key: [noteId]/; s/do: \[editNote\]/do: [editNote, pinNote]/' "$RUNNER_TEMP/split-names/domain/note.yaml"
-          sed -i 's/required: \[id, ownerId, body\]/required: [id, ownerId, body, title]/' "$RUNNER_TEMP/split-names/domain/domain.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/split-names" --strict > "$RUNNER_TEMP/split-names.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/split-names.txt"
-          test "$code" -eq 2
-          grep -F 'split-names/domain/domain.yaml:10:35: error: the entity Note requires title, which is not one of its fields' "$RUNNER_TEMP/split-names.txt" | grep -F '[field-unknown]'
-          grep -F 'split-names/domain/note.yaml:10:11: error: the key of the entity Note names noteId, which is not one of its fields' "$RUNNER_TEMP/split-names.txt" | grep -F '[field-unknown]'
-          grep -F 'split-names/domain/note.yaml:17:100: error: the policy for person names pinNote in do' "$RUNNER_TEMP/split-names.txt" | grep -F '[policy-unknown]'
-
-          mkdir -p "$RUNNER_TEMP/two/graphs/people" "$RUNNER_TEMP/two/graphs/notes"
-          printf 'schema: delurio-graph/0\nkind: domain\nid: example.people\nentities:\n  Person:\n    fields:\n      id: { type: string }\n' > "$RUNNER_TEMP/two/graphs/people/domain.yaml"
-          printf 'schema: delurio-graph/0\nkind: domain\nid: example.notes\nentities:\n  Note:\n    fields:\n      id: { type: string }\n      ownerId: { type: string, references: Person }\n' > "$RUNNER_TEMP/two/graphs/notes/domain.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/two" --strict > "$RUNNER_TEMP/two.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/two.txt"
-          test "$code" -eq 2
-          grep -F 'notes/domain.yaml:8:32: error: the field Note.ownerId references Person, which is not an entity of the domain example.notes' "$RUNNER_TEMP/two.txt" | grep -F '[entity-unknown]'
-          grep -F 'people/domain.yaml:5:3: note: Person is an entity of the domain example.people' "$RUNNER_TEMP/two.txt"
-      - name: An entity may carry a note, the author's own words
-        run: |
-          cp -r examples/notes "$RUNNER_TEMP/entity-note"
-          sed -i 's/^  Note:$/&\n    note: a note is kept until its owner erases it; archived notes are erased in the second phase/' "$RUNNER_TEMP/entity-note/domain/note.yaml"
-          sed -i 's/^    fields:$/    note: [not words]\n&/' "$RUNNER_TEMP/entity-note/domain/domain.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/entity-note" --strict > "$RUNNER_TEMP/entity-note.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/entity-note.txt"
-          test "$code" -eq 2
-          test "$(grep -c '\[schema\]' "$RUNNER_TEMP/entity-note.txt")" -eq 1
-          grep -F 'domain/domain.yaml' "$RUNNER_TEMP/entity-note.txt" | grep -F 'entities.Note.note: must be a string [schema]'
-          sed -i '/^    note: \[not words\]$/d' "$RUNNER_TEMP/entity-note/domain/domain.yaml"
-          node dist/cli.js check "$RUNNER_TEMP/entity-note" --strict 2>&1 | grep -Fx 'delurio check: 3 graphs, 0 errors, 0 warnings, 1 gap of 4 needs; exit 0'
-      - name: An entity or an action of a captured domain may be planned, and a planned one names no code
-        run: |
-          cp -r examples/notes "$RUNNER_TEMP/planned"
-          d="$RUNNER_TEMP/planned/domain"
-          sed -i 's/^status: proposed$/status: captured/' "$d/domain.yaml"
-          printf '%s\n' 'schema: delurio-graph/0' 'kind: domain' 'id: example.notes' 'entities:' '  Reminder:' '    planned: the second phase builds reminders' '    fields: { id: { type: string }, noteId: { type: string, references: Note } }' \
-            'actions:' '  remindAbout:' '    route: POST /notes/{id}/reminders' '    planned: the second phase builds reminders' '    result: { returns: Reminder }' > "$d/planned.yaml"
-          node dist/cli.js check "$RUNNER_TEMP/planned" --strict 2>&1 | grep -Fx 'delurio check: 3 graphs, 0 errors, 0 warnings, 1 gap of 4 needs; exit 0'
-          sed -i 's|^    planned: the second phase builds reminders$|&\n    source: examples/notes/app/notes.js:12|' "$d/planned.yaml"
-          sed -i 's/^    route: POST \/notes\/{id}\/archive$/&\n    planned: ""/' "$d/note.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/planned" --strict > "$RUNNER_TEMP/planned.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/planned.txt"
-          test "$code" -eq 2
-          grep -F 'domain/planned.yaml:6:5: error: the entity Reminder says it is planned (the second phase builds reminders), and names its code, examples/notes/app/notes.js:12' "$RUNNER_TEMP/planned.txt" | grep -F '[planned-built]'
-          grep -F 'domain/planned.yaml:12:5: error: the action remindAbout says it is planned' "$RUNNER_TEMP/planned.txt" | grep -F '[planned-built]'
-          grep -F 'domain/planned.yaml:13:5: note: its source is given here' "$RUNNER_TEMP/planned.txt"
-          grep -F 'actions.archiveNote.planned: must NOT have fewer than 1 characters' "$RUNNER_TEMP/planned.txt" | grep -F '[schema]'
-      - name: A GET that a writing policy lists writes only when it does more than record its call
-        run: |
-          cp -r examples/notes "$RUNNER_TEMP/audited"
-          sed -i 's/read: \[Note\], do: \[readNote\]/read: [Note], write: [Note], do: [readNote]/; s/^    serverFn: GET$/    serverFn: GET\n    sideEffects: [audit:note.read]/' "$RUNNER_TEMP/audited/domain/note.yaml"
-          sed -i '/^changes:/d' "$RUNNER_TEMP/audited/restore/ui.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/audited" --strict > "$RUNNER_TEMP/audited.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/audited.txt"
-          test "$code" -eq 2
-          grep -F 'error: its steps write (restoreNote), but ui.yaml has no changes note' "$RUNNER_TEMP/audited.txt" | grep -F '[changes-note-missing]'
-
-          sed -i 's/^    sideEffects: \[audit:note.read\]$/    sideEffects: [audit:note.read, the owner is told the note was opened]/' "$RUNNER_TEMP/audited/domain/note.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/audited" --strict > "$RUNNER_TEMP/audited.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/audited.txt"
-          test "$code" -eq 2
-          grep -F 'error: its steps write (readNote, restoreNote), but ui.yaml has no changes note' "$RUNNER_TEMP/audited.txt"
-
-          sed -i 's/^    sideEffects: \[audit:note.read, the owner is told the note was opened\]$/    sideEffects: [audit:note.read]/' "$RUNNER_TEMP/audited/domain/note.yaml"
-          sed -i 's/invoke: { action: restoreNote }/invoke: { external: notes-archive }/' "$RUNNER_TEMP/audited/restore/flow.yaml"
-          node dist/cli.js check "$RUNNER_TEMP/audited" --strict > "$RUNNER_TEMP/audited.txt" 2>&1
-          cat "$RUNNER_TEMP/audited.txt"
-          ! grep -F '[changes-note-missing]' "$RUNNER_TEMP/audited.txt"
-      - name: A writing flow whose app has no changes message says why, a gap that fails nothing
-        run: |
-          cp -r examples/notes "$RUNNER_TEMP/no-note"
-          sed -i 's/^changes: { key: Changes.note }$/changes: { missing: the app does not say yet what restoring changes }/' "$RUNNER_TEMP/no-note/restore/ui.yaml"
-          node dist/cli.js check "$RUNNER_TEMP/no-note" --strict --format sarif --output "$RUNNER_TEMP/no-note.sarif" > "$RUNNER_TEMP/no-note.txt" 2> "$RUNNER_TEMP/no-note.err"
-          cat "$RUNNER_TEMP/no-note.txt" "$RUNNER_TEMP/no-note.err"
-          grep -F 'no-note/restore/ui.yaml:11:12: note: its steps write (restoreNote), and its changes note is missing: the app does not say yet what restoring changes; Rehber does not guide its writing steps' "$RUNNER_TEMP/no-note.txt" | grep -F '[changes-note-gap]'
-          ! grep -F '[changes-note-missing]' "$RUNNER_TEMP/no-note.txt"
-          grep -Fx 'delurio check: 3 graphs, 0 errors, 0 warnings, 1 gap of 4 needs, 1 missing changes note; exit 0' "$RUNNER_TEMP/no-note.err"
-          node -e '
-            const run = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).runs[0];
-            const rule = run.tool.driver.rules.find((r) => r.id === "changes-note-gap");
-            if (rule?.defaultConfiguration.level !== "note") throw new Error("changes-note-gap is not a note");
-            const r = run.results.find((x) => x.ruleId === "changes-note-gap");
-            if (r?.level !== "note" || r.locations[0].logicalLocations[0].fullyQualifiedName !== "example.restoreNote/changes/missing") throw new Error(JSON.stringify(r));
-          ' "$RUNNER_TEMP/no-note.sarif"
-
-          sed -i 's/^changes: { key: Changes.note }$/changes: { missing: no message yet }/' "$RUNNER_TEMP/no-note/edit/ui.yaml"
-          node dist/cli.js check "$RUNNER_TEMP/no-note" --strict --baseline "$RUNNER_TEMP/no-note.sarif" 2>&1 | grep -Fx 'delurio check: 3 graphs, 0 errors, 0 warnings, 1 gap of 4 needs, 2 missing changes notes (1 new); exit 0'
-
-          for bad in 'changes: { key: Changes.note, missing: no message yet }' 'changes: { missing: "" }' 'changes: {}'; do
-            sed -i "s/^changes: .*$/$bad/" "$RUNNER_TEMP/no-note/edit/ui.yaml"
-            code=0
-            node dist/cli.js check "$RUNNER_TEMP/no-note" --strict > "$RUNNER_TEMP/no-note.txt" 2>&1 || code=$?
-            cat "$RUNNER_TEMP/no-note.txt"
-            test "$code" -eq 2
-            grep -F 'no-note/edit/ui.yaml:13:' "$RUNNER_TEMP/no-note.txt" | grep -F '[schema]'
-          done
-          grep -F 'error: its steps write (editNote), but ui.yaml has no changes note' "$RUNNER_TEMP/no-note.txt" | grep -F '[changes-note-missing]'
-      - name: A tutorial that no longer matches its flow fails the check at its step
-        run: |
-          t=edit/tutorial.yaml
-          broken() { rm -rf "$RUNNER_TEMP/tutorial"; cp -r examples/notes "$RUNNER_TEMP/tutorial"; sed -i "$2" "$RUNNER_TEMP/tutorial/$1"; code=0; node dist/cli.js check "$RUNNER_TEMP/tutorial" --strict > "$RUNNER_TEMP/tutorial.txt" || code=$?; cat "$RUNNER_TEMP/tutorial.txt"; test "$code" -eq 2; grep -F "$3" "$RUNNER_TEMP/tutorial.txt" | grep -F '[tutorial-mismatch]'; }
-          broken $t 's/    press: save/    press: submit/' 'tutorial.yaml:28:5: error: step 4: press submit, which is not a node of ui.yaml'
-          broken $t 's/after: \[DONE\]/after: [FINISHED]/' 'step 5: after FINISHED, which no state of example.editNote handles'
-          broken $t 's/{pinBox}/{pinButton}/' 'step 3: {pinButton} is neither a sample value nor a node of ui.yaml'
-          broken $t 's/scenario: { pinned: false }/scenario: { pinned: maybe }/' 'scenario: "maybe" is not a value of pinned'
-          broken $t 's/  - show: saving/  - show: editing/' 'step 5: shows editing, and the flow is in saving here'
-          broken edit/ui.yaml 's/^    disabledIn: \[saving\]$/    disabledIn: [editing, saving]/' 'step 4: press save, which is disabled in editing'
-          broken edit/flow.yaml 's/^      DONE: saved$/      DONE: editing/' 'step 6: the tutorial ends in saved, and the flow is in editing here'
-
-          cp -r examples/sign-out "$RUNNER_TEMP/diagram"
-          printf 'schema: delurio-graph/0\nkind: tutorial\nid: example.signOut.tutorial\nflow: example.signOut\ntitle: Signing out\nstage: diagram\nscenario: { token: valid, hasCookie: true }\nsteps:\n  - show: checking\n    say: "The app sends the token it holds."\n  - end: signed_out.cookie_cleared\n    say: "The session ends, and the cookie with it."\n' > "$RUNNER_TEMP/diagram/tutorial.yaml"
-          node dist/cli.js check "$RUNNER_TEMP/diagram" --strict
-          sed -i 's/  - end: signed_out.cookie_cleared/  - end: signed_out/' "$RUNNER_TEMP/diagram/tutorial.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/diagram" --strict > "$RUNNER_TEMP/diagram.txt" || code=$?
-          cat "$RUNNER_TEMP/diagram.txt"
-          test "$code" -eq 2
-          grep -F 'step 2: signed_out is not reached from checking without an event (the way stops in signed_out.cookie_cleared) [tutorial-mismatch]' "$RUNNER_TEMP/diagram.txt"
-      - name: The example kit draws the notes screens, and a kit that is not data is refused
-        run: |
-          page="$RUNNER_TEMP/pages/notes/edit/index.html"
-          grep -F '<div class="wf kit"' "$page"
-          grep -F '<button type="button" class="k-button k-primary">Save</button>' "$page"
-          grep -F '<li class="k-item" data-node="pinBox"><label class="k-check"><input type="checkbox"' "$page"
-          grep -F -- '--color-accent: #2a54d5;' "$page"
-          node --input-type=module -e '
-            import assert from "node:assert/strict";
-            import { loadKit } from "./dist/kit.js";
-            const kit = loadKit("examples/notes/kit");
-            for (const c of ["Heading", "Text", "Button", "LinkButton", "TextField", "Checkbox", "Radio", "Select", "List", "ListItem", "Status", "Alert"]) assert.ok(kit.components[c] !== undefined, `no template for ${c}`);
-            assert.deepEqual(kit.dark.map(([n]) => n).filter((n) => !kit.light.some(([m]) => m === n)), []);
-          '
-
-          cp -r examples/notes "$RUNNER_TEMP/kit-script"
-          sed -i "s|    template: '<p class=\"k-text\">{text}</p>'|    template: '<p class=\"k-text\" onclick=\"go()\">{text}</p>'|" "$RUNNER_TEMP/kit-script/kit/kit.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/kit-script" --strict > "$RUNNER_TEMP/kit-script.txt" || code=$?
-          cat "$RUNNER_TEMP/kit-script.txt"
-          test "$code" -eq 1
-          grep -F 'event handlers are not allowed: a kit is data, never code [load]' "$RUNNER_TEMP/kit-script.txt"
-      - name: A field with no role is a warning, and the kit check's expectation says its role is not given
-        run: |
-          cp -r examples/notes "$RUNNER_TEMP/role-missing"
-          sed -i '/^  bodyField:$/,/^    role: textbox$/{/^    role: textbox$/d}' "$RUNNER_TEMP/role-missing/edit/ui.yaml"
-          node dist/cli.js check "$RUNNER_TEMP/role-missing" --strict > "$RUNNER_TEMP/role-missing.txt"
-          cat "$RUNNER_TEMP/role-missing.txt"
-          grep -F 'edit/ui.yaml' "$RUNNER_TEMP/role-missing.txt" | grep -F 'warning: bodyField is a field with no role' | grep -F '[role-missing]'
-          node --input-type=module -e '
-            import assert from "node:assert/strict";
-            import { load } from "./dist/graph.js";
-            import { renderCheckScreens } from "./dist/wireframe.js";
-            const { expected } = renderCheckScreens(load(process.argv[1]), null, () => {});
-            const body = expected.filter((e) => e.id === "bodyField");
-            assert.ok(body.length > 0 && body.every((e) => e.roleGiven === false && e.role === "field"));
-            assert.ok(expected.filter((e) => e.id !== "bodyField").every((e) => e.roleGiven === true));
-          ' "$RUNNER_TEMP/role-missing/edit"
-      - name: A kit's CSS may scroll smoothly, and old Internet Explorer's behavior is still refused
-        run: |
-          cp -r examples/notes "$RUNNER_TEMP/kit-scroll"
-          printf '\n.k-scroll { scroll-behavior: smooth; overscroll-behavior: contain; }\n' >> "$RUNNER_TEMP/kit-scroll/kit/kit.css"
-          node dist/cli.js check "$RUNNER_TEMP/kit-scroll" --strict
-          cp -r examples/notes "$RUNNER_TEMP/kit-behavior"
-          printf '\n.k-old { behavior: url(x.htc); }\n' >> "$RUNNER_TEMP/kit-behavior/kit/kit.css"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/kit-behavior" --strict > "$RUNNER_TEMP/kit-behavior.txt" || code=$?
-          cat "$RUNNER_TEMP/kit-behavior.txt"
-          test "$code" -eq 1
-          grep -F 'script-like CSS is not allowed' "$RUNNER_TEMP/kit-behavior.txt"
-      - name: A control may be disabled by what the context holds (disabledWhen), read as checked is
-        run: |
-          cp -r examples/notes "$RUNNER_TEMP/disabled-when"
-          sed -i 's/^    emits: SAVE$/&\n    disabledWhen: "not pinned"/' "$RUNNER_TEMP/disabled-when/edit/ui.yaml"
-          node dist/cli.js check "$RUNNER_TEMP/disabled-when" --strict
-          node dist/cli.js page "$RUNNER_TEMP/disabled-when/edit" --out "$RUNNER_TEMP/disabled-when-page" --kit none
-          grep -F 'disabled when not pinned' "$RUNNER_TEMP/disabled-when-page/index.html"
-
-          sed -i 's/disabledWhen: "not pinned"/disabledWhen: "not pined"/' "$RUNNER_TEMP/disabled-when/edit/ui.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/disabled-when" --strict > "$RUNNER_TEMP/disabled-when.txt" || code=$?
-          cat "$RUNNER_TEMP/disabled-when.txt"
-          test "$code" -eq 1
-          grep -F 'ui node save: disabledWhen: not pined names pined, which is not a variable or a guard of the flow [load]' "$RUNNER_TEMP/disabled-when.txt"
-      - name: A dialog that several nodes open gives the focus back to the one pressed (a list, or opener)
-        run: |
-          for target in opener '[cancel, save]'; do
-            rm -rf "$RUNNER_TEMP/openers"
-            cp -r examples/notes "$RUNNER_TEMP/openers"
-            sed -i "s/returnsFocus: \[discardDialog, cancel\]/returnsFocus: [discardDialog, $target]/" "$RUNNER_TEMP/openers/edit/ui.yaml"
-            node dist/cli.js check "$RUNNER_TEMP/openers" --strict
-          done
-
-          sed -i 's/returnsFocus: \[discardDialog, \[cancel, save\]\]/returnsFocus: [discardDialog, [cancel, keep]]/' "$RUNNER_TEMP/openers/edit/ui.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/openers" --strict > "$RUNNER_TEMP/openers.txt" || code=$?
-          cat "$RUNNER_TEMP/openers.txt"
-          test "$code" -eq 2
-          grep -F 'returnsFocus gives the focus of discardDialog to keep, but no state discardDialog closes into shows it (editing and left)' "$RUNNER_TEMP/openers.txt" | grep -F '[focus-not-shown]'
-
-          sed -i 's/returnsFocus: \[discardDialog, \[cancel, keep\]\]/returnsFocus: [discardDialog, opener]/; /^    emits: CANCEL$/d' "$RUNNER_TEMP/openers/edit/ui.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/openers" --strict > "$RUNNER_TEMP/openers.txt" || code=$?
-          cat "$RUNNER_TEMP/openers.txt"
-          test "$code" -eq 2
-          grep -F 'returnsFocus gives the focus of discardDialog back to the node that opened it, but no node opens it' "$RUNNER_TEMP/openers.txt" | grep -F '[focus-not-shown]'
-
-          sed -i 's/^  working:$/  opener:/' "$RUNNER_TEMP/openers/edit/ui.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/openers" --strict > "$RUNNER_TEMP/openers.txt" || code=$?
-          cat "$RUNNER_TEMP/openers.txt"
-          grep -F 'the name "opener" is not allowed' "$RUNNER_TEMP/openers.txt" | grep -F '[schema]'
-
-          node --input-type=module -e '
-            import assert from "node:assert/strict";
-            import { focusAfter, load } from "./dist/graph.js";
-
-            const edit = load("examples/notes/edit");
-            const at = (from, to, pressed) => { const f = focusAfter(edit.ui, from, to, pressed); return f === null ? null : `${f.by} ${f.node}`; };
-            const back = (target) => { edit.ui.edges = edit.ui.edges.map((e) => (e.returnsFocus === undefined ? e : { returnsFocus: ["discardDialog", target] })); };
-            back("opener");
-            assert.equal(at("discarding", "editing", "cancel"), "returnsFocus cancel");
-            assert.equal(at("discarding", "editing"), null);
-            back(["cancel", "save"]);
-            assert.equal(at("discarding", "editing", "save"), "returnsFocus save");
-            assert.equal(at("discarding", "editing"), null);
-            back(["cancel", "keep"]);
-            assert.equal(at("discarding", "editing"), "returnsFocus cancel");
-          '
-      - name: A checkbox, a radio and a select are components of their own, named by their label
-        run: |
-          cp -r examples/notes "$RUNNER_TEMP/controls-drawn"
-          python3 - "$RUNNER_TEMP/controls-drawn/edit" <<'PY'
-          import json, sys
-          d = sys.argv[1]
-          ui = open(f"{d}/ui.yaml").read()
-          ui = ui.replace("  pinBox:\n    type: field\n    component: ListItem\n", "  pinBox:\n    type: field\n    component: Checkbox\n")
-          ui = ui.replace("  save:\n    type: action\n", "  colour:\n    type: field\n    component: Select\n    role: combobox\n    text: { key: Edit.colour }\n    value: { key: Edit.yellow }\n    in: [editing, saving]\n  late:\n    type: field\n    component: Radio\n    role: radio\n    text: { key: Edit.later }\n    checked: true\n    in: [editing]\n  save:\n    type: action\n")
-          open(f"{d}/ui.yaml", "w").write(ui)
-          words = json.load(open(f"{d}/catalog/en.json"))
-          words.update({"Edit.colour": "Colour", "Edit.yellow": "Yellow", "Edit.later": "Remind me later"})
-          json.dump(words, open(f"{d}/catalog/en.json", "w"), indent=2)
-          PY
-          node dist/cli.js check "$RUNNER_TEMP/controls-drawn" --strict
-          node dist/cli.js page "$RUNNER_TEMP/controls-drawn/edit" --out "$RUNNER_TEMP/controls-drawn-page" --kit none --strict
-          page="$RUNNER_TEMP/controls-drawn-page/index.html"
-          grep -F '<input type="checkbox" tabindex="-1"><span>Pin it to the top of my notes</span>' "$page"
-          grep -F '<input type="radio" tabindex="-1" checked><span>Remind me later</span>' "$page"
-          grep -F '<select class="wf-input" tabindex="-1"><option>Yellow</option></select>' "$page"
-          grep -F 'checkbox &quot;Pin it to the top of my notes&quot;' "$page"
-          grep -F 'combobox &quot;Colour&quot;' "$page"
-      - name: A flow's name for its users (task) is in every locale's catalog
-        run: |
-          cp -r examples/notes "$RUNNER_TEMP/task"
-          sed -i 's/^changes: { key: Changes.note }$/&\ntask: { key: Edit.task }/; s/^locales: \[en\]$/locales: [en, tr]/' "$RUNNER_TEMP/task/edit/ui.yaml"
-          node -e '
-            const fs = require("fs");
-            const dir = process.argv[1];
-            const words = JSON.parse(fs.readFileSync(`${dir}/en.json`, "utf8"));
-            words["Edit.task"] = "Edit a note";
-            fs.writeFileSync(`${dir}/en.json`, JSON.stringify(words, null, 2));
-            fs.writeFileSync(`${dir}/tr.json`, JSON.stringify({ ...words, "Edit.task": "Notu düzenle" }, null, 2));
-          ' "$RUNNER_TEMP/task/edit/catalog"
-          node dist/cli.js check "$RUNNER_TEMP/task" --strict
-          node -e '
-            const fs = require("fs");
-            const file = `${process.argv[1]}/tr.json`;
-            const words = JSON.parse(fs.readFileSync(file, "utf8"));
-            delete words["Edit.task"];
-            fs.writeFileSync(file, JSON.stringify(words, null, 2));
-          ' "$RUNNER_TEMP/task/edit/catalog"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/task" --strict > "$RUNNER_TEMP/task.txt" || code=$?
-          cat "$RUNNER_TEMP/task.txt"
-          test "$code" -eq 2
-          grep -E "edit/ui\.yaml:[0-9]+:1: error: the flow's name for its users, Edit\.task, is not in the tr catalog \(SPEC\.md §4\) \[task-locale\]" "$RUNNER_TEMP/task.txt"
-      - name: A flow's needs are held to their evidence, and the example app's tests pass
-        run: |
-          node --test examples/notes/app/notes.test.js
-          node dist/cli.js check examples/notes --strict > "$RUNNER_TEMP/needs.txt" 2> "$RUNNER_TEMP/needs.err"
-          cat "$RUNNER_TEMP/needs.txt" "$RUNNER_TEMP/needs.err"
-          grep -F 'restore/needs.yaml:47:5: note: need says-when-it-is-erased is missing: archived notes are not erased yet' "$RUNNER_TEMP/needs.txt" | grep -F '[need-gap]'
-          grep -Fx 'delurio check: 3 graphs, 0 errors, 0 warnings, 1 gap of 4 needs; exit 0' "$RUNNER_TEMP/needs.err"
-          node dist/cli.js check examples/qauth-authorize --strict 2>&1 | grep -Fx 'delurio check: 1 graph, 0 errors, 0 warnings; exit 0'
-
-          n=restore/needs.yaml
-          broken() { rm -rf "$RUNNER_TEMP/needs"; cp -r examples/notes "$RUNNER_TEMP/needs"; sed -i "$2" "$RUNNER_TEMP/needs/$1"; code=0; node dist/cli.js check "$RUNNER_TEMP/needs" --strict > "$RUNNER_TEMP/needs.txt" || code=$?; cat "$RUNNER_TEMP/needs.txt"; test "$code" -eq 2; grep -F "$3" "$RUNNER_TEMP/needs.txt" | grep -F "[$4]"; }
-          broken $n '0,/notes\.js$/s//note.js/' 'restore/needs.yaml:17:9: error: need restore-from-its-page: source examples/notes/app/note.js does not exist' evidence-unresolved
-          broken $n '0,/notes\.js$/s//notes.js:99/' "source examples/notes/app/notes.js:99 is past the file's end: it has 37 lines" evidence-unresolved
-          broken $n 's/^        name: restoreNote$/        name: restoreNotes/' 'source examples/notes/app/notes.js holds no restoreNotes' evidence-unresolved
-          broken $n 's/name: restores an archived note$/name: restores a note/' 'test examples/notes/app/notes.test.js holds no test named "restores a note"' evidence-unresolved
-          broken $n 's/^      - scenario: owner$/      - scenario: stranger/' "scenario stranger is not a scenario of the flow's own binding.yaml (it has owner)" evidence-unresolved
-          broken restore/binding.yaml 's/^flow: example.restoreNote$/flow: example.editNote/' "scenario owner: the flow's own binding.yaml binds example.editNote, not example.restoreNote" evidence-unresolved
-          broken $n 's/^      - state: restoring$/      - state: restorng/' 'state restorng is not a state of example.restoreNote' evidence-unresolved
-          broken $n 's/^      - node: keptFor$/      - node: keepFor/' "node keepFor is not a node of the flow's ui.yaml" evidence-unresolved
-          broken $n 's/^      - setting: NOTES_SESSION_SECRET$/      - setting: NOTES_KEEP_ARCHIVED_DAYS/' 'setting NOTES_KEEP_ARCHIVED_DAYS is not set in examples/notes/app/.env.example: no line sets it, or the one that does is commented out' evidence-unresolved
-          broken $n '/^  - id: restore-from-its-page$/,/^  - id: restored-meanwhile$/{/^      - \(source\|test\|scenario\):/d;/^        name:/d}' 'need restore-from-its-page is not missing and names no evidence outside the graph' need-no-evidence
-          broken $n 's/^  - id: restored-meanwhile$/  - id: restore-from-its-page/' 'need restore-from-its-page is given twice: it is given first at line 12' need-twice
-          broken $n 's/^id: example.restoreNote$/id: example.editNote/' 'needs.yaml is the needs of example.editNote, and the flow beside it is example.restoreNote' needs-place
-          broken $n 's/^      - state: restoring$/&\n        node: restore/' 'evidence.0.node: is not allowed here (a piece of evidence is of one kind: give each kind an item of its own)' schema
-
-          mkdir "$RUNNER_TEMP/needs/stray"
-          cp "$RUNNER_TEMP/needs/$n" "$RUNNER_TEMP/needs/stray/needs.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/needs" --strict > "$RUNNER_TEMP/needs.txt" || code=$?
-          cat "$RUNNER_TEMP/needs.txt"
-          test "$code" -eq 2
-          grep -F 'stray/needs.yaml:8:1: error: needs.yaml is beside no flow' "$RUNNER_TEMP/needs.txt" | grep -F '[needs-place]'
-      - name: A product's gaps list every missing need and only those, so they only shrink
-        run: |
-          broken() { rm -rf "$RUNNER_TEMP/gaps"; cp -r examples/notes "$RUNNER_TEMP/gaps"; sed -i "$2" "$RUNNER_TEMP/gaps/$1"; code=0; node dist/cli.js check "$RUNNER_TEMP/gaps" --strict > "$RUNNER_TEMP/gaps.txt" || code=$?; cat "$RUNNER_TEMP/gaps.txt"; test "$code" -eq 2; grep -F "$3" "$RUNNER_TEMP/gaps.txt" | grep -F "[$4]"; }
-          broken needs.gaps.yaml 's/^gaps:$/gaps: {}/; /^  example.restoreNote:/d' 'restore/needs.yaml:47:5: error: need says-when-it-is-erased is missing, and needs.gaps.yaml does not list it under example.restoreNote' need-unlisted
-          broken needs.gaps.yaml 's/\[says-when-it-is-erased\]/[says-when-it-is-erased, only-its-owner]/' 'needs.gaps.yaml:10:49: error: needs.gaps.yaml lists only-its-owner of example.restoreNote, which is met now: take it out' gap-met
-          broken restore/needs.yaml 's|^    missing: archived notes.*$|      - source: examples/notes/app/notes.js|' 'needs.gaps.yaml lists says-when-it-is-erased of example.restoreNote, which is met now' gap-met
-          broken needs.gaps.yaml 's/\[says-when-it-is-erased\]/[says-when-it-is-erased, restore-later]/' 'needs.gaps.yaml lists restore-later of example.restoreNote, which is no need of its needs.yaml' gap-unknown
-          broken needs.gaps.yaml 's/^  example.restoreNote: .*$/&\n  example.restorNote: [restore-later]/' 'needs.gaps.yaml lists gaps of example.restorNote, which is no flow with a needs.yaml under its folder' gap-unknown
-
-          rm -rf "$RUNNER_TEMP/gaps"
-          cp -r examples/notes "$RUNNER_TEMP/gaps"
-          rm "$RUNNER_TEMP/gaps/needs.gaps.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/gaps" --strict > "$RUNNER_TEMP/gaps.txt" || code=$?
-          cat "$RUNNER_TEMP/gaps.txt"
-          test "$code" -eq 2
-          grep -F 'need says-when-it-is-erased is missing, and there is no needs.gaps.yaml above it' "$RUNNER_TEMP/gaps.txt" | grep -F '[need-unlisted]'
-
-          rm -rf "$RUNNER_TEMP/gaps"
-          cp -r examples/notes "$RUNNER_TEMP/gaps"
-          node dist/cli.js check "$RUNNER_TEMP/gaps" --format sarif --output "$RUNNER_TEMP/gaps.sarif" 2> /dev/null
-          node -e '
-            const run = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).runs[0];
-            const [gap, ...rest] = run.results;
-            if (rest.length !== 0 || gap.ruleId !== "need-gap" || gap.level !== "note") throw new Error(`one gap, at note: ${JSON.stringify(run.results)}`);
-            if (gap.locations[0].physicalLocation.region.startLine !== 47) throw new Error("the gap is at its need");
-            if (run.tool.driver.rules.find((r) => r.id === "need-gap").defaultConfiguration.level !== "note") throw new Error("need-gap is a note");
-          ' "$RUNNER_TEMP/gaps.sarif"
-          sed -i 's/^    need: Only the note.s owner reads and restores it; to anyone else it is no note at all\.$/&\n    missing: the sessions are not signed yet/' "$RUNNER_TEMP/gaps/restore/needs.yaml"
-          sed -i 's/\[says-when-it-is-erased\]/[says-when-it-is-erased, only-its-owner]/' "$RUNNER_TEMP/gaps/needs.gaps.yaml"
-          node dist/cli.js check "$RUNNER_TEMP/gaps" --strict --baseline "$RUNNER_TEMP/gaps.sarif" > "$RUNNER_TEMP/gaps.txt" 2>&1
-          cat "$RUNNER_TEMP/gaps.txt"
-          grep -F 'note: need only-its-owner is missing: the sessions are not signed yet [need-gap]' "$RUNNER_TEMP/gaps.txt"
-          grep -Fx 'delurio check: 3 graphs, 0 errors, 0 warnings, 2 gaps of 4 needs (1 new); exit 0' "$RUNNER_TEMP/gaps.txt"
-      - name: Evidence is found under --app, and a walk leaves out what only missing needs draw
-        run: |
-          code=0
-          (cd examples && node ../dist/cli.js check notes --strict > "$RUNNER_TEMP/app.txt" 2>&1) || code=$?
-          cat "$RUNNER_TEMP/app.txt"
-          test "$code" -eq 2
-          grep -F 'test examples/notes/app/notes.test.js does not exist' "$RUNNER_TEMP/app.txt" | grep -F '[evidence-unresolved]'
-          (cd examples && node ../dist/cli.js check notes --strict --app ..)
-          code=0
-          node dist/cli.js check examples/notes --app "$RUNNER_TEMP/nowhere" > "$RUNNER_TEMP/app.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/app.txt"
-          test "$code" -eq 1
-          grep -F "$RUNNER_TEMP/nowhere is not a folder" "$RUNNER_TEMP/app.txt"
-
-          node --input-type=module -e '
-            import assert from "node:assert/strict";
-            import { planned, readNeeds } from "./dist/needs.js";
-
-            const restore = readNeeds("examples/notes/restore");
-            assert.deepEqual([...planned(restore).nodes], [["keptFor", ["says-when-it-is-erased"]]]);
-            assert.deepEqual([...planned(restore).states], []);
-            assert.equal(readNeeds("examples/notes/edit"), null);
-            const shared = { kind: "needs", id: "x", needs: [
-              { id: "built", need: "A", evidence: [{ state: "a" }, { test: "t.js" }] },
-              { id: "later", need: "B", evidence: [{ state: "a" }, { state: "b" }, { node: "n" }], missing: "the second phase" },
-              { id: "after", need: "C", evidence: [{ state: "b" }], missing: "the third phase" },
-            ] };
-            assert.deepEqual([...planned(shared).states], [["b", ["later", "after"]]]);
-            assert.deepEqual([...planned(shared).nodes], [["n", ["later"]]]);
-          '
-      - name: A missing need names only what is not built, and a state that only missing needs name may name no code
-        run: |
-          cp -r examples/notes "$RUNNER_TEMP/built"
-          f="$RUNNER_TEMP/built/restore/flow.yaml"
-          sed -i 's/^status: proposed$/status: captured/' "$f"
-          sed -i 's#^    title: \(Read the note\|The archived note\)$#&\n    source: examples/notes/app/notes.js:12#' "$f"
-          sed -i 's|^      NAVIGATE: left$|&\n      ERASE: confirmingErase\n  confirmingErase:\n    title: Confirm that the note is erased\n    on: { CANCEL: archived }|' "$f"
-          sed -i 's|^      - node: keptFor$|&\n      - state: archived\n      - state: confirmingErase|' "$RUNNER_TEMP/built/restore/needs.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/built" --strict > "$RUNNER_TEMP/built.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/built.txt"
-          test "$code" -eq 2
-          grep -F 'restore/needs.yaml:47:9: warning: need says-when-it-is-erased is missing, and names state archived, which is built: it names its code (source: examples/notes/app/notes.js:12)' "$RUNNER_TEMP/built.txt" | grep -F '[need-names-built]'
-          test "$(grep -c '\[need-names-built\]' "$RUNNER_TEMP/built.txt")" -eq 1
-          grep -F 'state restoring names no code' "$RUNNER_TEMP/built.txt" | grep -F '[source-missing]'
-          test "$(grep -c '\[source-missing\]' "$RUNNER_TEMP/built.txt")" -eq 1
-          sed -i 's|^    title: Restore it$|&\n    source: examples/notes/app/notes.js:30|' "$f"
-          node dist/cli.js check "$RUNNER_TEMP/built" --strict 2>&1 | grep -Fx 'delurio check: 3 graphs, 0 errors, 1 warning, 1 gap of 4 needs; exit 0'
-      - name: Under --no-app the graphs are checked without the code, and the output says once what was not looked for
-        run: |
-          (cd examples && node ../dist/cli.js check notes --strict --no-app > "$RUNNER_TEMP/no-app.txt" 2>&1)
-          cat "$RUNNER_TEMP/no-app.txt"
-          grep -Fx 'delurio check: note: --no-app: 0 source anchors, 0 citations in words and 7 pieces of evidence name files of the application, which are not here, and were not looked for (SPEC.md §10)' "$RUNNER_TEMP/no-app.txt"
-          grep -Fx 'delurio check: 3 graphs, 0 errors, 0 warnings, 1 gap of 4 needs; exit 0' "$RUNNER_TEMP/no-app.txt"
-
-          cp -r examples/notes "$RUNNER_TEMP/no-app"
-          sed -i 's|^    title: Read the note$|&\n    source: app/nowhere.js:99\n    description: readOwnNote, at examples/notes/app/notes.js:99|' "$RUNNER_TEMP/no-app/restore/flow.yaml"
-          sed -i 's/^      - state: restoring$/      - state: restorng/; s/^      - scenario: owner$/      - scenario: stranger/' "$RUNNER_TEMP/no-app/restore/needs.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/no-app" --strict --no-app --format sarif --output "$RUNNER_TEMP/no-app.sarif" > "$RUNNER_TEMP/no-app.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/no-app.txt"
-          test "$code" -eq 2
-          test "$(grep -c '\[evidence-unresolved\]' "$RUNNER_TEMP/no-app.txt")" -eq 2
-          grep -F 'state restorng is not a state of example.restoreNote' "$RUNNER_TEMP/no-app.txt"
-          grep -F "scenario stranger is not a scenario of the flow's own binding.yaml" "$RUNNER_TEMP/no-app.txt"
-          ! grep -F -e '[source-unresolved]' -e '[citation-unresolved]' "$RUNNER_TEMP/no-app.txt"
-          grep -F 'note: --no-app: 1 source anchor, 1 citation in words and 7 pieces of evidence name files' "$RUNNER_TEMP/no-app.txt"
-          node -e '
-            const run = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).runs[0];
-            const [said, ...rest] = run.invocations[0].toolExecutionNotifications ?? [];
-            if (said === undefined || rest.length !== 0 || said.level !== "note" || !said.message.text.startsWith("--no-app: 1 source anchor")) throw new Error(`one note of the run: ${JSON.stringify(run.invocations)}`);
-            if (run.results.some((r) => r.ruleId === "source-unresolved" || r.ruleId === "citation-unresolved")) throw new Error("no anchor is looked for");
-          ' "$RUNNER_TEMP/no-app.sarif"
-
-          code=0
-          node dist/cli.js check examples --app . --no-app > "$RUNNER_TEMP/no-app.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/no-app.txt"
-          test "$code" -eq 1
-          grep -F -- '--app names the application'"'"'s code and --no-app says it is not here: give one of them' "$RUNNER_TEMP/no-app.txt"
-      - name: A page opened by its address is reached so, not unreachable, and drawn with its own words
-        run: |
-          mkdir -p "$RUNNER_TEMP/typed/site/catalog"
-          echo '{}' > "$RUNNER_TEMP/typed/site/catalog/en.json"
-          printf '%s\n' 'schema: delurio-graph/0' 'kind: nav' 'id: example.site' 'title: Example site' 'status: proposed' 'locale: en' 'catalog: catalog/en.json' \
-            'frames:' '  site: { title: The site }' \
-            'personas:' '  visitor: { title: Visitor, say: someone who is not signed in, facts: {} }' \
-            'pages:' \
-            '  start: { route: /, title: Home, kind: screen, frame: site }' \
-            '  about: { route: /about, title: About, kind: screen, frame: site }' \
-            '  signIn: { route: /auth/sign-in, title: Sign in, kind: screen, frame: site, byAddress: true }' \
-            '  forgot: { route: /auth/forgot, title: Forgot your password, kind: screen, frame: site }' \
-            '  notFound: { route: "/{...path}", title: Not found, kind: screen, frame: site, byAddress: true }' \
-            'entries:' \
-            '  - { from: start, to: about, how: link, label: About }' \
-            '  - { from: signIn, to: forgot, how: link, label: Forgot your password }' \
-            '  - { from: notFound, to: start, how: link, label: Home }' > "$RUNNER_TEMP/typed/site/nav.yaml"
-          node dist/cli.js check "$RUNNER_TEMP/typed/site" --strict 2>&1 | grep -Fx 'delurio check: 1 graph, 0 errors, 0 warnings; exit 0'
-          node dist/cli.js page "$RUNNER_TEMP/typed/site" --out "$RUNNER_TEMP/typed/page" --strict
-          grep -F '<span class="path">by its address</span>' "$RUNNER_TEMP/typed/page/index.html"
-          grep -F '<span class="path">by the address of Sign in, then Forgot your password</span>' "$RUNNER_TEMP/typed/page/index.html"
-          grep -F '<span class="tag">by its address</span>' "$RUNNER_TEMP/typed/page/index.html"
-
-          cp -r "$RUNNER_TEMP/typed/site" "$RUNNER_TEMP/typed/old"
-          sed -i 's/, byAddress: true//' "$RUNNER_TEMP/typed/old/nav.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/typed/old" --strict > "$RUNNER_TEMP/typed.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/typed.txt"
-          test "$code" -eq 2
-          grep -F 'error: Some pages cannot be reached by any kind of user. (unreachable) [nav-problem]' "$RUNNER_TEMP/typed.txt"
-          grep -F 'note: Sign in (/auth/sign-in)' "$RUNNER_TEMP/typed.txt"
-
-          node dist/cli.js diff "$RUNNER_TEMP/typed/old" "$RUNNER_TEMP/typed/site" > "$RUNNER_TEMP/typed.md"
-          cat "$RUNNER_TEMP/typed.md"
-          grep -Fx -e '- Can now reach “Sign in” (0 clicks: by its address).' "$RUNNER_TEMP/typed.md"
-          grep -Fx -e '- Can now reach “Forgot your password” (1 clicks: by the address of “Sign in”, then Forgot your password).' "$RUNNER_TEMP/typed.md"
-          grep -Fx -e '- “Not found” is now opened by its address.' "$RUNNER_TEMP/typed.md"
-      - name: A nav graph may list every message file it reads and lay fields over generated entries
-        run: |
-          mkdir -p "$RUNNER_TEMP/read/site/catalog"
-          echo '{}' > "$RUNNER_TEMP/read/site/catalog/en.json"
-          printf '%s\n' 'schema: delurio-graph/0' 'kind: nav' 'id: example.read' 'title: Read from the app' 'status: captured' 'locale: en' 'catalog: catalog/en.json' \
-            'source:' '  repo: acme/site' '  app: apps/web' '  locales:' '    - "libs/i18n/{locale}/web.json"' '    - "libs/i18n/{locale}/common.json"' \
-            'extract:' '  adapter: next' '  locales: [en]' '  entries:' \
-            '    start->about: { when: "not signedIn", label: About us }' \
-            '    frame:site->start link: { skip: the logo links to the page it is on }' \
-            'frames:' '  site: { title: The site }' \
-            'facts:' '  signedIn: { values: [true, false] }' \
-            'personas:' '  visitor: { title: Visitor, say: someone who is not signed in, facts: { signedIn: false } }' \
-            'pages:' \
-            '  start: { route: /, title: Home, kind: screen, frame: site }' \
-            '  about: { route: /about, title: About us, kind: screen, frame: site }' \
-            '  docs: { route: "/docs/{...slug}", title: Docs, kind: screen, frame: site, byAddress: true }' \
-            'entries:' \
-            '  - { from: start, to: about, how: link, label: About us }' > "$RUNNER_TEMP/read/site/nav.yaml"
-          node dist/cli.js check "$RUNNER_TEMP/read/site" --strict 2>&1 | grep -Fx 'delurio check: 1 graph, 0 errors, 0 warnings; exit 0'
-
-          sed -i 's/    start->about: /    start=>about: /; s/{ skip: the logo links to the page it is on }/{ skip: "", how: logo }/' "$RUNNER_TEMP/read/site/nav.yaml"
-          sed -i '/^    - "libs\/i18n/d; s/^  locales:$/  locales: []/' "$RUNNER_TEMP/read/site/nav.yaml"
-          code=0
-          node dist/cli.js check "$RUNNER_TEMP/read/site" --strict > "$RUNNER_TEMP/read.txt" 2>&1 || code=$?
-          cat "$RUNNER_TEMP/read.txt"
-          test "$code" -eq 2
-          test "$(grep -c '\[schema\]' "$RUNNER_TEMP/read.txt")" -ge 4
-          grep -F 'start=>about' "$RUNNER_TEMP/read.txt" | grep -F '[schema]'
+          cargo zigbuild --release --locked -p delurio --target x86_64-unknown-linux-musl
+          mkdir -p image && cp target/x86_64-unknown-linux-musl/release/delurio image/delurio-amd64
+          file image/delurio-amd64 | grep -E 'statically linked|static-pie linked'
       - name: The image's files alone check the examples, schemas included
         run: |
-          mkdir -p "$RUNNER_TEMP/image/opt" "$RUNNER_TEMP/image/work"
-          grep '^COPY ' Dockerfile | while read -r _ args; do
-            set -- $args
-            dest="${!#}"
-            for src in "${@:1:$#-1}"; do cp -r "$src" "$RUNNER_TEMP/image/opt/$dest"; done
-          done
-          (cd "$RUNNER_TEMP/image/opt" && npm ci --omit=dev --ignore-scripts)
-          cp -r examples "$RUNNER_TEMP/image/work/"
-          cd "$RUNNER_TEMP/image/work"
-          node "$RUNNER_TEMP/image/opt/dist/cli.js" check examples --strict 2>&1 | grep -Fx 'delurio check: 5 graphs, 0 errors, 0 warnings, 1 gap of 4 needs; exit 0'
+          docker build --platform linux/amd64 -t delurio:ci .
+          docker run --rm -v "$PWD/examples:/work/examples:ro" delurio:ci check examples --strict 2>&1 | grep -Fx 'delurio check: 5 graphs, 0 errors, 0 warnings, 1 gap of 4 needs; exit 0'
