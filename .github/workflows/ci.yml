@@ -398,6 +398,19 @@ jobs:
           test "$code" -eq 2
           grep -F 'notes/domain.yaml:8:32: error: the field Note.ownerId references Person, which is not an entity of the domain example.notes' "$RUNNER_TEMP/two.txt" | grep -F '[entity-unknown]'
           grep -F 'people/domain.yaml:5:3: note: Person is an entity of the domain example.people' "$RUNNER_TEMP/two.txt"
+      - name: An entity may carry a note, the author's own words
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/entity-note"
+          sed -i 's/^  Note:$/&\n    note: a note is kept until its owner erases it; archived notes are erased in the second phase/' "$RUNNER_TEMP/entity-note/domain/note.yaml"
+          sed -i 's/^    fields:$/    note: [not words]\n&/' "$RUNNER_TEMP/entity-note/domain/domain.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/entity-note" --strict > "$RUNNER_TEMP/entity-note.txt" 2>&1 || code=$?
+          cat "$RUNNER_TEMP/entity-note.txt"
+          test "$code" -eq 2
+          test "$(grep -c '\[schema\]' "$RUNNER_TEMP/entity-note.txt")" -eq 1
+          grep -F 'domain/domain.yaml' "$RUNNER_TEMP/entity-note.txt" | grep -F 'entities.Note.note: must be a string [schema]'
+          sed -i '/^    note: \[not words\]$/d' "$RUNNER_TEMP/entity-note/domain/domain.yaml"
+          node dist/cli.js check "$RUNNER_TEMP/entity-note" --strict 2>&1 | grep -Fx 'delurio check: 3 graphs, 0 errors, 0 warnings, 1 gap of 4 needs; exit 0'
       - name: A GET that a writing policy lists writes only when it does more than record its call
         run: |
           cp -r examples/notes "$RUNNER_TEMP/audited"
