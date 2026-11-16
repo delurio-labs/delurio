@@ -397,7 +397,7 @@ A kit says how the components of `ui.yaml` look in one product: `tokens` and `da
 
 ## 9. Source anchors
 
-`source: <path>:<line>` on a state, a transition, a guard, a node, an entity or an action names the code that makes it true, relative to the application's repository root. A bare `<path>` anchors a whole file. In capture mode every element carries one; in create mode an element carries one when the code already exists. `check` reports a state of a captured flow that names no code (`source-missing`). An exit may leave it out: the transition into it names the code, and an exit such as the person leaving the page has no code of its own.
+`source: <path>:<line>` on a state, a transition, a guard, a node, an entity or an action names the code that makes it true, relative to the application's repository root. A bare `<path>` anchors a whole file. In capture mode every element carries one; in create mode an element carries one when the code already exists. `check` reports a state of a captured flow that names no code (`source-missing`). An exit may leave it out: the transition into it names the code, and an exit such as the person leaving the page has no code of its own. So may a state that only missing needs name (§13), which is drawn before it is built.
 
 **Every anchor resolves.** `check` holds every anchor to the code, wherever it is written: the file it names exists and is a file, and its line, when it names one, is within the file, from 1 to the file's last line. One that does not is an error (`source-unresolved`), at the anchor: a file that is not there, a folder, or a line past the file's end, as a writer's line number that was off gives. The path is read from the application's repository root, as a need's evidence is (§13): the folder `check --app` names, or else the folder `check` runs in, as a CI runs it at the root of the repository it checked out. An anchor of a navigation graph is read from that root too, whatever its `source.app` says; where the path is there under `source.app`, the finding says so. An anchor is a `source` that a graph file's schema gives as one (`sourceAnchor` in `schemas/`), in a flow, its screens, a navigation graph or a domain: a key `source` that means something else, such as a navigation graph's own `source`, a sample value or a field of a record, is none. A need's evidence is held by its own rule (`evidence-unresolved`, §13).
 
@@ -541,7 +541,9 @@ A flow's needs are in `needs.yaml`, in the flow's folder beside `flow.yaml`, and
 | `missing` | that it does not exist yet, and why or where that is tracked: words, an issue, a finding's id |
 | `note` | the author's own words, which no tool reads |
 
-A need without `missing` is met, and its evidence names at least one thing outside the graph: a `source`, a `test`, a `scenario` or a `setting`. What the graph draws (`state`, `node`) says where the need is drawn, and alone shows nothing built. A need with `missing` is a gap. It may name evidence too: where it is drawn, and what exists of it so far. Needs are written from what the flow's users need, never from what the product does today, so a need the product does not meet yet is written all the same, with `missing`. A list is therefore `proposed` or `approved`, never `captured` (§1).
+A need without `missing` is met, and its evidence names at least one thing outside the graph: a `source`, a `test`, a `scenario` or a `setting`. What the graph draws (`state`, `node`) says where the need is drawn, and alone shows nothing built. A need with `missing` is a gap. It may name evidence too: where it is drawn, and what exists of it so far.
+
+A missing need's `state` and `node` name only what is not built yet: the states and the nodes that will be drawn for it, such as the page that is planned. A tool that walks the flow on the app leaves out every state and node that only missing needs name (below), so a built one named there would not be walked. A gap that is about something built, such as an error page that has no `<main>` yet, names it in its `need` or its `note` (`note: the error page, errorPage, has no main landmark`), not as its evidence. A state of a captured flow that names its code (`source:`, §9) is built, and `check` warns at a missing need's `state` that names one (`need-names-built`). A state of a captured flow that only missing needs name is not built: it names no code, and `source-missing` (§9) does not ask it for one. Needs are written from what the flow's users need, never from what the product does today, so a need the product does not meet yet is written all the same, with `missing`. A list is therefore `proposed` or `approved`, never `captured` (§1).
 
 | Evidence | What it says | It resolves when |
 |---|---|---|
@@ -574,11 +576,12 @@ gaps:
 
 - `evidence-unresolved`, at a piece of evidence that does not resolve: a file that is not there, a line past the file's end, a name the file does not hold, a binding that is not there or binds another flow, a scenario it does not have, a state or a node the flow does not have, a setting no line of its file sets. So evidence that goes away takes its need with it.
 - `need-no-evidence`, at a need that is not missing and whose evidence names only what the graph draws.
+- `need-names-built`, a warning, at a missing need's `state` that names a state of a captured flow that names its code (`source:`), so is built.
 - `need-unlisted`, at a need that is missing and that its gaps file does not list, or that has no gaps file above it.
 - `gap-met`, at an entry of a gaps file whose need is met now; `gap-unknown`, at an entry that names a flow or a need that no `needs.yaml` under the file's folder has.
 - `need-twice`, at a need whose id is given earlier in its file; `needs-place`, at a `needs.yaml` that is beside no flow, or whose `id` is not the id of the flow beside it.
 
-Each is an error, and fails `--strict` (exit 2). A gap that is listed fails nothing: it is a finding of its own, `need-gap`, at the need's `missing`, with its words, at the level `note` in text and in SARIF. Once a flow has needs, the summary line counts the gaps among them:
+Each but `need-names-built`, a warning, is an error, and fails `--strict` (exit 2). A gap that is listed fails nothing: it is a finding of its own, `need-gap`, at the need's `missing`, with its words, at the level `note` in text and in SARIF. Once a flow has needs, the summary line counts the gaps among them:
 
 ```
 examples/notes/restore/needs.yaml:47:5: note: need says-when-it-is-erased is missing: archived notes are not erased yet; … [need-gap]

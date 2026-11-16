@@ -695,6 +695,24 @@ jobs:
             assert.deepEqual([...planned(shared).states], [["b", ["later", "after"]]]);
             assert.deepEqual([...planned(shared).nodes], [["n", ["later"]]]);
           '
+      - name: A missing need names only what is not built, and a state that only missing needs name may name no code
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/built"
+          f="$RUNNER_TEMP/built/restore/flow.yaml"
+          sed -i 's/^status: proposed$/status: captured/' "$f"
+          sed -i 's#^    title: \(Read the note\|The archived note\)$#&\n    source: examples/notes/app/notes.js:12#' "$f"
+          sed -i 's|^      NAVIGATE: left$|&\n      ERASE: confirmingErase\n  confirmingErase:\n    title: Confirm that the note is erased\n    on: { CANCEL: archived }|' "$f"
+          sed -i 's|^      - node: keptFor$|&\n      - state: archived\n      - state: confirmingErase|' "$RUNNER_TEMP/built/restore/needs.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/built" --strict > "$RUNNER_TEMP/built.txt" 2>&1 || code=$?
+          cat "$RUNNER_TEMP/built.txt"
+          test "$code" -eq 2
+          grep -F 'restore/needs.yaml:47:9: warning: need says-when-it-is-erased is missing, and names state archived, which is built: it names its code (source: examples/notes/app/notes.js:12)' "$RUNNER_TEMP/built.txt" | grep -F '[need-names-built]'
+          test "$(grep -c '\[need-names-built\]' "$RUNNER_TEMP/built.txt")" -eq 1
+          grep -F 'state restoring names no code' "$RUNNER_TEMP/built.txt" | grep -F '[source-missing]'
+          test "$(grep -c '\[source-missing\]' "$RUNNER_TEMP/built.txt")" -eq 1
+          sed -i 's|^    title: Restore it$|&\n    source: examples/notes/app/notes.js:30|' "$f"
+          node dist/cli.js check "$RUNNER_TEMP/built" --strict 2>&1 | grep -Fx 'delurio check: 3 graphs, 0 errors, 1 warning, 1 gap of 4 needs; exit 0'
       - name: Under --no-app the graphs are checked without the code, and the output says once what was not looked for
         run: |
           (cd examples && node ../dist/cli.js check notes --strict --no-app > "$RUNNER_TEMP/no-app.txt" 2>&1)
