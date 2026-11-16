@@ -129,8 +129,10 @@ jobs:
           merge-multiple: true
       - name: Each addon in its platform package
         run: |
-          npx napi artifacts --output-dir built --npm-dir npm
-          for d in npm/*/; do cp LICENSE NOTICE "$d"; ls -l "$d"; done
+          for d in npm/*/; do
+            cp "built/delurio.$(basename "$d").node" LICENSE NOTICE "$d"
+            ls -l "$d"
+          done
       - name: The package works on this runner with its own addon
         run: |
           cp npm/linux-x64-gnu/delurio.linux-x64-gnu.node .
