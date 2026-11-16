@@ -7,6 +7,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { keyAt, readYaml } from './yaml.ts';
+import { AppFiles } from './anchors.ts';
 
 export const NEEDS_FILE = 'needs.yaml';
 export const GAPS_FILE = 'needs.gaps.yaml';
@@ -131,10 +132,9 @@ const holds = (body: string, name: string): boolean => new RegExp(`(?<![\\w$])${
 // a line of the file sets the variable and is not commented out: NAME=, export NAME=, NAME: or - NAME=
 const sets = (body: string, name: string): boolean => new RegExp(`^[ \\t]*(?:-[ \\t]*)?(?:export[ \\t]+)?${escapeRe(name)}[ \\t]*[=:]`, 'm').test(body);
 
-const lineCount = (body: string): number => body.split('\n').length - (body.endsWith('\n') ? 1 : 0);
-
 interface Context {
   app: string;
+  code: AppFiles; // the application's files, as a source: anchor reads them (SPEC.md §9)
   dir: string; // the flow's folder
   flowId: string | null;
   states: Set<string> | null; // null when flow.yaml cannot be read: its own check says why
@@ -165,12 +165,10 @@ function unresolved(ctx: Context, kind: Kind, e: Record<string, unknown>): strin
   const name = text(e.name);
   switch (kind) {
     case 'source': {
-      const m = /^(.*?)(?::(\d+))?$/.exec(value) as RegExpExecArray;
-      const abs = fileAt(ctx, m[1]);
-      if (abs === null) return `source ${m[1]} does not exist`;
-      const body = readFileSync(abs, 'utf8');
-      if (m[2] !== undefined && Number(m[2]) > lineCount(body)) return `source ${value} is past the file's end: it has ${lineCount(body)} lines`;
-      return name !== null && !holds(body, name) ? `source ${m[1]} holds no ${name}` : null;
+      const why = ctx.code.unresolved(value);
+      if (why !== null) return `source ${why.subject} ${why.reason}`;
+      const path = (/^(.*?)(?::\d+)?$/.exec(value) as RegExpExecArray)[1];
+      return name !== null && !holds(readFileSync(ctx.code.abs(path), 'utf8'), name) ? `source ${path} holds no ${name}` : null;
     }
     case 'test': {
       const abs = fileAt(ctx, value);
@@ -239,6 +237,7 @@ type State = 'met' | 'missing' | 'unproven';
 export function checkNeeds(files: string[], app: string): NeedsCheck {
   const out: NeedsCheck = { problems: [], files: 0, needs: 0, gaps: 0 };
   const gapsOf = gapsReader();
+  const code = new AppFiles(app);
   // each needs file's flow and the state of each of its needs, by the gaps file that covers it; null for a needs file
   // that cannot be read, whose entries are then not judged
   const covered = new Map<string, Map<string, Map<string, State> | null>>();
@@ -275,6 +274,7 @@ export function checkNeeds(files: string[], app: string): NeedsCheck {
     const uiFile = join(dir, 'ui.yaml');
     const ctx: Context = {
       app,
+      code,
       dir,
       flowId,
       states: flow === null ? null : new Set(isMap(flow.doc.states) ? Object.keys(flow.doc.states) : []),
