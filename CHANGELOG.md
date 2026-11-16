@@ -2,7 +2,7 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
-## Unreleased
+## 0.9.0 (2026-11-16)
 
 - `check` parses each file once however many graphs read it. Before, it parsed a flow's domain again for every flow that names it, and every flow again for every flow that starts another: on delurio's own 41 flows it took 12.7 s, of which more than half was parsing the same files again; it now takes 5.8 s. It judges nothing differently: the same graphs give the same findings, in text and in SARIF, as 0.8.0 gives.
 - A graph that cannot be loaded is reported, and the other graphs are still checked. Before, a `ui.yaml` with no `catalog` stopped the whole check with a stack trace (`ERR_INVALID_ARG_TYPE`), and so did a catalog file that was not there (`ENOENT`), a catalog that was not JSON, a `flow.yaml` or `ui.yaml` that was not a map, a flow with no `states`, a state that was not a map, and a guard, an assertion or a `starts` value that did not parse. Each is now a `load` error (exit 1), in text and in SARIF. A `ui.yaml` with no `samples` or no `nodes` now loads (the `schema` rule still reports a missing `nodes`); before, one whose words had a placeholder stopped the check the same way.
