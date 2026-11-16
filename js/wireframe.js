@@ -17,7 +17,10 @@ export function renderStageScreen(g, state, reveal, warn, kit = null) {
 export function renderCheckScreens(g, kit, warn) {
   const t = new Trap();
   const out = JSON.parse(call(t, () => native.renderCheckScreens(nativeGraph(g), nativeKit(kit), t.warner(warn))));
-  return { html: out.html, expected: out.expected.map((e) => ({ state: e.state, id: e.id, index: e.index, role: e.role, name: e.name, disabled: e.disabled })) };
+  return {
+    html: out.html,
+    expected: out.expected.map((e) => ({ state: e.state, id: e.id, index: e.index, role: e.role, ...('roleGiven' in e ? { roleGiven: e.roleGiven } : {}), name: e.name, disabled: e.disabled })),
+  };
 }
 
 export function nodeTexts(g, id, warn) {

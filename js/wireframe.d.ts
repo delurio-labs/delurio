@@ -8,6 +8,8 @@ export interface Expectation {
     id: string;
     index: number;
     role: string;
+    /** False when ui.yaml gives a control (a field or an action) no role: `role` is then its type, which no element is. */
+    roleGiven: boolean;
     name: string | undefined;
     disabled: boolean;
 }
