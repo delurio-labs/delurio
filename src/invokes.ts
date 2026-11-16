@@ -1,8 +1,9 @@
 // What a flow invokes, held to its domain (SPEC.md §2, §5): `invoke: { action }` names an action of the domain the flow
 // names, and for a state that invokes an action, `failures.<state>.from` does too and each class under it lists
 // refusals of that action. A state that invokes an `external` or a `flow` is not held to the domain. The domain is looked
-// up by id among the graphs beside the flow, all its files read as one, as the `changes` rule finds it. Checking
-// `invoke` names against the domain is still open in SPEC.md (#5), so these are warnings, which fail no run.
+// up by id among the graphs beside the flow, all its files read as one, as the `changes` rule finds it. A class may also
+// list a transport code, a failure that is no answer of the action's own (SPEC.md §5). Each finding is an error, which
+// fails --strict (decided on 16 Nov 2026, d-1116-10).
 import { flowDomain } from './changes.ts';
 import type { Domain } from './changes.ts';
 import type { Graph } from './graph.ts';
@@ -20,6 +21,10 @@ interface DomainActions {
 
 // the key that names a class's action in `failures.<state>`; every other key is a class
 const FROM = 'from';
+
+// the codes a failure class may list though its action has no such refusal (SPEC.md §5): no answer came back, none came
+// in time, or the server failed with a status the action does not list
+export const TRANSPORT_CODES: readonly string[] = ['network', 'timeout', '5xx'];
 
 // `domainOf` finds the flow's domain, as for checkChanges
 export function checkInvokes(g: Graph, domainOf: () => Domain | null = () => flowDomain(g)): InvokeProblem[] {
@@ -58,12 +63,12 @@ export function checkInvokes(g: Graph, domainOf: () => Domain | null = () => flo
     for (const [cls, codes] of Object.entries(classes)) {
       if (cls === FROM || !Array.isArray(codes)) continue;
       codes.forEach((code, i) => {
-        if (typeof code !== 'string' || Object.hasOwn(refusals, code)) return;
+        if (typeof code !== 'string' || Object.hasOwn(refusals, code) || TRANSPORT_CODES.includes(code)) return;
         out.push({
           rule: 'refusal-unknown',
           path: ['failures', state, cls, String(i)],
           element: `failures/${state}/${cls}/${code}`,
-          message: `FAIL.${cls} of ${state} stands for ${code}, which is not a refusal of ${named} in the domain ${g.flow.domain} (SPEC.md §2, §5)`,
+          message: `FAIL.${cls} of ${state} stands for ${code}, which is not a refusal of ${named} in the domain ${g.flow.domain}, nor network, timeout or 5xx (SPEC.md §2, §5)`,
         });
       });
     }

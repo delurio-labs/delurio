@@ -50,7 +50,7 @@ Several folders may be given (`check graphs examples`); a graph under two of the
 |---|---|
 | 0 | every graph loads, and under `--strict` nothing is wrong |
 | 1 | a graph cannot be loaded, or is written for a newer format than this version reads |
-| 2 | under `--strict`: a guarantee is broken, a state cannot be reached or has no way out, a catalog key is missing from a locale or a sample is missing, the main story cannot be walked, a tutorial no longer matches its flow, a writing flow has no changes note, a domain names an entity or a field it does not have, a need's evidence is not there or a product's gaps and its needs disagree… |
+| 2 | under `--strict`: a guarantee is broken, a state cannot be reached or has no way out, a catalog key is missing from a locale or a sample is missing, the main story cannot be walked, a tutorial no longer matches its flow, a writing flow has no changes note, a domain names an entity or a field it does not have, a flow invokes an action or lists a failure code its domain does not have, a policy names one, a need's evidence is not there or a product's gaps and its needs disagree… |
 
 ## What a product must have: needs and gaps
 
