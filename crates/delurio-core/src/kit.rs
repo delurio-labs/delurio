@@ -828,14 +828,17 @@ fn at_rule(p: &str) -> Option<&str> {
     if n == 0 { None } else { Some(&body[..n]) }
 }
 
-/// `/expression\(|javascript:|-moz-binding|behavior\s*:/i.test(css)`
+/// `/expression\(|javascript:|-moz-binding|(?:^|[^-\w])behavior\s*:/i.test(css)`: `behavior:` is old Internet
+/// Explorer's script binding; `scroll-behavior` and `overscroll-behavior` are not
 fn script_like(css: &str) -> bool {
     if contains_ci(css, "expression(") || contains_ci(css, "javascript:") || contains_ci(css, "-moz-binding") {
         return true;
     }
     let mut from = 0;
     while let Some(at) = find_ci(css, "behavior", from) {
-        if skip_space(&css[at + 8..]).starts_with(':') {
+        let after_word = at > 0 && css.as_bytes()[at - 1].is_ascii_alphanumeric()
+            || at > 0 && matches!(css.as_bytes()[at - 1], b'-' | b'_');
+        if !after_word && skip_space(&css[at + 8..]).starts_with(':') {
             return true;
         }
         from = at + 1;
@@ -1789,12 +1792,26 @@ pub(crate) mod tests {
         assert_eq!(one("<br>", "ListItem"), Ok(()));
     }
 
+    // 10904b5: `scroll-behavior` and `overscroll-behavior` are not script-like, a bare `behavior:` still is
+    #[test]
+    fn smooth_scrolling_is_no_script() {
+        assert!(!script_like(".k-scroll { scroll-behavior: smooth; overscroll-behavior: contain; }"));
+        assert!(!script_like("a { SCROLL-BEHAVIOR : auto }"));
+        assert!(!script_like("a { x_behavior: 1; x9behavior: 2 }"));
+        assert!(script_like(".k-old { behavior: url(x.htc); }"));
+        assert!(script_like("behavior:url(x)"));
+        assert!(script_like("a{ scroll-behavior: auto; BEHAVIOR : url(x) }"));
+        assert!(script_like("é{behavior:url(x)}"));
+    }
+
     // each from loadKit of the example kit with kit.css replaced (work-kit/gen-mutants.mjs)
     #[test]
     fn css_refusals() {
         let cases = [
             ("a < b", "\"<\" is not allowed in kit CSS (percent-encode it in a data: URL)"),
             ("a { behavior : url(x) }", "script-like CSS is not allowed"),
+            ("behavior: url(x)", "script-like CSS is not allowed"),
+            ("a{behavior:url(x)}", "script-like CSS is not allowed"),
             ("/* unclosed", "a comment is not closed"),
             ("a { b: 'x\ny' }", "a string is not closed"),
             ("a { b: \"\\", "a string is not closed"),

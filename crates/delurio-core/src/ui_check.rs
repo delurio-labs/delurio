@@ -16,7 +16,7 @@ use crate::js::{self, Value};
 use crate::nodepath;
 use crate::wireframe::inherited_sample;
 
-/// a problem in ui.yaml: its rule (`focus-not-shown`, `returns-focus-not-dialog` or `task-locale`), where in ui.yaml
+/// a problem in ui.yaml: its rule (`focus-not-shown`, `returns-focus-not-dialog`, `task-locale` or `role-missing`), where in ui.yaml
 /// it is, and the words that say it; the fields in the order the TypeScript checker built them
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct UiProblem {
@@ -260,6 +260,25 @@ pub fn check_ui(g: &Graph, warn: &mut dyn FnMut(&str)) -> Vec<UiProblem> {
         if let Some(v) = n.value_label() {
             words(v);
         }
+    }
+    // a control with no role: a screen reader, a replay and kit check find a field or an action by its WAI-ARIA role
+    for (id, n) in ui.nodes() {
+        let what = match n.kind() {
+            Some("field") => "a field",
+            Some("action") => "an action",
+            _ => continue,
+        };
+        if n.get("role").is_some() {
+            continue;
+        }
+        push(
+            "role-missing",
+            vec!["nodes".to_string(), id.to_string()],
+            format!("nodes/{id}"),
+            format!(
+                "{id} is {what} with no role: a screen reader, a replay and kit check find a control by its WAI-ARIA role (textbox, combobox, button, link, ...), and kit check holds only its name and state (SPEC.md §4)"
+            ),
+        );
     }
     // the flow's name for its users, in the catalog of every locale, as the changes note is
     let task = ui.task().and_then(|t| t.get_str("key"));
