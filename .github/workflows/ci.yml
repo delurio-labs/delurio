@@ -524,6 +524,18 @@ jobs:
           cat "$RUNNER_TEMP/kit-script.txt"
           test "$code" -eq 1
           grep -F 'event handlers are not allowed: a kit is data, never code [load]' "$RUNNER_TEMP/kit-script.txt"
+      - name: A kit's CSS may scroll smoothly, and old Internet Explorer's behavior is still refused
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/kit-scroll"
+          printf '\n.k-scroll { scroll-behavior: smooth; overscroll-behavior: contain; }\n' >> "$RUNNER_TEMP/kit-scroll/kit/kit.css"
+          node dist/cli.js check "$RUNNER_TEMP/kit-scroll" --strict
+          cp -r examples/notes "$RUNNER_TEMP/kit-behavior"
+          printf '\n.k-old { behavior: url(x.htc); }\n' >> "$RUNNER_TEMP/kit-behavior/kit/kit.css"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/kit-behavior" --strict > "$RUNNER_TEMP/kit-behavior.txt" || code=$?
+          cat "$RUNNER_TEMP/kit-behavior.txt"
+          test "$code" -eq 1
+          grep -F 'script-like CSS is not allowed' "$RUNNER_TEMP/kit-behavior.txt"
       - name: A control may be disabled by what the context holds (disabledWhen), read as checked is
         run: |
           cp -r examples/notes "$RUNNER_TEMP/disabled-when"
