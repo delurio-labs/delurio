@@ -265,8 +265,9 @@ struct Last {
     ctx: Ctx,
 }
 
-/// the caller's `keep`, as the explorer calls it
-fn keeper<'a>(keep: &'a Function<'a, KeepArgs, u32>) -> impl Fn(&Config, &Step) -> bool + 'a {
+/// the caller's `keep`, as the explorer calls it: each call in a handle scope of its own, so that what it is handed
+/// is let go of at once and not when the exploration is done
+fn keeper<'a>(env: &'a Env, keep: &'a Function<'a, KeepArgs, u32>) -> impl Fn(&Config, &Step) -> bool + 'a {
     let last: RefCell<Option<Last>> = RefCell::new(None);
     move |at: &Config, s: &Step| {
         let fresh = {
@@ -295,7 +296,7 @@ fn keeper<'a>(keep: &'a Function<'a, KeepArgs, u32>) -> impl Fn(&Config, &Step) 
             Uint16Array::new(s.ctx.to_vec()),
             s.taken.to_string(),
         );
-        matches!(keep.call(args.into()), Ok(1))
+        matches!(env.run_in_scope(|| keep.call(args.into())), Ok(1))
     }
 }
 
@@ -316,7 +317,7 @@ pub fn explore_flow(
     let from = starts_of(&m.m, from, count);
     let ex = match &keep {
         Some(k) => {
-            let f = keeper(k);
+            let f = keeper(&env, k);
             explore(&m.m, from, Some(&f))
         }
         None => explore(&m.m, from, None),
@@ -327,6 +328,7 @@ pub fn explore_flow(
 /// `cover(m, by, from, keep)`, as JSON
 #[napi(js_name = "cover")]
 pub fn cover_flow(
+    env: Env,
     m: &NativeModel,
     by: String,
     from: Option<Uint16Array>,
@@ -337,7 +339,7 @@ pub fn cover_flow(
     let from = starts_of(&m.m, from, count);
     let c = match &keep {
         Some(k) => {
-            let f = keeper(k);
+            let f = keeper(&env, k);
             cover(&m.m, by, from, Some(&f))
         }
         None => cover(&m.m, by, from, None),
