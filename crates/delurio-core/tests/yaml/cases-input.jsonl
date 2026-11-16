@@ -1,0 +1,42 @@
+{"name": "scalars", "text": "a: ~\nb: null\nc: Null\nd: true\ne: False\nf: 0o17\ng: 0x1F\nh: -12\ni: 1.50\nj: .inf\nk: -.Inf\nl: .nan\nm: 1e3\nn: yes\no: \"q\\u00e7\"\np: 'it''s'\nq: 007\nr: +5\ns: 12_000\n"}
+{"name": "block-scalars", "text": "a: |\n  one\n  two\nb: >-\n  folded\n  text\n\n  para\nc: |+\n  keep\n\nd: x\n"}
+{"name": "flow", "text": "a: { b: 1, c: [x, y, { d: e }] }\nf: [ ]\ng: { }\n"}
+{"name": "plain-multiline", "text": "a: one\n  two\n  three\nb: \"q\n  r\"\n"}
+{"name": "comments", "text": "# top\na: 1 # c\n# mid\nb:\n  - x # c\n  - y\n"}
+{"name": "empty-values", "text": "a:\nb: \nc:\n  -\n  - x\n"}
+{"name": "order", "text": "\"2\": a\n\"1\": b\nz: c\n10: d\n"}
+{"name": "merge-key", "text": "<<: { a: 1 }\nb: 2\n"}
+{"name": "nonascii-cols", "text": "ç: { ğ: \"ş\", ü: 1 }\nx: 😀\ny: { k: v, l: w }\n"}
+{"name": "crlf", "text": "a: 1\r\nb:\r\n  c: 2\r\n"}
+{"name": "bom", "text": "﻿a: 1\n"}
+{"name": "doc-markers", "text": "---\na: 1\n...\n"}
+{"name": "two-docs", "text": "a: 1\n---\nb: 2\n"}
+{"name": "empty", "text": ""}
+{"name": "only-comment", "text": "# nothing\n"}
+{"name": "dup-key", "text": "a: 1\nb: 2\na: 3\n"}
+{"name": "tab-indent", "text": "a:\n\tb: 1\n"}
+{"name": "bad-indent", "text": "a:\n  b: 1\n c: 2\n"}
+{"name": "unclosed-flow-seq", "text": "a: [1, 2\nb: 3\n"}
+{"name": "unclosed-flow-map", "text": "a: { b: 1\n"}
+{"name": "unclosed-quote", "text": "a: \"abc\nb: 1\n"}
+{"name": "map-in-seq-compact", "text": "- a: 1\n  b: 2\n- c\n"}
+{"name": "implicit-key-multiline", "text": "a\nb: 1\n"}
+{"name": "missing-colon-flow", "text": "{ a 1, b: 2 }\n"}
+{"name": "comma-in-flow-value", "text": "left: { type: final, title: The user leaves, and nothing is sent, leavesPage: true }\n"}
+{"name": "anchor", "text": "a: &x 1\nb: 2\n"}
+{"name": "alias", "text": "a: 1\nb: *x\n"}
+{"name": "tag", "text": "title: !custom T\n"}
+{"name": "flow-key", "text": "{ a: 1 }: v\n"}
+{"name": "seq-key", "text": "? - a\n: v\n"}
+{"name": "explicit-scalar-key", "text": "? a\n: v\n"}
+{"name": "block-in-flow", "text": "a: [ b:\n  c ]\n"}
+{"name": "trailing-space-key", "text": "a : 1\n"}
+{"name": "quoted-keys", "text": "\"a b\": 1\n'c': 2\n"}
+{"name": "deep", "text": "a:\n  b:\n    c:\n      - d: [1, {e: f}]\n        g: h\n"}
+{"name": "directive", "text": "%YAML 1.2\n---\na: 1\n"}
+{"name": "bad-directive", "text": "%FOO bar\n---\na: 1\n"}
+{"name": "just-scalar", "text": "hello\n"}
+{"name": "just-seq", "text": "- 1\n- two\n"}
+{"name": "colon-in-plain", "text": "url: http://x.y/z\ntime: 12:30\n"}
+{"name": "hash-in-plain", "text": "a: b#c\nd: e #f\n"}
+{"name": "number-key-big", "text": "4294967295: a\n4294967294: b\n"}
