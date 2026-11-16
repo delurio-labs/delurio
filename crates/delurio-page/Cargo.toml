@@ -9,4 +9,5 @@ repository.workspace = true
 
 [dependencies]
 delurio-core = { path = "../delurio-core" }
+notify = { version = "8.2.2", default-features = false, features = ["macos_fsevent"] }
 rquickjs = { version = "0.14.0", default-features = false, features = ["std", "disable-assertions"] }
