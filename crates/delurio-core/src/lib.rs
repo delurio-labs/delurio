@@ -14,4 +14,5 @@ pub mod invokes;
 pub mod js;
 pub mod nav;
 pub mod nodepath;
+pub mod schemas;
 pub mod yaml;
