@@ -9,5 +9,7 @@ repository.workspace = true
 
 [dependencies]
 delurio-core = { path = "../delurio-core" }
+indexmap = "2.14.2"
+regex = "1.13.1"
 notify = { version = "8.2.2", default-features = false, features = ["macos_fsevent"] }
 rquickjs = { version = "0.14.0", default-features = false, features = ["std", "disable-assertions"] }

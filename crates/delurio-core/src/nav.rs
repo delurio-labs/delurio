@@ -1177,6 +1177,15 @@ pub enum Level {
     Note,
 }
 
+impl Level {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Level::Problem => "problem",
+            Level::Note => "note",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Finding {
     pub level: Level,
