@@ -35,14 +35,16 @@ env:
 jobs:
   build:
     strategy:
-      fail-fast: true
+      # every build runs to its end, so one run shows every platform's problem; the publishing jobs still need all
+      fail-fast: false
       matrix:
         include:
-          # glibc targets are built against glibc 2.17 (napi-rs's cross toolchain for the addon, zig for the binary),
-          # so they load on every Linux delurio supports; musl ones are static
-          - { target: x86_64-unknown-linux-gnu, platform: linux-x64-gnu, os: ubuntu-24.04, binary: x86_64-unknown-linux-gnu.2.17, addon: --use-napi-cross }
+          # glibc targets are built against glibc 2.17 with zig (cargo-zigbuild), the addon as the binary, so they load
+          # on every Linux delurio supports; napi-rs's own glibc 2.17 toolchain (--use-napi-cross) has a gcc that compiles
+          # C in gnu89, which QuickJS-NG's C (rquickjs-sys) is not. musl ones are static
+          - { target: x86_64-unknown-linux-gnu, platform: linux-x64-gnu, os: ubuntu-24.04, binary: x86_64-unknown-linux-gnu.2.17, addon: zig }
           - { target: x86_64-unknown-linux-musl, platform: linux-x64-musl, os: ubuntu-24.04, binary: x86_64-unknown-linux-musl, addon: --cross-compile }
-          - { target: aarch64-unknown-linux-gnu, platform: linux-arm64-gnu, os: ubuntu-24.04, binary: aarch64-unknown-linux-gnu.2.17, addon: --use-napi-cross }
+          - { target: aarch64-unknown-linux-gnu, platform: linux-arm64-gnu, os: ubuntu-24.04, binary: aarch64-unknown-linux-gnu.2.17, addon: zig }
           - { target: aarch64-unknown-linux-musl, platform: linux-arm64-musl, os: ubuntu-24.04, binary: aarch64-unknown-linux-musl, addon: --cross-compile }
           - { target: aarch64-apple-darwin, platform: darwin-arm64, os: macos-15, binary: aarch64-apple-darwin, addon: '' }
           - { target: x86_64-apple-darwin, platform: darwin-x64, os: macos-15, binary: x86_64-apple-darwin, addon: '' }
@@ -75,7 +77,14 @@ jobs:
           npm install --no-save --ignore-scripts --no-audit --no-fund
       - name: The addon
         shell: bash
-        run: npx napi build --platform --release --target ${{ matrix.target }} ${{ matrix.addon }} --manifest-path crates/delurio-node/Cargo.toml --package-json-path package.json --output-dir . --no-js
+        run: |
+          if [ "${{ matrix.addon }}" = zig ]; then
+            # what napi build does for a Linux glibc target: the crate's cdylib, named as the platform package loads it
+            cargo zigbuild --release --locked -p delurio-node --target ${{ matrix.binary }}
+            cp "target/${{ matrix.target }}/release/libdelurio_node.so" "delurio.${{ matrix.platform }}.node"
+          else
+            npx napi build --platform --release --target ${{ matrix.target }} ${{ matrix.addon }} --manifest-path crates/delurio-node/Cargo.toml --package-json-path package.json --output-dir . --no-js
+          fi
       - name: The binary
         shell: bash
         run: |
