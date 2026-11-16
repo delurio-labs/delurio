@@ -4,7 +4,7 @@
 // an entity; all three are read from the flow's domain, looked up by id among the graphs beside this one, all its files
 // read as one (SPEC.md §5). A GET that a policy lists is held to what it does: it writes only when one of its
 // `sideEffects` is more than an audit record of the call (`audit:<event>`), as a policy names reads and writes together
-// (proposed in SPEC.md §4, for the owner to decide). A flow with no screens, or whose domain is not found, is not checked.
+// (SPEC.md §4, decided on 16 Nov 2026, d-1116-12). A flow with no screens, or whose domain is not found, is not checked.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import type { Graph } from './graph.ts';
@@ -76,7 +76,7 @@ const methodOf = (a: DomainAction | null | undefined): string | undefined => (a?
 const isAudit = (s: unknown): boolean => typeof s === 'string' && s.trimStart().startsWith('audit:');
 
 // a GET that a writing policy lists writes only when it does more than record that it was called: a policy names its
-// actor's reads and writes together, and a GET reads (proposed in SPEC.md §4)
+// actor's reads and writes together, and a GET reads (SPEC.md §4)
 const writesThroughPolicy = (a: DomainAction | null | undefined): boolean => methodOf(a) !== 'GET' || (Array.isArray(a?.sideEffects) && a.sideEffects.some((s) => !isAudit(s)));
 
 // `domainOf` finds the flow's domain, called at most once: a caller that reads the domain for another rule as well
