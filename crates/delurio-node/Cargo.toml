@@ -1,0 +1,21 @@
+[package]
+name = "delurio-node"
+description = "The Node bindings of @delurio/cli: the checker's modules and the whole command line, as a native addon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+delurio-core = { path = "../delurio-core" }
+napi = { version = "=3.16.1", default-features = false, features = ["napi9", "serde-json"] }
+napi-derive = { version = "=3.7.0", default-features = false, features = ["type-def"] }
+serde = "1.0.229"
+
+[build-dependencies]
+napi-build = "=2.6.0"
