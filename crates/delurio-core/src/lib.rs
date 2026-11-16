@@ -4,6 +4,8 @@
 // an error that keeps a graph from loading is rare and carries its place: it is returned as it is, not boxed
 #![allow(clippy::result_large_err)]
 
+pub mod domain;
+pub mod domain_names;
 pub mod error;
 pub mod expr;
 pub mod graph;
