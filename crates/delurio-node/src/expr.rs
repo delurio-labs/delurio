@@ -46,10 +46,13 @@ pub(crate) fn expr_of(v: &Value) -> Expr {
 
 /// `evaluate(e, lookup)`, as JSON: `lookup` gives each name's value as JSON (a trapped one gives null once it threw)
 #[napi(js_name = "evaluate")]
-pub fn evaluate_expr(e: String, lookup: Function<String, String>) -> Result<String> {
+pub fn evaluate_expr(env: Env, e: String, lookup: Function<String, String>) -> Result<String> {
     let e = expr_of(&parse(&e)?);
     let look = |name: &str| -> Value {
-        lookup.call(name.to_string()).ok().and_then(|text| js::json_parse(&text).ok()).unwrap_or(Value::Null)
+        env.run_in_scope(|| lookup.call(name.to_string()))
+            .ok()
+            .and_then(|text| js::json_parse(&text).ok())
+            .unwrap_or(Value::Null)
     };
     json(&evaluate(&e, &look))
 }
