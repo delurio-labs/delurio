@@ -18,5 +18,6 @@ pub mod nav;
 pub mod needs;
 pub mod nodepath;
 pub mod schemas;
+pub mod ui_check;
 pub mod wireframe;
 pub mod yaml;
