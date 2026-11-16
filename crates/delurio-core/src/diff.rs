@@ -264,7 +264,7 @@ fn find_domain(src: &Source, g: &Graph) -> Result<Option<FlowDomain>> {
 }
 
 enum Loaded {
-    Flow(FlowSide),
+    Flow(Box<FlowSide>),
     Nav(Box<NavSide>),
 }
 
@@ -295,7 +295,7 @@ fn load_side(src: &Source, name: &str, locale: Option<&str>) -> Result<Loaded> {
             }
             let g = g?;
             let domain = find_domain(src, &g)?;
-            return Ok(Some(Loaded::Flow(FlowSide { g, domain })));
+            return Ok(Some(Loaded::Flow(Box::new(FlowSide { g, domain }))));
         }
         if src.exists("nav.yaml")? {
             return Ok(Some(Loaded::Nav(Box::new(load_nav_with(&src.place, locale, &|f| src.read(f))?))));
