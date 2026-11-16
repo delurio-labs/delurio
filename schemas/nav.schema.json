@@ -232,6 +232,10 @@
         "frame": { "type": "string", "description": "The frame drawn around the page." },
         "opensFor": { "$ref": "#/$defs/expression", "description": "The guard under which the page opens; it refuses everyone else." },
         "refusal": { "type": "string", "description": "How the page says no, in words." },
+        "byAddress": {
+          "type": "boolean",
+          "description": "People open the page by its address, typed or followed from outside the app (a link in an e-mail, a sign-in another site sends them to), as nothing in the app links to it: a persona no entry brings there reaches it so, with no clicks, and it is not unreachable (SPEC.md §6)."
+        },
         "pageCodes": { "type": "string", "description": "Generated: the name of the permission codes that open the page, as the application's permission table names them." },
         "evidence": { "type": "string", "description": "The code that shows the page's kind or gate, in words." },
         "source": { "$ref": "#/$defs/sourceAnchor" }
