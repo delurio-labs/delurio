@@ -3,3 +3,10 @@ Copyright 2026 delurio Labs
 
 This product includes software developed by delurio Labs
 and its contributors.
+
+The delurio binary and the npm package's addons include:
+- elkjs 0.12.1 (https://github.com/kieler/elkjs), the Eclipse Layout Kernel compiled to JavaScript, under the
+  Eclipse Public License 2.0: crates/delurio-page/vendor/elkjs/ holds it unchanged with its LICENSE.md and SOURCE;
+- QuickJS-NG (https://github.com/quickjs-ng/quickjs), through the rquickjs crate, under the MIT License, which runs it.
+Each Rust crate they are built from keeps its own licence (cargo metadata lists them; all are MIT, Apache-2.0 or both,
+or similarly permissive).
