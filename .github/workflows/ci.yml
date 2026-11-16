@@ -733,3 +733,15 @@ jobs:
           test "$code" -eq 2
           test "$(grep -c '\[schema\]' "$RUNNER_TEMP/read.txt")" -ge 4
           grep -F 'start=>about' "$RUNNER_TEMP/read.txt" | grep -F '[schema]'
+      - name: The image's files alone check the examples, schemas included
+        run: |
+          mkdir -p "$RUNNER_TEMP/image/opt" "$RUNNER_TEMP/image/work"
+          grep '^COPY ' Dockerfile | while read -r _ args; do
+            set -- $args
+            dest="${!#}"
+            for src in "${@:1:$#-1}"; do cp -r "$src" "$RUNNER_TEMP/image/opt/$dest"; done
+          done
+          (cd "$RUNNER_TEMP/image/opt" && npm ci --omit=dev --ignore-scripts)
+          cp -r examples "$RUNNER_TEMP/image/work/"
+          cd "$RUNNER_TEMP/image/work"
+          node "$RUNNER_TEMP/image/opt/dist/cli.js" check examples --strict 2>&1 | grep -Fx 'delurio check: 5 graphs, 0 errors, 0 warnings, 1 gap of 4 needs; exit 0'
