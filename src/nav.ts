@@ -70,6 +70,19 @@ export interface ExtractCfg {
   names?: Record<string, string>;
   titles?: Record<string, string>;
   locales?: string[];
+  // fields laid over a generated entry, keyed by its ends as it is cited (`<from>-><to>`, then its how or its label
+  // where two share their ends), or skip with the reason it is left out (SPEC.md §6)
+  entries?: Record<string, { when?: string; data?: boolean; label?: string; how?: string; back?: boolean; clicks?: number; skip?: string }>;
+}
+
+// where the graph was read from (SPEC.md §6): `locales` is the app's message file or every file it reads, `{locale}` in each
+export interface NavSource {
+  repo?: string;
+  commit?: string;
+  app?: string;
+  menu?: string;
+  locales?: string | string[];
+  [file: string]: string | string[] | undefined;
 }
 
 interface NavDoc {
@@ -84,7 +97,7 @@ interface NavDoc {
   locale: string;
   catalog: string;
   summary: string;
-  source: Record<string, string>;
+  source: NavSource;
   facts: Record<string, FactSpec>;
   sets: Record<string, string[]>;
   guards: Record<string, string>;
@@ -151,7 +164,7 @@ export interface NavGraph {
   status: string;
   summary: string;
   locale: string;
-  source: Record<string, string>;
+  source: NavSource;
   facts: Record<string, FactSpec>;
   guards: Record<string, string>;
   pages: Record<string, Page>;
