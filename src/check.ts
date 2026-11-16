@@ -83,6 +83,7 @@ const RULES: Rule[] = [
   { id: 'hand-over', text: 'A started flow cannot begin with what it is given', level: 'error' },
   { id: 'changes-note-missing', text: 'A flow whose steps write has no changes note (SPEC.md §4)', level: 'error' },
   { id: 'changes-note-locale', text: "The changes note is missing from a locale's catalog", level: 'error' },
+  { id: 'changes-note-gap', text: 'A writing flow says why it has no changes note yet: counted, and fails nothing (SPEC.md §4)', level: 'note' },
   { id: 'task-locale', text: "The flow's name for its users is missing from a locale's catalog (SPEC.md §4)", level: 'error' },
   { id: 'source-missing', text: 'A state of a captured flow names no code (SPEC.md §9)', level: 'error' },
   { id: 'focus-not-shown', text: 'A focus or a returnsFocus gives the focus to a node that is not shown there (SPEC.md §4)', level: 'error' },
@@ -271,8 +272,15 @@ function checkFlow(dir: string, domains: Map<string, Domain | null>): CheckResul
   // the flow's domain, looked up once for the rules that read it
   let domain: Domain | null | undefined;
   const domainOf = (): Domain | null => (domain === undefined ? (domain = flowDomain(g, domains)) : domain);
-  for (const p of checkChanges(g, domainOf)?.problems ?? []) warn(p);
+  const changes = checkChanges(g, domainOf);
+  for (const p of changes?.problems ?? []) warn(p);
   for (const w of warnings) out.push(fromWarning(dir, g.flow.id, w));
+  // a writing flow whose app has no changes message yet says why: a gap of the flow, at the level note (SPEC.md §4)
+  if (changes !== null && changes.missing !== null) {
+    const ui = join(dir, 'ui.yaml');
+    const message = `its steps write (${changes.writes.join(', ')}), and its changes note is missing: ${changes.missing}; Rehber does not guide its writing steps (SPEC.md §4)`;
+    out.push(result('changes-note-gap', ui, keyAt(readFileSync(ui, 'utf8'), ['changes', 'missing']), message, g.flow.id, 'changes/missing'));
+  }
   for (const p of checkInvokes(g, domainOf)) out.push(result(p.rule, file, keyAt(flowText, p.path), p.message, g.flow.id, p.element));
   const tutorial = join(dir, 'tutorial.yaml');
   if (existsSync(tutorial)) {
@@ -560,7 +568,11 @@ function checkRun(args: string[]): number {
     // the gaps, once a flow has needs: every need that is missing, listed or not, and those the base run did not have
     const fresh = results.filter((r) => r.rule === 'need-gap' && r.baselineState === 'new').length;
     const gaps = needs.files === 0 ? '' : `, ${count(needs.gaps, 'gap')} of ${count(needs.needs, 'need')}${fresh > 0 ? ` (${fresh} new)` : ''}`;
-    console.error(`delurio check: ${count(graphs, 'graph')}, ${count(errors, 'error')}, ${count(warnings, 'warning')}${gaps}; exit ${exitCode}`);
+    // the changes notes that writing flows say are missing (SPEC.md §4), once there is one
+    const notes = results.filter((r) => r.rule === 'changes-note-gap');
+    const newNotes = notes.filter((r) => r.baselineState === 'new').length;
+    const missingNotes = notes.length === 0 ? '' : `, ${count(notes.length, 'missing changes note')}${newNotes > 0 ? ` (${newNotes} new)` : ''}`;
+    console.error(`delurio check: ${count(graphs, 'graph')}, ${count(errors, 'error')}, ${count(warnings, 'warning')}${gaps}${missingNotes}; exit ${exitCode}`);
   }
   return exitCode;
 }

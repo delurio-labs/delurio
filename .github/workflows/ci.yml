@@ -394,6 +394,35 @@ jobs:
           node dist/cli.js check "$RUNNER_TEMP/audited" --strict > "$RUNNER_TEMP/audited.txt" 2>&1
           cat "$RUNNER_TEMP/audited.txt"
           ! grep -F '[changes-note-missing]' "$RUNNER_TEMP/audited.txt"
+      - name: A writing flow whose app has no changes message says why, a gap that fails nothing
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/no-note"
+          sed -i 's/^changes: { key: Changes.note }$/changes: { missing: the app does not say yet what restoring changes }/' "$RUNNER_TEMP/no-note/restore/ui.yaml"
+          node dist/cli.js check "$RUNNER_TEMP/no-note" --strict --format sarif --output "$RUNNER_TEMP/no-note.sarif" > "$RUNNER_TEMP/no-note.txt" 2> "$RUNNER_TEMP/no-note.err"
+          cat "$RUNNER_TEMP/no-note.txt" "$RUNNER_TEMP/no-note.err"
+          grep -F 'no-note/restore/ui.yaml:11:12: note: its steps write (restoreNote), and its changes note is missing: the app does not say yet what restoring changes; Rehber does not guide its writing steps' "$RUNNER_TEMP/no-note.txt" | grep -F '[changes-note-gap]'
+          ! grep -F '[changes-note-missing]' "$RUNNER_TEMP/no-note.txt"
+          grep -Fx 'delurio check: 3 graphs, 0 errors, 0 warnings, 1 gap of 4 needs, 1 missing changes note; exit 0' "$RUNNER_TEMP/no-note.err"
+          node -e '
+            const run = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).runs[0];
+            const rule = run.tool.driver.rules.find((r) => r.id === "changes-note-gap");
+            if (rule?.defaultConfiguration.level !== "note") throw new Error("changes-note-gap is not a note");
+            const r = run.results.find((x) => x.ruleId === "changes-note-gap");
+            if (r?.level !== "note" || r.locations[0].logicalLocations[0].fullyQualifiedName !== "example.restoreNote/changes/missing") throw new Error(JSON.stringify(r));
+          ' "$RUNNER_TEMP/no-note.sarif"
+
+          sed -i 's/^changes: { key: Changes.note }$/changes: { missing: no message yet }/' "$RUNNER_TEMP/no-note/edit/ui.yaml"
+          node dist/cli.js check "$RUNNER_TEMP/no-note" --strict --baseline "$RUNNER_TEMP/no-note.sarif" 2>&1 | grep -Fx 'delurio check: 3 graphs, 0 errors, 0 warnings, 1 gap of 4 needs, 2 missing changes notes (1 new); exit 0'
+
+          for bad in 'changes: { key: Changes.note, missing: no message yet }' 'changes: { missing: "" }' 'changes: {}'; do
+            sed -i "s/^changes: .*$/$bad/" "$RUNNER_TEMP/no-note/edit/ui.yaml"
+            code=0
+            node dist/cli.js check "$RUNNER_TEMP/no-note" --strict > "$RUNNER_TEMP/no-note.txt" 2>&1 || code=$?
+            cat "$RUNNER_TEMP/no-note.txt"
+            test "$code" -eq 2
+            grep -F 'no-note/edit/ui.yaml:13:' "$RUNNER_TEMP/no-note.txt" | grep -F '[schema]'
+          done
+          grep -F 'error: its steps write (editNote), but ui.yaml has no changes note' "$RUNNER_TEMP/no-note.txt" | grep -F '[changes-note-missing]'
       - name: A tutorial that no longer matches its flow fails the check at its step
         run: |
           t=edit/tutorial.yaml

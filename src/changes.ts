@@ -1,5 +1,5 @@
 // `changes:` in ui.yaml (SPEC.md §4): a flow whose steps write something tells its users, in its own note, what it
-// changes and what follows. An action writes when its route or its server function is not a GET, when a policy lets
+// changes and what follows, or says why it has none yet (`missing`, a gap; decided on 16 Nov 2026, d-1116-11). An action writes when its route or its server function is not a GET, when a policy lets
 // someone `write` with it, or when it is a step inside the service (neither a route nor a server function) that returns
 // an entity; all three are read from the flow's domain, looked up by id among the graphs beside this one, all its files
 // read as one (SPEC.md §5). A GET that a policy lists is held to what it does: it writes only when one of its
@@ -26,6 +26,7 @@ export interface Domain {
 export interface ChangesCheck {
   writes: string[]; // the actions the flow invokes that write
   key: string | null;
+  missing: string | null; // why a flow whose steps write has no note yet: a gap, which fails nothing (SPEC.md §4)
   problems: string[];
 }
 
@@ -94,8 +95,11 @@ export function checkChanges(g: Graph, domainOf: () => Domain | null = () => flo
   const invoked = Object.values(g.flow.states).map((s) => s.invoke?.action);
   const writes = [...new Set(invoked.filter((a): a is string => a !== undefined && writing.has(a)))].sort();
   const key = g.ui.changes?.key ?? null;
+  const said = g.ui.changes?.missing;
+  // the note a writing flow says it has no message for yet; a flow that writes nothing is missing none
+  const missing = writes.length > 0 && key === null && typeof said === 'string' && said.trim() !== '' ? said.trim() : null;
   const problems: string[] = [];
-  if (writes.length > 0 && key === null) problems.push(`its steps write (${writes.join(', ')}), but ui.yaml has no changes note (SPEC.md §4)`);
+  if (writes.length > 0 && key === null && missing === null) problems.push(`its steps write (${writes.join(', ')}), but ui.yaml has no changes note (SPEC.md §4)`);
   if (key !== null) {
     for (const locale of g.ui.locales ?? [basename(g.ui.catalog, '.json')]) {
       const file = join(g.dir, dirname(g.ui.catalog), `${locale}.json`);
@@ -104,5 +108,5 @@ export function checkChanges(g: Graph, domainOf: () => Domain | null = () => flo
       if (typeof note !== 'string' || note.trim() === '') problems.push(`the changes note ${key} is not in the ${locale} catalog`);
     }
   }
-  return { writes, key, problems };
+  return { writes, key, missing, problems };
 }
