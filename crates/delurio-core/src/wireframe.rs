@@ -538,6 +538,9 @@ pub struct Expectation {
     /// None only for a node that has neither a role nor a type; a role that is no string is written as one
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    /// false when ui.yaml gives a control (a field or an action) no role: `role` is then its type, which no element is
+    #[serde(rename = "roleGiven")]
+    pub role_given: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub disabled: bool,
@@ -581,6 +584,7 @@ pub fn render_check_screens(g: &Graph, kit: Option<&Kit>, warn: &mut dyn FnMut(&
                         id: it.id.to_string(),
                         index,
                         role: Some(graph::given(n.value(), "role").map_or_else(|| "listitem".into(), js::to_js_string)),
+                        role_given: true,
                         name: Some(line),
                         disabled: it.disabled,
                     });
@@ -588,12 +592,16 @@ pub fn render_check_screens(g: &Graph, kit: Option<&Kit>, warn: &mut dyn FnMut(&
                 continue;
             }
             let (role, is_text) = tree_role(n);
+            // a node's type that is no WAI-ARIA role: a field or an action with no `role` says nothing a screen reader
+            // can find
+            let role_given = n.get("role").is_some() || !matches!(n.kind(), Some("field" | "action"));
             let name = if is_text { texts(g, n, warn).into_iter().next() } else { accessible_name(g, n, warn) };
             expected.push(Expectation {
                 state: state.to_string(),
                 id: it.id.to_string(),
                 index: 0,
                 role,
+                role_given,
                 name,
                 disabled: it.disabled,
             });
