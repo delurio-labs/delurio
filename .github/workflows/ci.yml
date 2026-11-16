@@ -411,6 +411,24 @@ jobs:
           grep -F 'domain/domain.yaml' "$RUNNER_TEMP/entity-note.txt" | grep -F 'entities.Note.note: must be a string [schema]'
           sed -i '/^    note: \[not words\]$/d' "$RUNNER_TEMP/entity-note/domain/domain.yaml"
           node dist/cli.js check "$RUNNER_TEMP/entity-note" --strict 2>&1 | grep -Fx 'delurio check: 3 graphs, 0 errors, 0 warnings, 1 gap of 4 needs; exit 0'
+      - name: An entity or an action of a captured domain may be planned, and a planned one names no code
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/planned"
+          d="$RUNNER_TEMP/planned/domain"
+          sed -i 's/^status: proposed$/status: captured/' "$d/domain.yaml"
+          printf '%s\n' 'schema: delurio-graph/0' 'kind: domain' 'id: example.notes' 'entities:' '  Reminder:' '    planned: the second phase builds reminders' '    fields: { id: { type: string }, noteId: { type: string, references: Note } }' \
+            'actions:' '  remindAbout:' '    route: POST /notes/{id}/reminders' '    planned: the second phase builds reminders' '    result: { returns: Reminder }' > "$d/planned.yaml"
+          node dist/cli.js check "$RUNNER_TEMP/planned" --strict 2>&1 | grep -Fx 'delurio check: 3 graphs, 0 errors, 0 warnings, 1 gap of 4 needs; exit 0'
+          sed -i 's|^    planned: the second phase builds reminders$|&\n    source: examples/notes/app/notes.js:12|' "$d/planned.yaml"
+          sed -i 's/^    route: POST \/notes\/{id}\/archive$/&\n    planned: ""/' "$d/note.yaml"
+          code=0
+          node dist/cli.js check "$RUNNER_TEMP/planned" --strict > "$RUNNER_TEMP/planned.txt" 2>&1 || code=$?
+          cat "$RUNNER_TEMP/planned.txt"
+          test "$code" -eq 2
+          grep -F 'domain/planned.yaml:6:5: error: the entity Reminder says it is planned (the second phase builds reminders), and names its code, examples/notes/app/notes.js:12' "$RUNNER_TEMP/planned.txt" | grep -F '[planned-built]'
+          grep -F 'domain/planned.yaml:12:5: error: the action remindAbout says it is planned' "$RUNNER_TEMP/planned.txt" | grep -F '[planned-built]'
+          grep -F 'domain/planned.yaml:13:5: note: its source is given here' "$RUNNER_TEMP/planned.txt"
+          grep -F 'actions.archiveNote.planned: must NOT have fewer than 1 characters' "$RUNNER_TEMP/planned.txt" | grep -F '[schema]'
       - name: A GET that a writing policy lists writes only when it does more than record its call
         run: |
           cp -r examples/notes "$RUNNER_TEMP/audited"
