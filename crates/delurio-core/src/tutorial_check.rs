@@ -416,17 +416,19 @@ impl Replay<'_> {
             let show = s.get_str("show");
             if let Some(wanted) = cut {
                 let mut hit = None;
-                for c in &self.ex.configs {
-                    if &*c.state != wanted {
+                let mut ctx = Vec::new();
+                for i in 0..self.ex.len() {
+                    if self.ex.state(i) != wanted {
                         continue;
                     }
+                    self.ex.ctx_into(i, &mut ctx);
                     let mut all = true;
                     for id in &reveal {
                         let when = node_get(id, "when");
                         if when.is_none() {
                             continue;
                         }
-                        match self.m.test_value(when.as_ref(), &c.state, &c.ctx) {
+                        match self.m.test_value(when.as_ref(), wanted, &ctx) {
                             Ok(true) => {}
                             Ok(false) => {
                                 all = false;
@@ -436,7 +438,7 @@ impl Replay<'_> {
                         }
                     }
                     if all {
-                        hit = Some(c);
+                        hit = self.ex.config(i);
                         break;
                     }
                 }
@@ -448,7 +450,7 @@ impl Replay<'_> {
                         format!("{step}: no situation the flow reaches is in {wanted}{shows}"),
                     );
                 };
-                cur = Cursor { state: hit.state.clone(), ctx: hit.ctx.clone() };
+                cur = Cursor { state: hit.state, ctx: hit.ctx };
                 state = Some(cur.state.clone());
             } else if let Some(end) = s.get("end") {
                 if let Value::String(end) = end
@@ -561,13 +563,15 @@ impl Replay<'_> {
                 continue;
             }
             if let Some(wanted) = s.get_str("cut") {
-                let Some(hit) = self.ex.configs.iter().find(|c| &*c.state == wanted) else {
+                let Some(hit) =
+                    (0..self.ex.len()).find(|&i| self.ex.state(i) == wanted).and_then(|i| self.ex.config(i))
+                else {
                     return stop(
                         path_with(&path, &["cut"]),
                         format!("{step}: no situation the flow reaches is in {wanted}"),
                     );
                 };
-                cur = Cursor { state: hit.state.clone(), ctx: hit.ctx.clone() };
+                cur = Cursor { state: hit.state, ctx: hit.ctx };
             } else if let Some(end) = s.get_str("end") {
                 cur = self.walk_to(cur, end, &path_with(&path, &["end"]), &step)?;
                 if !flow.state(end).is_some_and(|st| st.is_final()) {

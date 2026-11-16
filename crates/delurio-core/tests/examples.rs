@@ -42,7 +42,7 @@ fn paths_cover_every_reachable_state_and_transition() {
     for dir in ["qauth-authorize", "notes/edit", "notes/restore", "notes/archive", "sign-out"] {
         let m = Model::new(load(&example(dir)).unwrap().flow);
         let ex = explore(&m, None, None).unwrap();
-        let states: HashSet<String> = ex.configs.iter().map(|c| c.state.to_string()).collect();
+        let states: HashSet<String> = (0..ex.len()).map(|i| ex.state(i).to_string()).collect();
         let transitions: HashSet<String> = ex.taken.iter().map(|t| t.to_string()).collect();
         for (by, want) in [(By::States, states), (By::Transitions, transitions)] {
             let c = cover(&m, by, None, None).unwrap();

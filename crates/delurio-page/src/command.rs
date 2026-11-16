@@ -202,7 +202,7 @@ fn flow_page(dir: &str, out: &str, args: &[String], said: &mut Said) -> Result<P
     said.out(format!(
         "{id}: {}, {} from {}, {}/{} assertions hold",
         count(g.flow().state_names().len(), "state"),
-        count(ex.configs.len(), "configuration"),
+        count(ex.len(), "configuration"),
         count(ex.starts, "start"),
         assertions.len() - violated.len(),
         assertions.len()

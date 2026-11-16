@@ -167,9 +167,8 @@ pub struct NativeExploration {
 }
 
 impl NativeExploration {
-    fn held(env: &Env, ex: Exploration, vars: usize) -> NativeExploration {
-        let per = std::mem::size_of::<Config>() + 2 * vars + 16;
-        let bytes = i64::try_from(ex.configs.len().saturating_mul(per)).unwrap_or(i64::MAX);
+    fn held(env: &Env, ex: Exploration) -> NativeExploration {
+        let bytes = i64::try_from(ex.bytes()).unwrap_or(i64::MAX);
         let _ = env.adjust_external_memory(bytes);
         NativeExploration { ex, bytes }
     }
@@ -201,7 +200,7 @@ impl NativeExploration {
 
     #[napi]
     pub fn size(&self) -> u32 {
-        self.ex.configs.len() as u32
+        self.ex.len() as u32
     }
 
     #[napi]
@@ -233,14 +232,16 @@ impl NativeExploration {
                 (names.len() - 1) as u32
             })
         };
-        let n = self.ex.configs.len();
+        let n = self.ex.len();
         let (mut state, mut parent, mut event) = (Vec::with_capacity(n), Vec::with_capacity(n), Vec::with_capacity(n));
         let mut ctx: Vec<u16> = Vec::new();
-        for c in &self.ex.configs {
-            state.push(place(&c.state));
-            parent.push(c.parent.map_or(-1, |p| p as i32));
-            event.push(c.event.as_ref().map_or(0, |e| place(e) + 1));
-            ctx.extend_from_slice(&c.ctx);
+        let mut one: Vec<u16> = Vec::new();
+        for i in 0..n {
+            state.push(self.ex.state_rc(i).map_or(0, &mut place));
+            parent.push(self.ex.parent(i).map_or(-1, |p| p as i32));
+            event.push(self.ex.event_rc(i).map_or(0, |e| place(e) + 1));
+            self.ex.ctx_into(i, &mut one);
+            ctx.extend_from_slice(&one);
         }
         ConfigsOut {
             names,
@@ -322,7 +323,7 @@ pub fn explore_flow(
         }
         None => explore(&m.m, from, None),
     };
-    ok(ex).map(|ex| NativeExploration::held(&env, ex, m.m.vars.len()))
+    ok(ex).map(|ex| NativeExploration::held(&env, ex))
 }
 
 /// `cover(m, by, from, keep)`, as JSON

@@ -207,16 +207,14 @@ pub struct Step {
     pub taken: Rc<str>,
 }
 
-/// a (state, context) pair the exploration reached: `parent` is the pair it was reached from (None for a start),
-/// `event` the event that led here
+/// a (state, context) pair the exploration reached, read out of it (`Exploration::config`): `parent` is the pair it
+/// was reached from (None for a start), `event` the event that led here
 #[derive(Debug, Clone)]
 pub struct Config {
     pub state: Rc<str>,
     pub ctx: Ctx,
     pub parent: Option<u32>,
     pub event: Option<Rc<str>>,
-    /// the state's position in flow.states (NO_STATE when it is not one)
-    pub(crate) at: u32,
 }
 
 const NO_STATE: u32 = u32::MAX;
@@ -381,6 +379,13 @@ struct Way {
     path: Vec<String>,
 }
 
+/// every state's ways out, and each way's `taken` and event by the way's id
+struct ReadWays {
+    ways: Vec<Ways>,
+    names: Vec<Rc<str>>,
+    events: Vec<Option<Rc<str>>>,
+}
+
 // a state's ways out: `always` as one group tried in order, else one group per event
 #[derive(Debug, Default)]
 struct Ways {
@@ -432,15 +437,26 @@ pub struct Model {
     tables: Vec<Table>,
     /// values a caller gives that no table holds, placed after the table's own
     extra: RefCell<Vec<Table>>,
-    state_names: Vec<Rc<str>>,
+    /// the names a pair's state may have: the flow's states (the first `n_states`), then the targets and the initial
+    /// that are none, as the TS model held whatever name a transition gave
+    state_names: Rc<[Rc<str>]>,
+    n_states: usize,
     state_at: HashMap<String, u32>,
     ways: Vec<Ways>,
     /// every way's `taken`, by its id
     way_names: Vec<Rc<str>>,
+    /// every way's event, by its id
+    way_events: Rc<[Option<Rc<str>>]>,
     effects: HashMap<String, Rc<Ready>>,
     compiled: RefCell<HashMap<String, Rc<Compiled>>>,
     /// a variable with more values than a context tells apart, which no exploration can hold
     full: Option<String>,
+}
+
+/// the flow's initial state as a name: its text, `undefined` when it has none
+fn initial_name(flow: Flow<'_>) -> String {
+    flow.initial()
+        .map_or_else(|| flow.0.get("initial").map_or_else(|| "undefined".to_string(), js::to_js_string), str::to_string)
 }
 
 /// a transition's effect names: the list, each name as a property key reads it; a string is iterated as its
@@ -502,9 +518,28 @@ impl Model {
                 .collect();
             effects.insert(name.to_string(), Rc::new(Ready { set, havoc }));
         }
-        let state_names: Vec<Rc<str>> = f.state_names().into_iter().map(Rc::from).collect();
-        let state_at: HashMap<String, u32> =
+        let mut state_names: Vec<Rc<str>> = f.state_names().into_iter().map(Rc::from).collect();
+        let n_states = state_names.len();
+        let mut state_at: HashMap<String, u32> =
             state_names.iter().enumerate().map(|(i, s)| (s.to_string(), i as u32)).collect();
+        let mut name = |s: String| {
+            if !state_at.contains_key(&s) {
+                state_at.insert(s.clone(), state_names.len() as u32);
+                state_names.push(Rc::from(s));
+            }
+        };
+        name(initial_name(f));
+        for (_, st) in f.states() {
+            if st.is_final() {
+                continue;
+            }
+            match st.0.get_array("always") {
+                Some(always) => always.iter().for_each(|a| name(Transition::of(a).target_text())),
+                None => {
+                    st.on().into_iter().flat_map(|(_, spec)| alternatives(spec)).for_each(|a| name(a.target_text()))
+                }
+            }
+        }
         let mut m = Model {
             flow: Value::Null,
             vars,
@@ -514,17 +549,20 @@ impl Model {
             initial_codes,
             extra: RefCell::new(tables.iter().map(|_| Table::default()).collect()),
             tables,
-            state_names,
+            state_names: state_names.into(),
+            n_states,
             state_at,
             ways: Vec::new(),
             way_names: Vec::new(),
+            way_events: Rc::from(Vec::new()),
             effects,
             compiled: RefCell::new(HashMap::new()),
             full,
         };
-        let (ways, way_names) = m.read_ways(Flow(&flow));
-        m.ways = ways;
-        m.way_names = way_names;
+        let read = m.read_ways(Flow(&flow));
+        m.ways = read.ways;
+        m.way_names = read.names;
+        m.way_events = read.events.into();
         m.flow = flow;
         m
     }
@@ -535,21 +573,24 @@ impl Model {
     }
 
     // every state's ways out, read once: `always` as one group tried in order, else one group per event
-    fn read_ways(&self, flow: Flow<'_>) -> (Vec<Ways>, Vec<Rc<str>>) {
+    fn read_ways(&self, flow: Flow<'_>) -> ReadWays {
         let mut names: Vec<Rc<str>> = Vec::new();
-        let mut all = Vec::with_capacity(self.state_names.len());
+        let mut events: Vec<Option<Rc<str>>> = Vec::new();
+        let mut all = Vec::with_capacity(self.n_states);
         for (state, st) in flow.states() {
             let mut way = |event: Option<&str>, a: Transition<'_>, i: usize| -> Way {
                 let target = a.target_text();
                 let target_at = self.state_at.get(&target).copied().unwrap_or(NO_STATE);
                 let taken: Rc<str> = Rc::from(format!("{state}|{}|{i}", event.unwrap_or("always")));
                 names.push(taken.clone());
+                let ev: Option<Rc<str>> = event.map(Rc::from);
+                events.push(ev.clone());
                 let guard = match a {
                     Transition::Full(v) => v.get("guard").map(|g| Guard { src: g.clone(), compiled: OnceCell::new() }),
                     Transition::Target(_) => None,
                 };
                 Way {
-                    event: event.map(Rc::from),
+                    event: ev,
                     target: if target_at == NO_STATE {
                         Rc::from(target)
                     } else {
@@ -582,7 +623,7 @@ impl Model {
             };
             all.push(ways);
         }
-        (all, names)
+        ReadWays { ways: all, names, events }
     }
 
     /// the position of a state in flow.states
@@ -1079,11 +1120,10 @@ impl Model {
     /// the state. Read only once a step has thrown, so the exploration itself pays nothing for it.
     pub fn place_error(&self, err: Error, state: &str, ctx: &[u16]) -> Error {
         let at = self.state_index(state);
-        if err.place.is_some() || at == NO_STATE {
-            return err;
-        }
+        // a name that is no state of the flow has no ways to try
+        let Some(ways) = self.ways.get(at as usize).filter(|_| err.place.is_none()) else { return err };
         let mut scratch = (Vec::new(), Vec::new());
-        for alts in &self.ways[at as usize].groups {
+        for alts in &ways.groups {
             for a in alts {
                 let tried = self.passes(a, state, ctx).and_then(|pass| {
                     if pass {
@@ -1151,16 +1191,215 @@ impl Model {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+/// where a pair's state or one of its variables is kept in its words: the word, the shift and the mask of its bits
+#[derive(Debug, Clone, Copy, Default)]
+struct Field {
+    word: usize,
+    shift: u32,
+    mask: u64,
+}
+
+impl Field {
+    fn get(self, words: &[u64]) -> u64 {
+        words.get(self.word).map_or(0, |w| (w >> self.shift) & self.mask)
+    }
+    fn put(self, words: &mut [u64], v: u64) {
+        if let Some(w) = words.get_mut(self.word) {
+            *w |= (v & self.mask) << self.shift;
+        }
+    }
+}
+
+/// how an exploration packs a pair into `words` u64 words: the state's place among the model's state names, then
+/// each variable's code, each in as few bits as its values need (a boolean in one bit)
+#[derive(Debug)]
+struct Layout {
+    names: Rc<[Rc<str>]>,
+    /// each way's event, by the way's id: the event that led to a pair reached by it
+    events: Rc<[Option<Rc<str>>]>,
+    state: Field,
+    vars: Vec<Field>,
+    words: usize,
+}
+
+/// the bits that hold the numbers below `count`
+fn bits_for(count: usize) -> u32 {
+    if count <= 1 { 0 } else { usize::BITS - (count - 1).leading_zeros() }
+}
+
+impl Layout {
+    /// `counts`: how many codes each variable's contexts may hold
+    fn new(names: Rc<[Rc<str>]>, events: Rc<[Option<Rc<str>>]>, counts: &[usize]) -> Layout {
+        let (mut word, mut used) = (0usize, 0u32);
+        let mut place = |bits: u32| -> Field {
+            if bits == 0 {
+                return Field::default();
+            }
+            if used + bits > 64 {
+                word += 1;
+                used = 0;
+            }
+            let f = Field { word, shift: used, mask: if bits == 64 { u64::MAX } else { (1u64 << bits) - 1 } };
+            used += bits;
+            f
+        };
+        let state = place(bits_for(names.len()));
+        let vars = counts.iter().map(|&n| place(bits_for(n))).collect();
+        Layout { names, events, state, vars, words: word + 1 }
+    }
+
+    /// the words of a pair, written at the end of `out`
+    fn pack(&self, at: u32, ctx: &[u16], out: &mut Vec<u64>) {
+        let start = out.len();
+        out.resize(start + self.words, 0);
+        let words = &mut out[start..];
+        self.state.put(words, u64::from(at));
+        for (f, &c) in self.vars.iter().zip(ctx) {
+            f.put(words, u64::from(c));
+        }
+    }
+
+    fn state(&self, words: &[u64]) -> u32 {
+        self.state.get(words) as u32
+    }
+
+    /// the context of a pair's words, into `out`
+    fn ctx(&self, words: &[u64], out: &mut Vec<u16>) {
+        out.clear();
+        out.extend(self.vars.iter().map(|f| f.get(words) as u16));
+    }
+}
+
+const NONE: u32 = u32::MAX;
+
+/// Every (state, context) pair an exploration reached, in the order it reached them. A pair is held in a few packed
+/// words, its parent and the way that led to it, so that the 17 million pairs of a flow with two dozen variables take
+/// a few hundred megabytes; `config(i)` reads one back as a `Config`, and `state`, `ctx`, `parent`, `event` read one of
+/// its parts. A position past the end reads as no pair (an empty state, no parent, no event, an empty context).
+#[derive(Debug, Clone)]
 pub struct Exploration {
-    pub configs: Vec<Config>,
+    layout: Rc<Layout>,
+    /// each pair's words, `layout.words` a pair
+    packed: Vec<u64>,
+    /// each pair's parent, NONE for a start
+    parents: Vec<u32>,
+    /// the way each pair was reached by, NONE for a start
+    ways: Vec<u32>,
     pub starts: usize,
     pub taken: IndexSet<Rc<str>>,
     pub at_state: IndexMap<Rc<str>, usize>,
     pub branch_counts: IndexMap<Rc<str>, Vec<usize>>,
 }
 
-/// murmur3's finalizer: the mixed-radix numbers of the pairs differ in their high digits as much as in their low ones
+impl Default for Exploration {
+    fn default() -> Self {
+        Exploration {
+            layout: Rc::new(Layout::new(Rc::from(Vec::new()), Rc::from(Vec::new()), &[])),
+            packed: Vec::new(),
+            parents: Vec::new(),
+            ways: Vec::new(),
+            starts: 0,
+            taken: IndexSet::new(),
+            at_state: IndexMap::new(),
+            branch_counts: IndexMap::new(),
+        }
+    }
+}
+
+impl Exploration {
+    /// how many pairs it reached
+    pub fn len(&self) -> usize {
+        self.parents.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.parents.is_empty()
+    }
+
+    fn words(&self, i: usize) -> &[u64] {
+        let w = self.layout.words;
+        self.packed.get(i * w..(i + 1) * w).unwrap_or(&[])
+    }
+
+    /// the place of the i-th pair's state among the model's state names (a state of the flow when below its count)
+    pub(crate) fn state_at(&self, i: usize) -> u32 {
+        self.layout.state(self.words(i))
+    }
+
+    /// the i-th pair's state, shared
+    pub fn state_rc(&self, i: usize) -> Option<&Rc<str>> {
+        if i >= self.len() {
+            return None;
+        }
+        self.layout.names.get(self.state_at(i) as usize)
+    }
+
+    /// the i-th pair's state
+    pub fn state(&self, i: usize) -> &str {
+        self.state_rc(i).map_or("", |s| s)
+    }
+
+    /// the i-th pair's context, into `out`
+    pub fn ctx_into(&self, i: usize, out: &mut Vec<u16>) {
+        if i >= self.len() {
+            out.clear();
+            return;
+        }
+        self.layout.ctx(self.words(i), out);
+    }
+
+    /// the i-th pair's context
+    pub fn ctx(&self, i: usize) -> Ctx {
+        let mut out = Vec::new();
+        self.ctx_into(i, &mut out);
+        out.into_boxed_slice()
+    }
+
+    /// the pair the i-th was reached from; None for a start
+    pub fn parent(&self, i: usize) -> Option<usize> {
+        self.parents.get(i).filter(|&&p| p != NONE).map(|&p| p as usize)
+    }
+
+    /// the event that led to the i-th pair, shared; None for a start or an `always` rule
+    pub fn event_rc(&self, i: usize) -> Option<&Rc<str>> {
+        let way = *self.ways.get(i)?;
+        self.layout.events.get(way as usize)?.as_ref()
+    }
+
+    /// the event that led to the i-th pair
+    pub fn event(&self, i: usize) -> Option<&str> {
+        self.event_rc(i).map(|e| &**e)
+    }
+
+    /// the i-th pair, read out
+    pub fn config(&self, i: usize) -> Option<Config> {
+        Some(Config {
+            state: self.state_rc(i)?.clone(),
+            ctx: self.ctx(i),
+            parent: self.parent(i).map(|p| p as u32),
+            event: self.event_rc(i).cloned(),
+        })
+    }
+
+    /// every pair, read out one at a time, in the order they were reached
+    pub fn configs(&self) -> impl ExactSizeIterator<Item = Config> + '_ {
+        (0..self.len()).map(|i| {
+            self.config(i).unwrap_or_else(|| Config {
+                state: Rc::from(""),
+                ctx: Box::new([]),
+                parent: None,
+                event: None,
+            })
+        })
+    }
+
+    /// the bytes its pairs take, for a caller that tells a garbage collector
+    pub fn bytes(&self) -> usize {
+        self.packed.len() * 8 + self.parents.len() * 4 + self.ways.len() * 4
+    }
+}
+
+/// murmur3's finalizer: the packed pairs differ in their high bits as much as in their low ones
 fn mix(mut x: u64) -> u64 {
     x ^= x >> 33;
     x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
@@ -1169,21 +1408,26 @@ fn mix(mut x: u64) -> u64 {
     x ^ (x >> 33)
 }
 
-/// the numbers of the pairs seen: open addressing, each number in its own slot (as the number + 1; 0 is a free slot),
-/// so that a lookup reads one place in memory where a general hash set reads two. On the largest flows the lookups
-/// are most of the exploration's time.
+/// the pairs seen, when a pair's key is one word: open addressing, each key in its own slot (as the key + 1; 0 is a
+/// free slot), so that a lookup reads one place in memory where a general hash set reads two. On the largest flows the
+/// lookups are most of the exploration's time.
 struct NumberSet {
     slots: Vec<u64>,
     len: usize,
+    /// the key u64::MAX, which has no slot of its own
+    max: bool,
 }
 
 impl NumberSet {
     fn new() -> Self {
-        NumberSet { slots: vec![0; 1 << 10], len: 0 }
+        NumberSet { slots: vec![0; 1 << 10], len: 0, max: false }
     }
 
-    /// whether the number is new, kept when it is; a number is below 2^53
+    /// whether the key is new, kept when it is
     fn insert(&mut self, key: u64) -> bool {
+        if key == u64::MAX {
+            return !std::mem::replace(&mut self.max, true);
+        }
         if (self.len + 1) * 2 > self.slots.len() {
             self.grow();
         }
@@ -1206,7 +1450,7 @@ impl NumberSet {
     fn grow(&mut self) {
         let size = self.slots.len() * 2;
         let old = std::mem::replace(&mut self.slots, vec![0; size]);
-        let mask = self.slots.len() - 1;
+        let mask = size - 1;
         for k in old.into_iter().filter(|&k| k != 0) {
             let mut i = mix(k - 1) as usize & mask;
             while self.slots[i] != 0 {
@@ -1217,92 +1461,153 @@ impl NumberSet {
     }
 }
 
-// A (state, context) pair as one number: the state's position, then each variable's value by its position in the
-// variable's values, as digits of a mixed radix. A Set keeps numbers far faster than the strings they replace.
-// Two pairs are the same exactly when their old keys, `${state}|${ctx.join(',')}`, are: a value is placed by its text,
-// as join wrote it. A flow whose pairs do not fit below 2^53, a value or state name that would make the old key
-// ambiguous, or a value outside its variable's values, keeps the old key.
-struct Keyer {
-    numbers: Option<Numbers>,
-    seen_numbers: NumberSet,
-    seen_texts: HashSet<String>,
+/// the pairs seen, when a pair's key takes several words: the positions of the pairs (+ 1; 0 is a free slot), whose
+/// keys are read back to compare
+struct PairSet {
+    slots: Vec<u32>,
+    len: usize,
 }
 
-struct Numbers {
-    radix: Vec<u64>,
-    /// for each variable, the digit of each place in its table (the first of its values with the same text)
-    digits: Vec<Vec<Option<u64>>>,
-    by_text: Vec<HashMap<String, u64>>,
+/// a key's slot
+fn slot_of(key: &[u64]) -> usize {
+    key.iter().fold(0u64, |h, &w| mix(h ^ w)) as usize
 }
 
-const MAX_SAFE_INTEGER: u128 = (1u128 << 53) - 1;
-
-impl Keyer {
-    fn new(m: &Model) -> Keyer {
-        let names = &m.state_names;
-        let size = m
-            .domains
-            .iter()
-            .try_fold(names.len().max(1) as u128, |n, values| n.checked_mul(values.len().max(1) as u128));
-        let fits = size.is_some_and(|s| s <= MAX_SAFE_INTEGER);
-        let numbers = if !fits
-            || names.iter().any(|s| s.contains('|'))
-            || m.domains.iter().any(|values| values.iter().any(|v| v.written().contains(',')))
-        {
-            None
-        } else {
-            let by_text: Vec<HashMap<String, u64>> = m
-                .domains
-                .iter()
-                .map(|values| {
-                    let mut d = HashMap::new();
-                    for (i, v) in values.iter().enumerate() {
-                        d.entry(v.written()).or_insert(i as u64);
-                    }
-                    d
-                })
-                .collect();
-            let extra = m.extra.borrow();
-            let digits = (0..m.vars.len())
-                .map(|i| {
-                    let count = m.tables[i].values.len() + extra[i].values.len();
-                    (0..count).map(|c| by_text[i].get(&m.value_at(i, c as u16).written()).copied()).collect()
-                })
-                .collect();
-            let radix = m.domains.iter().map(|values| values.len().max(1) as u64).collect();
-            Some(Numbers { radix, digits, by_text })
-        };
-        Keyer { numbers, seen_numbers: NumberSet::new(), seen_texts: HashSet::new() }
-    }
-
-    fn text(m: &Model, state: &str, ctx: &[u16]) -> String {
-        format!("{state}|{}", m.joined(ctx))
-    }
-
-    /// whether the pair is new, kept as seen when it is
-    fn add(&mut self, m: &Model, at: u32, state: &str, ctx: &[u16]) -> bool {
-        if let Some(n) = &self.numbers
-            && at != NO_STATE
-            && ctx.len() == n.radix.len()
-        {
-            let mut key = at as u64;
-            let mut whole = true;
-            for (i, &code) in ctx.iter().enumerate() {
-                let d = match n.digits[i].get(code as usize) {
-                    Some(d) => *d,
-                    None => n.by_text[i].get(&m.value_at(i, code).written()).copied(),
-                };
-                let Some(d) = d else {
-                    whole = false;
-                    break;
-                };
-                key = key * n.radix[i] + d;
-            }
-            if whole {
-                return self.seen_numbers.insert(key);
+impl PairSet {
+    /// whether `key` is new, kept as the pair at `next` when it is; `stored(p, out)` writes the key of the pair at p
+    fn insert(&mut self, key: &[u64], next: usize, stored: &mut dyn FnMut(usize, &mut Vec<u64>)) -> bool {
+        let mut other = Vec::new();
+        if (self.len + 1) * 2 > self.slots.len() {
+            let size = self.slots.len() * 2;
+            let old = std::mem::replace(&mut self.slots, vec![0; size]);
+            for p in old.into_iter().filter(|&p| p != 0) {
+                stored((p - 1) as usize, &mut other);
+                let mut i = slot_of(&other) & (size - 1);
+                while self.slots[i] != 0 {
+                    i = (i + 1) & (size - 1);
+                }
+                self.slots[i] = p;
             }
         }
-        self.seen_texts.insert(Keyer::text(m, state, ctx))
+        let mask = self.slots.len() - 1;
+        let mut i = slot_of(key) & mask;
+        loop {
+            let p = self.slots[i];
+            if p == 0 {
+                self.slots[i] = next as u32 + 1;
+                self.len += 1;
+                return true;
+            }
+            stored((p - 1) as usize, &mut other);
+            if other == key {
+                return false;
+            }
+            i = (i + 1) & mask;
+        }
+    }
+}
+
+enum Seen {
+    One(NumberSet),
+    Many(PairSet),
+    Text(HashSet<String>),
+}
+
+/// the pairs seen. Two pairs are the same exactly when their old TS keys, `${state}|${ctx.join(',')}`, are: a value is
+/// placed by its text, as join wrote it. A pair's key is its words with each variable's code replaced by the first
+/// code of the same text (`classes`). A flow whose state names hold `|` or whose values' texts hold `,` would make
+/// that key ambiguous: it keeps the old key itself, as the TS model did.
+struct Keyer {
+    layout: Rc<Layout>,
+    /// for each variable, the first code with the same text as each code; None when every code's text is its own
+    classes: Option<Vec<Vec<u16>>>,
+    seen: Seen,
+    /// the key being made, and a context made of classes
+    key: Vec<u64>,
+    back: Vec<u16>,
+}
+
+/// the key of a pair into `out`; `back` is room for its context of classes
+fn key_of(
+    layout: &Layout,
+    classes: &Option<Vec<Vec<u16>>>,
+    at: u32,
+    ctx: &[u16],
+    out: &mut Vec<u64>,
+    back: &mut Vec<u16>,
+) {
+    out.clear();
+    match classes {
+        None => layout.pack(at, ctx, out),
+        Some(classes) => {
+            back.clear();
+            back.extend(
+                ctx.iter()
+                    .enumerate()
+                    .map(|(i, &c)| classes.get(i).and_then(|cl| cl.get(c as usize)).copied().unwrap_or(c)),
+            );
+            layout.pack(at, back, out);
+        }
+    }
+}
+
+impl Keyer {
+    fn new(m: &Model, layout: Rc<Layout>, counts: &[usize]) -> Keyer {
+        let names = m.state_names.get(..m.n_states).unwrap_or(&[]);
+        let ambiguous = names.iter().any(|s| s.contains('|'))
+            || m.domains.iter().any(|values| values.iter().any(|v| v.written().contains(',')));
+        let mut trivial = true;
+        let classes: Vec<Vec<u16>> = counts
+            .iter()
+            .enumerate()
+            .map(|(i, &n)| {
+                let mut first: HashMap<String, u16> = HashMap::new();
+                (0..n)
+                    .map(|c| {
+                        let class = *first.entry(m.value_at(i, c as u16).written()).or_insert(c as u16);
+                        trivial &= class == c as u16;
+                        class
+                    })
+                    .collect()
+            })
+            .collect();
+        let seen = if ambiguous {
+            Seen::Text(HashSet::new())
+        } else if layout.words == 1 {
+            Seen::One(NumberSet::new())
+        } else {
+            Seen::Many(PairSet { slots: vec![0; 1 << 10], len: 0 })
+        };
+        Keyer { layout, classes: if trivial { None } else { Some(classes) }, seen, key: Vec::new(), back: Vec::new() }
+    }
+
+    /// whether the pair is new, kept as seen when it is; `packed` holds the pairs so far, and the pair is the next
+    fn add(&mut self, m: &Model, packed: &[u64], at: u32, ctx: &[u16]) -> bool {
+        let Keyer { layout, classes, seen, key, back } = self;
+        if let Seen::Text(seen) = seen {
+            let name = layout.names.get(at as usize).map_or("", |s| s);
+            return seen.insert(format!("{name}|{}", m.joined(ctx)));
+        }
+        key_of(layout, classes, at, ctx, key, back);
+        match seen {
+            Seen::One(set) => set.insert(key[0]),
+            Seen::Many(set) => {
+                let w = layout.words;
+                let (mut ctx_back, mut class_back) = (Vec::new(), Vec::new());
+                let mut stored = |p: usize, out: &mut Vec<u64>| {
+                    let words = packed.get(p * w..(p + 1) * w).unwrap_or(&[]);
+                    if classes.is_none() {
+                        out.clear();
+                        out.extend_from_slice(words);
+                    } else {
+                        layout.ctx(words, &mut ctx_back);
+                        key_of(layout, classes, layout.state(words), &ctx_back, out, &mut class_back);
+                    }
+                };
+                set.insert(key, packed.len() / w, &mut stored)
+            }
+            Seen::Text(_) => true,
+        }
     }
 }
 
@@ -1312,34 +1617,46 @@ pub type Keep<'a> = &'a dyn Fn(&Config, &Step) -> bool;
 // Every reachable (state, context) pair, breadth first, so the first hit of a state is a shortest path to it.
 // `from` and `keep` narrow the search: the replay starts only from situations the app is bound to and takes only steps it can drive.
 pub fn explore(m: &Model, from: Option<Vec<Ctx>>, keep: Option<Keep<'_>>) -> Result<Exploration> {
-    let from = from.unwrap_or_else(|| m.initials());
-    let mut key = Keyer::new(m);
-    let mut configs: Vec<Config> = Vec::new();
+    let from: Vec<Ctx> = from.unwrap_or_else(|| m.initials()).into_iter().map(|c| m.fit(c)).collect();
+    // the codes a context may hold: its table's, those a caller's starts added, and any other a start holds
+    let counts: Vec<usize> = {
+        let extra = m.extra.borrow();
+        (0..m.vars.len())
+            .map(|i| {
+                let given = from.iter().filter_map(|c| c.get(i)).map(|&c| usize::from(c) + 1).max().unwrap_or(0);
+                (m.tables[i].values.len() + extra.get(i).map_or(0, |t| t.values.len())).max(given)
+            })
+            .collect()
+    };
+    let layout = Rc::new(Layout::new(m.state_names.clone(), m.way_events.clone(), &counts));
+    let w = layout.words;
+    let mut key = Keyer::new(m, layout.clone(), &counts);
+    let mut packed: Vec<u64> = Vec::new();
+    let mut parents: Vec<u32> = Vec::new();
+    let mut ways: Vec<u32> = Vec::new();
     let mut taken = IndexSet::new();
     let mut taken_seen = vec![false; m.way_names.len()];
     let mut at_state: IndexMap<Rc<str>, usize> = IndexMap::new();
     let mut at_slot: Vec<Option<usize>> = vec![None; m.state_names.len()];
     let mut branch_counts: IndexMap<Rc<str>, Vec<usize>> = IndexMap::new();
-    let initial = m.flow().initial().map_or_else(
-        || m.flow.get("initial").map_or_else(|| "undefined".to_string(), js::to_js_string),
-        str::to_string,
-    );
-    let initial_at = m.state_index(&initial);
-    let initial_name: Rc<str> =
-        if initial_at == NO_STATE { Rc::from(initial.as_str()) } else { m.state_names[initial_at as usize].clone() };
-    for c in from {
-        let c = m.fit(c);
-        if key.add(m, initial_at, &initial_name, &c) {
-            configs.push(Config { state: initial_name.clone(), ctx: c, parent: None, event: None, at: initial_at });
+    let initial_at = m.state_index(&initial_name(m.flow()));
+    for c in &from {
+        if key.add(m, &packed, initial_at, c) {
+            layout.pack(initial_at, c, &mut packed);
+            parents.push(NONE);
+            ways.push(NONE);
         }
     }
-    let starts = configs.len();
+    drop(from);
+    let starts = parents.len();
     let mut scratch = (Vec::new(), Vec::new());
     let mut cur: Vec<u16> = Vec::new();
     let mut i = 0;
-    while i < configs.len() {
-        let at = configs[i].at;
-        let state = configs[i].state.clone();
+    while i < parents.len() {
+        let words = &packed[i * w..(i + 1) * w];
+        let at = layout.state(words);
+        layout.ctx(words, &mut cur);
+        let state = layout.names.get(at as usize).cloned().unwrap_or_else(|| Rc::from(""));
         let slot = at_slot.get(at as usize).copied().flatten();
         let pos = match slot {
             Some(p) => p,
@@ -1354,18 +1671,23 @@ pub fn explore(m: &Model, from: Option<Vec<Ctx>>, keep: Option<Keep<'_>>) -> Res
         if let Some((_, n)) = at_state.get_index_mut(pos) {
             *n += 1;
         }
-        cur.clear();
-        cur.extend_from_slice(&configs[i].ctx);
+        // the pair as keep reads it, read out once for all its steps
+        let at_config = keep.map(|_| Config {
+            state: state.clone(),
+            ctx: cur.clone().into_boxed_slice(),
+            parent: parents.get(i).copied().filter(|&p| p != NONE),
+            event: ways.get(i).and_then(|&k| layout.events.get(k as usize)).cloned().flatten(),
+        });
         let mut first: Option<usize> = None;
         let parent = i as u32;
         let stepped = m.each_step(at, &state, &cur, &mut scratch, &mut |a, c| {
             if first.is_none() {
                 first = Some(a.alt);
             }
-            if let Some(keep) = keep {
+            if let (Some(keep), Some(at_config)) = (keep, &at_config) {
                 let s =
                     Step { event: a.event.clone(), target: a.target.clone(), ctx: c.into(), taken: a.taken.clone() };
-                if !keep(&configs[parent as usize], &s) {
+                if !keep(at_config, &s) {
                     return;
                 }
             }
@@ -1373,19 +1695,15 @@ pub fn explore(m: &Model, from: Option<Vec<Ctx>>, keep: Option<Keep<'_>>) -> Res
                 taken_seen[a.id] = true;
                 taken.insert(a.taken.clone());
             }
-            if key.add(m, a.target_at, &a.target, c) {
-                configs.push(Config {
-                    state: a.target.clone(),
-                    ctx: c.into(),
-                    parent: Some(parent),
-                    event: a.event.clone(),
-                    at: a.target_at,
-                });
+            if key.add(m, &packed, a.target_at, c) {
+                layout.pack(a.target_at, c, &mut packed);
+                parents.push(parent);
+                ways.push(a.id as u32);
             }
         });
         if let Err(err) = stepped {
             // where in flow.yaml the step that threw is written (SPEC.md §10)
-            return Err(m.place_error(err, &configs[i].state, &configs[i].ctx));
+            return Err(m.place_error(err, &state, &cur));
         }
         if let (Some(alt), Some(ways)) = (first, m.ways.get(at as usize))
             && ways.always
@@ -1397,7 +1715,7 @@ pub fn explore(m: &Model, from: Option<Vec<Ctx>>, keep: Option<Keep<'_>>) -> Res
         }
         i += 1;
     }
-    Ok(Exploration { configs, starts, taken, at_state, branch_counts })
+    Ok(Exploration { layout, packed, parents, ways, starts, taken, at_state, branch_counts })
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -1417,15 +1735,18 @@ fn object<S: Serializer>(o: &Object, s: S) -> std::result::Result<S::Ok, S::Erro
 
 pub fn path_to(m: &Model, ex: &Exploration, index: usize) -> PathResult {
     let mut events = Vec::new();
-    let Some(mut c) = ex.configs.get(index) else { return PathResult { events, start: Object::new() } };
-    while let Some(p) = c.parent_index() {
-        if let Some(e) = &c.event {
+    if index >= ex.len() {
+        return PathResult { events, start: Object::new() };
+    }
+    let mut c = index;
+    while let Some(p) = ex.parent(c) {
+        if let Some(e) = ex.event(c) {
             events.push(e.to_string());
         }
-        c = &ex.configs[p];
+        c = p;
     }
     events.reverse();
-    PathResult { events, start: m.scenario(&c.ctx) }
+    PathResult { events, start: m.scenario(&ex.ctx(c)) }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -1446,67 +1767,66 @@ pub struct AssertionResult {
     pub violation: Option<Violation>,
 }
 
-// the first pair, in exploration order, where `src` holds; None when none does. An assertion that cannot throw is tested
-// only in the states where the state alone does not rule it out: the first hit of each such state, the earliest of them.
-fn first_hit<'e>(
-    m: &Model,
-    ex: &'e Exploration,
-    src: &str,
-    by_state: &mut dyn FnMut() -> &'e IndexMap<Rc<str>, Vec<usize>>,
-) -> Result<Option<usize>> {
+// the first pair, in exploration order, where `src` holds; None when none does. An assertion that cannot throw is not
+// tested in a state where the state alone decides it (`state in [...] and ...` outside those states): there it holds
+// at the state's first pair or nowhere. (The TS model tested each state's pairs and took the earliest hit: the same
+// pair, without grouping millions of positions by state.)
+fn first_hit(m: &Model, ex: &Exploration, src: &str) -> Result<Option<usize>> {
+    let mut ctx = Vec::new();
     // read where the exploration reads it, so an expression that throws throws at the same pair as before: with no
     // pair, it is never read
     if !m.pure(src) {
-        if ex.configs.is_empty() {
+        if ex.is_empty() {
             return Ok(None);
         }
         let test = m.tester(src)?;
-        for (i, c) in ex.configs.iter().enumerate() {
-            if test(&c.state, &c.ctx)? {
+        for i in 0..ex.len() {
+            ex.ctx_into(i, &mut ctx);
+            if test(ex.state(i), &ctx)? {
                 return Ok(Some(i));
             }
         }
         return Ok(None);
     }
     let test = m.tester(src)?;
-    let mut hit: Option<usize> = None;
-    for (state, at) in by_state() {
-        let fixed = m.in_state(src, state)?;
-        if fixed.as_ref().is_some_and(|f| !f.truthy()) {
-            continue;
-        }
-        for &i in at {
-            if hit.is_some_and(|h| i > h) {
-                break;
+    // what the state alone decides, read once a state
+    let mut fixed: Vec<Option<Option<bool>>> = vec![None; ex.layout.names.len()];
+    for i in 0..ex.len() {
+        let at = ex.state_at(i) as usize;
+        let state = ex.state(i);
+        let decided = match fixed.get(at).copied().flatten() {
+            Some(d) => d,
+            None => {
+                let d = m.in_state(src, state)?.map(|v| v.truthy());
+                if let Some(slot) = fixed.get_mut(at) {
+                    *slot = Some(d);
+                }
+                d
             }
-            if fixed.is_some() || test(state, &ex.configs[i].ctx)? {
-                hit = Some(i);
-                break;
+        };
+        match decided {
+            Some(false) => continue,
+            Some(true) => return Ok(Some(i)),
+            None => {
+                ex.ctx_into(i, &mut ctx);
+                if test(state, &ctx)? {
+                    return Ok(Some(i));
+                }
             }
         }
     }
-    Ok(hit)
+    Ok(None)
 }
 
 pub fn check_assertions(m: &Model, ex: &Exploration) -> Result<Vec<AssertionResult>> {
-    let groups: OnceCell<IndexMap<Rc<str>, Vec<usize>>> = OnceCell::new();
-    let mut by_state = || {
-        groups.get_or_init(|| {
-            let mut g: IndexMap<Rc<str>, Vec<usize>> = IndexMap::new();
-            for (i, c) in ex.configs.iter().enumerate() {
-                g.entry(c.state.clone()).or_default().push(i);
-            }
-            g
-        })
-    };
     let mut out = Vec::new();
     for (i, a) in m.flow().assertions().into_iter().enumerate() {
         let place = || in_flow(vec!["assertions".into(), i.to_string(), "never".into()]);
         let never = a.get("never");
         let hit = match never {
-            Some(Value::String(src)) => first_hit(m, ex, src, &mut by_state),
+            Some(Value::String(src)) => first_hit(m, ex, src),
             // an expression that is no string is read at the first pair, as the TS model read it
-            _ if ex.configs.is_empty() => Ok(None),
+            _ if ex.is_empty() => Ok(None),
             other => Err(model_error(parse_source(other).err().unwrap_or_default(), None)),
         };
         let hit = hit.map_err(|err| err.placed(place()))?;
@@ -1515,7 +1835,7 @@ pub fn check_assertions(m: &Model, ex: &Exploration) -> Result<Vec<AssertionResu
         let say = crate::graph::given(a, "say").map(js::to_js_string);
         let violation = hit.map(|h| {
             let p = path_to(m, ex, h);
-            Violation { events: p.events, start: p.start, state: ex.configs[h].state.to_string() }
+            Violation { events: p.events, start: p.start, state: ex.state(h).to_string() }
         });
         out.push(AssertionResult { id, never, say, violation });
     }
@@ -1525,7 +1845,7 @@ pub fn check_assertions(m: &Model, ex: &Exploration) -> Result<Vec<AssertionResu
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct FinalPath {
     pub state: String,
-    /// position in Exploration.configs, for building a narrative
+    /// the pair's position in the exploration, for building a narrative
     pub index: usize,
     pub events: Vec<String>,
     #[serde(serialize_with = "object")]
@@ -1539,7 +1859,7 @@ pub fn final_paths(m: &Model, ex: &Exploration) -> Vec<FinalPath> {
             continue;
         }
         let at = k as u32;
-        if let Some(hit) = ex.configs.iter().position(|c| c.at == at || (c.at == NO_STATE && &*c.state == name)) {
+        if let Some(hit) = (0..ex.len()).find(|&i| ex.state_at(i) == at) {
             let p = path_to(m, ex, hit);
             out.push(FinalPath { state: name.to_string(), index: hit, events: p.events, start: p.start });
         }
@@ -1632,9 +1952,8 @@ pub fn cover(m: &Model, by: By, from: Option<Vec<Ctx>>, keep: Option<Keep<'_>>) 
         if let Some(t) = via.get(&i) {
             return Ok(t.clone());
         }
-        let c = &ex.configs[i];
-        let p = &ex.configs[c.parent_index().unwrap_or(0)];
-        let s = steps_of(p)?.into_iter().find(|x| {
+        let (Some(c), Some(p)) = (ex.config(i), ex.config(ex.parent(i).unwrap_or(0))) else { return Ok(String::new()) };
+        let s = steps_of(&p)?.into_iter().find(|x| {
             x.target == c.state
                 && x.event == c.event
                 && x.ctx.iter().enumerate().all(|(j, &v)| c.ctx.get(j).is_some_and(|&w| m.same_at(j, v, w)))
@@ -1649,7 +1968,7 @@ pub fn cover(m: &Model, by: By, from: Option<Vec<Ctx>>, keep: Option<Keep<'_>>) 
     let chain = |i: usize| -> Vec<usize> {
         let mut out = vec![i];
         let mut k = i;
-        while let Some(p) = ex.configs[k].parent_index() {
+        while let Some(p) = ex.parent(k) {
             out.push(p);
             k = p;
         }
@@ -1665,9 +1984,9 @@ pub fn cover(m: &Model, by: By, from: Option<Vec<Ctx>>, keep: Option<Keep<'_>>) 
     }
     let mut candidates: Vec<Candidate> = Vec::new();
     if by == By::States {
-        let mut first: IndexMap<&str, usize> = IndexMap::new();
-        for (i, c) in ex.configs.iter().enumerate() {
-            first.entry(&c.state).or_insert(i);
+        let mut first: IndexMap<u32, usize> = IndexMap::new();
+        for i in 0..ex.len() {
+            first.entry(ex.state_at(i)).or_insert(i);
         }
         for &i in first.values() {
             candidates.push(Candidate { at: i, last: None, depth: chain(i).len() });
@@ -1676,8 +1995,9 @@ pub fn cover(m: &Model, by: By, from: Option<Vec<Ctx>>, keep: Option<Keep<'_>>) 
         // the first situation, in exploration order, at which each transition is taken: the end of a shortest way to it
         let mut seen: HashSet<Rc<str>> = HashSet::new();
         let mut i = 0;
-        while i < ex.configs.len() && seen.len() < ex.taken.len() {
-            for s in steps_of(&ex.configs[i])? {
+        while i < ex.len() && seen.len() < ex.taken.len() {
+            let Some(c) = ex.config(i) else { break };
+            for s in steps_of(&c)? {
                 if seen.contains(&s.taken) {
                     continue;
                 }
@@ -1695,10 +2015,9 @@ pub fn cover(m: &Model, by: By, from: Option<Vec<Ctx>>, keep: Option<Keep<'_>>) 
     let mut paths: Vec<(CoverPath, usize)> = Vec::new();
     for c in sorted {
         let links = chain(c.at);
-        let mut states: Vec<String> = links.iter().map(|&k| ex.configs[k].state.to_string()).collect();
+        let mut states: Vec<String> = links.iter().map(|&k| ex.state(k).to_string()).collect();
         let mut transitions: Vec<String> = links[1..].iter().map(|&k| made(k)).collect::<Result<_>>()?;
-        let mut events: Vec<String> =
-            links[1..].iter().filter_map(|&k| ex.configs[k].event.as_ref().map(|e| e.to_string())).collect();
+        let mut events: Vec<String> = links[1..].iter().filter_map(|&k| ex.event(k).map(str::to_string)).collect();
         if let Some(last) = &c.last {
             states.push(last.target.to_string());
             transitions.push(last.taken.to_string());
@@ -1716,7 +2035,7 @@ pub fn cover(m: &Model, by: By, from: Option<Vec<Ctx>>, keep: Option<Keep<'_>>) 
             continue;
         }
         covered.extend(covers.iter().cloned());
-        let start = m.scenario(&ex.configs[links[0]].ctx);
+        let start = m.scenario(&ex.ctx(links[0]));
         let id_text = Value::Array(vec![
             Value::Object(start.clone()),
             Value::Array(transitions.iter().map(|t| Value::from(t.as_str())).collect()),
@@ -1802,12 +2121,25 @@ impl Serialize for Shown<'_, Exploration> {
     fn serialize<S: Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
         let ex = self.value;
         let mut st = s.serialize_struct("Exploration", 5)?;
-        st.serialize_field("configs", &self.model.show(&ex.configs[..]))?;
+        st.serialize_field("configs", &ShownPairs(self.model, ex))?;
         st.serialize_field("starts", &ex.starts)?;
         st.serialize_field("taken", &Names(&ex.taken))?;
         st.serialize_field("atState", &Counts(&ex.at_state))?;
         st.serialize_field("branchCounts", &Counts(&ex.branch_counts))?;
         st.end()
+    }
+}
+
+/// an exploration's pairs, each read out as it is written
+struct ShownPairs<'a>(&'a Model, &'a Exploration);
+
+impl Serialize for ShownPairs<'_> {
+    fn serialize<S: Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
+        let mut seq = s.serialize_seq(Some(self.1.len()))?;
+        for c in self.1.configs() {
+            seq.serialize_element(&self.0.show(&c))?;
+        }
+        seq.end()
     }
 }
 
@@ -1841,8 +2173,7 @@ mod tests {
     }
 
     fn configs(m: &Model, ex: &Exploration) -> Vec<String> {
-        ex.configs
-            .iter()
+        ex.configs()
             .map(|c| {
                 let ctx = Value::Array(m.context(&c.ctx).iter().map(Scalar::to_value).collect());
                 let parent = c.parent.map_or(-1, i64::from);
@@ -1884,7 +2215,8 @@ mod tests {
             "states":{"a":{"on":{"GO":"b"}},"b":{"type":"final"}}}"#,
         );
         let ex = explore(&m, None, None).unwrap();
-        assert!(Keyer::new(&m).numbers.is_none());
+        let layout = Rc::new(Layout::new(m.state_names.clone(), m.way_events.clone(), &[2]));
+        assert!(matches!(Keyer::new(&m, layout, &[2]).seen, Seen::Text(_)));
         assert_eq!(
             configs(&m, &ex),
             ["a|[\"a,b\"]|-1|null", "a|[\"c\"]|-1|null", "b|[\"a,b\"]|0|GO", "b|[\"c\"]|1|GO"]
