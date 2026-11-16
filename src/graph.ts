@@ -128,7 +128,8 @@ export interface Ui {
   samples: Record<string, string>;
   nodes: Record<string, UiNode>;
   locales?: string[]; // each has a catalog beside `catalog`, named <locale>.json
-  changes?: { key: string }; // what the flow changes and what follows, in its users' words (SPEC.md §4)
+  // what the flow changes and what follows, in its users' words, or why the flow has no such note yet (SPEC.md §4)
+  changes?: { key: string; missing?: undefined } | { missing: string; key?: undefined };
   task?: { key: string }; // the flow's name as its users know it, in every locale (SPEC.md §4)
   focus?: Record<string, string>; // state -> the node that has focus when the flow enters it from another state (SPEC.md §4)
   edges?: UiEdge[];

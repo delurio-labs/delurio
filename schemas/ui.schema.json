@@ -46,13 +46,20 @@
       }
     },
     "changes": {
+      "$comment": "exactly one of key or missing",
       "type": "object",
-      "description": "What the flow changes and what follows, in its users' own words: what is created, sent, charged or removed, who sees it, and whether it can be undone. Required under --strict when the flow's steps invoke a writing action of its domain.",
-      "required": ["key"],
+      "description": "What the flow changes and what follows, in its users' own words: what is created, sent, charged or removed, who sees it, and whether it can be undone. Required under --strict when the flow's steps invoke a writing action of its domain: `{ key }`, or `{ missing: <why> }` where the app has no such message yet, a gap that fails nothing (SPEC.md §4).",
       "additionalProperties": false,
       "properties": {
-        "key": { "$ref": "#/$defs/catalogKey", "description": "The catalog key of the note; every locale's catalog must have it.", "examples": ["Changes.note"] }
-      }
+        "key": { "$ref": "#/$defs/catalogKey", "description": "The catalog key of the note; every locale's catalog must have it.", "examples": ["Changes.note"] },
+        "missing": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the flow has no changes note yet, such as an app that has no message saying what the flow changes. Rehber does not guide the flow's writing steps, and check gives the gap as a note (changes-note-gap).",
+          "examples": ["the app does not say what an import changes yet"]
+        }
+      },
+      "oneOf": [{ "required": ["key"] }, { "required": ["missing"] }]
     },
     "nodes": {
       "type": "object",
