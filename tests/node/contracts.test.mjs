@@ -299,8 +299,10 @@ test('renderSpine draws the diagram the page draws', async () => {
   const g = graph.load('examples/notes/edit');
   const m = new model.Model(g.flow);
   const ex = model.explore(m);
-  // the main story as the page finds it, the same steps cli.ts hands renderSpine
-  const steps = story.stepsTo(m, ex, story.mainStoryIndex(g, ex));
+  // the main story as the page finds it, the same steps cli.ts hands renderSpine: the declared one, else the found one
+  const declared = g.flow.main === undefined ? null : story.stepsByEvents(m, g.flow.main);
+  const index = story.mainStoryIndex(g, ex);
+  const steps = declared ?? (index === null ? null : story.stepsTo(m, ex, index));
   const svg = await spine.renderSpine(g, ex, 'full', steps);
   assert.match(svg, /viewBox="0 0 (\d+) (\d+)"/);
   const page = mkdtempSync(join(tmpdir(), 'delurio-page-'));

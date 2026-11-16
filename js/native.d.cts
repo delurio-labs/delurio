@@ -204,7 +204,7 @@ export declare function nodeTexts(g: NativeGraph, id: string, warn: (arg: string
 /** `CSS` */
 export declare function pageCss(): string
 
-/** `callLine(a)` and `renderPage(p)`: not on this build yet */
+/** `callLine(a)` and `renderPage(p)`: not in the npm package */
 export declare function pageNotPorted(name: string): void
 
 /** `parseExpr(src)`, as JSON */
