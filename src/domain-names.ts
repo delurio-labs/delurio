@@ -1,9 +1,8 @@
 // The names a domain gives one another (SPEC.md §5), each held to what the domain has, all its files read as one: an
 // action's `returns` and every `references` (on an entity's field, or in a body, a query, a result or a refusal's body)
 // name an entity; an entity's `key` and `required` name its own fields; a policy's `do` names actions, and its `read`
-// and `write` entities. The first two are what §5 says the keywords mean, so a name they give that the domain does not
-// have is an error. Checking policies is still open in SPEC.md (#5), so a policy's names are warnings, as a flow's
-// `invoke` names are. Each finding is given in the file that gives the name, at its line, with a note where another
+// and `write` entities. A name that the domain does not have is an error, as a flow's `invoke` names are (decided on
+// 16 Nov 2026, d-1116-10). Each finding is given in the file that gives the name, at its line, with a note where another
 // domain beside it has the entity: a domain names only its own, and one domain may be split across files instead.
 import { readYaml, keyAt } from './yaml.ts';
 import type { DomainPart } from './domain.ts';
