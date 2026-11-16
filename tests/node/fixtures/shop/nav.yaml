@@ -1,0 +1,31 @@
+# A small shop for the package's tests: a menu that differs by persona, a page one persona may not open, a goal each.
+schema: delurio-graph/0
+kind: nav
+id: test.shop
+title: A shop
+status: proposed
+locale: en
+catalog: catalog/en.json
+frames:
+  shop: { title: The shop, menu: main }
+facts:
+  role: { values: [buyer, admin] }
+  held: { of: [orders.read, orders.write] }
+guards:
+  isAdmin: "role == 'admin'"
+  canWrite: "'orders.write' in held and isAdmin"
+personas:
+  buyer: { title: Buyer, say: someone who buys, facts: { role: buyer, held: [orders.read] } }
+  admin: { title: Admin, say: someone who runs the shop, facts: { role: admin, held: [orders.read, orders.write] } }
+pages:
+  start: { route: /, title: Shop.home, kind: screen, frame: shop }
+  orders: { route: /orders, title: Orders, kind: screen, frame: shop }
+  settings: { route: /settings, title: Settings, kind: placeholder, frame: shop, opensFor: canWrite }
+  help: { route: /help, title: Help, kind: screen, frame: shop, byAddress: true }
+entries:
+  - { from: start, to: orders, how: menu, label: Shop.orders }
+  - { from: start, to: settings, how: menu, label: Settings, when: isAdmin }
+  - { from: orders, to: start, how: link, label: Home }
+goals:
+  - { id: seeOrders, say: see the orders, page: orders, for: [buyer, admin], within: 1 }
+  - { id: changeSettings, say: change the settings, page: settings, for: [admin, buyer], within: 1 }
