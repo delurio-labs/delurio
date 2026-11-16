@@ -8,12 +8,27 @@ name: release
 on:
   push:
     tags: ['v*']
+  # every build of the matrix also runs on a pull request that can change it, so a tag never meets a build that was
+  # not run; nothing is published from a pull request (the github-release, npm and image jobs run on a tag only)
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - crates/**
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - package.json
+      - package-lock.json
+      - npm/**
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 env:
   CARGO_TERM_COLOR: always
+  # the tag on a release; a build of a pull request or by hand is named untagged
+  NAME: ${{ github.ref_type == 'tag' && github.ref_name || 'untagged' }}
   ZIG: 0.17.1
   CARGO_ZIGBUILD: 0.24.1
 
@@ -52,8 +67,12 @@ jobs:
           echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
           cargo install cargo-zigbuild --version "$CARGO_ZIGBUILD" --locked
       # npm ci refuses a lockfile that cannot hold the platform packages of the version being built (they are
-      # published with it); npm install --no-save installs every other package at the version the lockfile pins
-      - run: npm install --no-save --ignore-scripts --omit=optional --no-audit --no-fund
+      # published with it), so they are taken out of package.json here; --omit=optional would also leave out
+      # @napi-rs/cli's own platform bindings (@napi-rs/lzma, @napi-rs/tar), which --use-napi-cross needs to unpack its
+      # toolchain. npm install --no-save installs every other package at the version the lockfile pins
+      - run: |
+          npm pkg delete optionalDependencies
+          npm install --no-save --ignore-scripts --no-audit --no-fund
       - name: The addon
         shell: bash
         run: npx napi build --platform --release --target ${{ matrix.target }} ${{ matrix.addon }} --manifest-path crates/delurio-node/Cargo.toml --package-json-path package.json --output-dir . --no-js
@@ -67,14 +86,14 @@ jobs:
           fi
           ext=""; [ "$RUNNER_OS" = Windows ] && ext=".exe"
           mkdir -p out
-          cp "target/${{ matrix.target }}/release/delurio$ext" "out/delurio-${GITHUB_REF_NAME}-${{ matrix.platform }}$ext"
+          cp "target/${{ matrix.target }}/release/delurio$ext" "out/delurio-${NAME}-${{ matrix.platform }}$ext"
           cp "delurio.${{ matrix.platform }}.node" out/
       - name: The binary runs and checks the examples (where this runner can run it)
         if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'x86_64-unknown-linux-musl' || matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-pc-windows-msvc'
         shell: bash
         run: |
           ext=""; [ "$RUNNER_OS" = Windows ] && ext=".exe"
-          "out/delurio-${GITHUB_REF_NAME}-${{ matrix.platform }}$ext" check examples --strict
+          "out/delurio-${NAME}-${{ matrix.platform }}$ext" check examples --strict
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: build-${{ matrix.platform }}
@@ -83,6 +102,7 @@ jobs:
 
   github-release:
     needs: build
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -105,6 +125,7 @@ jobs:
 
   npm:
     needs: build
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     environment: npm
     permissions:
@@ -150,6 +171,7 @@ jobs:
 
   image:
     needs: build
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -166,8 +188,8 @@ jobs:
       - name: The static binaries, by the architecture Docker names them
         run: |
           mkdir -p image
-          cp "built/delurio-$GITHUB_REF_NAME-linux-x64-musl" image/delurio-amd64
-          cp "built/delurio-$GITHUB_REF_NAME-linux-arm64-musl" image/delurio-arm64
+          cp "built/delurio-$NAME-linux-x64-musl" image/delurio-amd64
+          cp "built/delurio-$NAME-linux-arm64-musl" image/delurio-arm64
           chmod +x image/delurio-*
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
