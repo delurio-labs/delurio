@@ -10,5 +10,6 @@ repository.workspace = true
 [dependencies]
 icu_collator = "2.4.0"
 indexmap = "2.14.2"
+regex = "1.13.1"
 ryu-js = "1.0.3"
-serde = "1.0.229"
+serde = { version = "1.0.229", features = ["derive"] }
