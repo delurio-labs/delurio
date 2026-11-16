@@ -1892,7 +1892,7 @@ pub(crate) mod tests {
     // each the value loadKit gave the token (work-kit/gen-mutants.mjs)
     #[test]
     fn token_values() {
-        let dir = std::env::temp_dir().join(format!("delurio-kit-tokens-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("delurio-kit-token-values-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("a folder");
         let file = dir.join("t.json").to_string_lossy().into_owned();
         let value = |json: &str| {
