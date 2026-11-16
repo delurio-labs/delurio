@@ -2,7 +2,7 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
-## 0.11.0 (unreleased)
+## 0.11.0 (2026-11-16)
 
 - The checker is written in Rust: `check`, `page` and `diff`, and every module the package exports, are the TypeScript checker's ported one module at a time (crates/delurio-core, crates/delurio-page, the `delurio` binary in crates/delurio, and the addon in crates/delurio-node). It judges every graph as 0.10.0 does: on the examples, on delurio's, QAuth's and Medaris's own graphs, and in the 35 behaviour cases of the CI, every finding (its rule, level, file, line, words and fingerprint), the SARIF, the exit codes, every page, diagram and Mermaid file, and every diff are those 0.10.0 gives. Where 0.10.0 stopped with a JavaScript TypeError on a value of the wrong type, 0.11.0 reads the value as absent (the `schema` rule already reports it), and a baseline or a file it cannot read is an `error:` line, not a stack trace.
 - It reads YAML as 0.10.0 did: the yaml library 2.9.1's lexer, parser and composer are ported, so a refusal (SPEC.md §1), a YAML error and a key are found at the same place and in the same words. The `schema` rule gives Ajv 8.20's findings: Ajv's evaluation of the keywords the schemas use is reproduced. A flow's diagram is still laid out by elkjs 0.12.1 itself, now run inside the binary (QuickJS-NG), so its places are the same to the last digit as before and as the dashboard's.
