@@ -50,13 +50,20 @@ function entryWords(g: NavGraph, s: Spec): string {
 }
 
 const entryKey = (s: Spec): string => `entry ${s.id ?? `${fromTokens(s).join(', ')} → ${s.to} (${s.how})`}`;
-const pathWords = (v: PersonaView, page: string): string => {
+const pathWords = (g: NavGraph, v: PersonaView, page: string): string => {
   const words = pathTo(v.reach, page).filter((e) => e.label !== '').map((e) => e.label);
+  // a way that starts at a page opened by its address (SPEC.md §6)
+  const typed = v.reach.get(page)?.byAddress ?? null;
+  if (typed !== null) {
+    if (typed === page) return 'by its address';
+    const at = g.pages[typed] === undefined ? typed : quote(g.pages[typed].title);
+    return `by the address of ${at}${words.length === 0 ? '' : `, then ${words.join(' → ')}`}`;
+  }
   return words.length === 0 ? 'automatic' : words.join(' → ');
 };
 
 function pageFields(p: Page): Record<string, unknown> {
-  return { route: p.route, title: p.titleKey ?? p.title, kind: p.kind, frame: p.frame, opensFor: p.opensFor ?? undefined, refusal: p.refusal ?? undefined, pageCodes: p.pageCodes ?? undefined, source: p.source ?? undefined, evidence: p.evidence ?? undefined };
+  return { route: p.route, title: p.titleKey ?? p.title, kind: p.kind, frame: p.frame, opensFor: p.opensFor ?? undefined, refusal: p.refusal ?? undefined, byAddress: p.byAddress ? true : undefined, pageCodes: p.pageCodes ?? undefined, source: p.source ?? undefined, evidence: p.evidence ?? undefined };
 }
 
 export interface NavStructure {
@@ -157,13 +164,14 @@ export function navStructure(b: NavSide, a: NavSide): NavStructure {
     }
     const name = pageName(ga, id);
     out.push(
-      ...fieldChanges('pages', key, pageFields(x), pageFields(y), ['route', 'title', 'kind', 'frame', 'opensFor', 'refusal', 'pageCodes', 'source', 'evidence'], (f, p, q) => {
+      ...fieldChanges('pages', key, pageFields(x), pageFields(y), ['route', 'title', 'kind', 'frame', 'opensFor', 'refusal', 'byAddress', 'pageCodes', 'source', 'evidence'], (f, p, q) => {
         if (f === 'route') return `${name} moved to ${String(q)} (was ${String(p)}).`;
         if (f === 'title') return `${pageName(gb, id)} is now titled ${name}.`;
         if (f === 'kind') return `${name} is now ${KIND_WORDS[String(q)]} (was ${KIND_WORDS[String(p)]}).`;
         if (f === 'frame') return `${name} is now drawn in ${quote(ga.frames[String(q)]?.title ?? String(q))} (was ${quote(gb.frames[String(p)]?.title ?? String(p))}).`;
         if (f === 'opensFor') return q === undefined ? `${name} now opens for everyone.` : p === undefined ? `${name} now opens only for some people.` : `Who ${name} opens for changed.`;
         if (f === 'refusal') return q === undefined ? `${name} no longer says how it refuses.` : `${name} now refuses with: ${quote(String(q))}.`;
+        if (f === 'byAddress') return q === true ? `${name} is now opened by its address.` : `${name} is no longer opened by its address.`;
         return null;
       }),
     );
@@ -308,7 +316,7 @@ export function navBehaviour(rb: NavRun, ra: NavRun, s: NavStructure): Shift[] {
       const name = ga.pages[page] === undefined ? pageName(gb, page) : pageName(ga, page);
       if (!inB && inA) {
         const st = va.standing[page];
-        add('page', page, null, { clicks: va.reach.get(page)?.clicks, standing: st }, `Can now reach ${name}${st === 'ok' ? '' : `, which ${STANDING_WORDS[st]}`} (${va.reach.get(page)?.clicks ?? 0} clicks: ${pathWords(va, page)}).`);
+        add('page', page, null, { clicks: va.reach.get(page)?.clicks, standing: st }, `Can now reach ${name}${st === 'ok' ? '' : `, which ${STANDING_WORDS[st]}`} (${va.reach.get(page)?.clicks ?? 0} clicks: ${pathWords(ga, va, page)}).`);
       } else if (inB && !inA) {
         add('page', page, { clicks: vb.reach.get(page)?.clicks, standing: vb.standing[page] }, null, `Can no longer reach ${name}${ga.pages[page] === undefined ? ' (the page was removed)' : ''}.`);
       } else if (inB && inA) {
@@ -317,7 +325,7 @@ export function navBehaviour(rb: NavRun, ra: NavRun, s: NavStructure): Shift[] {
         if (stB !== stA) add('page', page, stB, stA, `${capital(name)} ${STANDING_NOW[stA]} (it ${STANDING_PAST[stB]}).`);
         const cb = vb.reach.get(page)?.clicks ?? 0;
         const ca = va.reach.get(page)?.clicks ?? 0;
-        if (cb !== ca) add('clicks', page, cb, ca, `${capital(name)}: ${cb} → ${ca} ${ca === 1 ? 'click' : 'clicks'} (${pathWords(va, page)}).`);
+        if (cb !== ca) add('clicks', page, cb, ca, `${capital(name)}: ${cb} → ${ca} ${ca === 1 ? 'click' : 'clicks'} (${pathWords(ga, va, page)}).`);
       }
     }
     // the menu they see
