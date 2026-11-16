@@ -6,6 +6,8 @@
 
 pub mod anchors;
 pub mod changes;
+pub mod check;
+pub mod diff;
 pub mod domain;
 pub mod domain_names;
 pub mod edges;
