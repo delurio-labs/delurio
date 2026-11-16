@@ -34,6 +34,15 @@ function pathWords(entries: Entry[]): string {
     .join(' → ');
 }
 
+// the way to a page in words: its labels from start, or from a page opened by its address (SPEC.md §6)
+function wayWords(g: NavGraph, v: PersonaView, page: string): string {
+  const r = v.reach.get(page);
+  const steps = r === undefined ? '' : pathWords(pathTo(v.reach, page));
+  if (r?.byAddress === undefined || r.byAddress === null) return steps === '' ? 'automatic' : steps;
+  if (r.byAddress === page) return 'by its address';
+  return `by the address of ${g.pages[r.byAddress].title}${steps === '' ? '' : `, then ${steps}`}`;
+}
+
 function landingStats(g: NavGraph, v: PersonaView, rows: MenuRow[], index: number): string {
   if (v.landing === null) return '';
   const frame = g.pages[v.landing].frame;
@@ -92,15 +101,15 @@ function reachTable(g: NavGraph, views: PersonaView[]): string {
           continue;
         }
         const r = v.reach.get(p.id);
-        const steps = r === undefined ? '' : pathWords(pathTo(v.reach, p.id));
         const mark = st === 'refused' ? ' <span class="c-refused">⛔</span>' : st === 'placeholder' ? ' <span class="c-placeholder">◌</span>' : st === 'missing' ? ' <span class="c-missing">✗</span>' : '';
-        out.push(`<td class="reach"><b>${r?.clicks ?? 0}</b>${mark}${r?.usesData === true ? ' †' : ''}<span class="path">${esc(steps === '' ? 'automatic' : steps)}</span></td>`);
+        out.push(`<td class="reach"><b>${r?.clicks ?? 0}</b>${mark}${r?.usesData === true ? ' †' : ''}<span class="path">${esc(wayWords(g, v, p.id))}</span></td>`);
       }
       out.push('</tr>');
     }
   }
   out.push('</tbody></table></div>');
-  out.push('<p class="legend-row"><span>number: fewest clicks from the moment the person signs in and “/” has sent them on</span><span>⛔ the page refuses them</span><span>◌ the page is not built</span><span>† needs an item in a list (a row to pick, a card to open)</span><span>–: no way there</span></p>');
+  const typed = Object.values(g.pages).some((pg) => pg.byAddress) ? '<span>by its address: opened by typing its address or by a link from outside the app, such as one in an e-mail, and counted from there</span>' : '';
+  out.push(`<p class="legend-row"><span>number: fewest clicks from the moment the person signs in and “/” has sent them on</span><span>⛔ the page refuses them</span><span>◌ the page is not built</span><span>† needs an item in a list (a row to pick, a card to open)</span>${typed}<span>–: no way there</span></p>`);
   return out.join('');
 }
 
@@ -125,6 +134,7 @@ function siteMap(g: NavGraph): string {
       const tags: string[] = [];
       if (p.kind !== 'screen') tags.push(p.kind === 'placeholder' ? 'not built' : p.kind === 'missing' ? 'does not exist' : p.kind);
       if (p.opensFor !== null) tags.push(`opens only when ${p.opensFor}`);
+      if (p.byAddress) tags.push('by its address');
       const notes = [p.opensFor !== null && p.refusal !== null ? `Otherwise ${p.refusal}.` : null, p.evidence].filter((n): n is string => n !== null);
       out.push(`<li>${esc(p.title)}<span class="route">${code(p.route)}</span> ${tags.map((t) => `<span class="tag">${esc(t)}</span>`).join(' ')}${notes.map((n) => `<br><span class="muted">${esc(n)}</span>`).join('')}</li>`);
     }

@@ -40,6 +40,7 @@ interface PageSpec {
   pageCodes?: string;
   evidence?: string;
   refusal?: string;
+  byAddress?: boolean;
 }
 interface EntrySpec {
   id?: string;
@@ -106,6 +107,7 @@ export interface Page {
   pageCodes: string | null;
   evidence: string | null;
   refusal: string | null; // how the page says no, in words
+  byAddress: boolean; // people open it by its address, typed or followed from outside the app (SPEC.md §6)
 }
 
 export interface Entry {
@@ -236,6 +238,7 @@ export function loadNav(dir: string, locale?: string, read = (file: string): str
       pageCodes: p.pageCodes ?? null,
       evidence: p.evidence ?? null,
       refusal: p.refusal ?? null,
+      byAddress: p.byAddress === true,
     };
   }
   if (pages.start === undefined) throw new GraphError('a navigation graph needs a page called start');
@@ -375,32 +378,41 @@ export interface Reach {
   via: Entry | null;
   prev: string | null;
   usesData: boolean;
+  byAddress: string | null; // the page opened by its address that the way starts at; null when it starts at start
 }
 
 // Fewest clicks from "start"; ties go to the entry written first. Around a page that refuses the person only the frame's own entries work.
+// A page opened by its address (byAddress) that no way from start reaches is reached so, with no clicks, and what it
+// leads to that no way from start reaches is counted from it; every way from start stays as it is (SPEC.md §6).
 export function walk(g: NavGraph, p: Persona): Map<string, Reach> {
   const best = new Map<string, Reach>();
   const done = new Set<string>();
   const index = (id: string): number => Object.keys(g.pages).indexOf(id);
-  best.set('start', { page: 'start', clicks: 0, via: null, prev: null, usesData: false });
-  for (;;) {
-    let pick: Reach | null = null;
-    for (const r of best.values()) {
-      if (done.has(r.page)) continue;
-      if (pick === null || r.clicks < pick.clicks || (r.clicks === pick.clicks && index(r.page) < index(pick.page))) pick = r;
+  const settle = (fixed: Set<string>): void => {
+    for (;;) {
+      let pick: Reach | null = null;
+      for (const r of best.values()) {
+        if (done.has(r.page)) continue;
+        if (pick === null || r.clicks < pick.clicks || (r.clicks === pick.clicks && index(r.page) < index(pick.page))) pick = r;
+      }
+      if (pick === null) break;
+      done.add(pick.page);
+      const refused = refusedFor(g, p, pick.page);
+      for (const e of g.entries) {
+        if (e.from !== pick.page || fixed.has(e.to)) continue;
+        if (refused && !frameLevel(e)) continue;
+        if (!holds(g, p, e.when)) continue;
+        const clicks = pick.clicks + e.clicks;
+        const held = best.get(e.to);
+        if (held === undefined || clicks < held.clicks) best.set(e.to, { page: e.to, clicks, via: e, prev: pick.page, usesData: pick.usesData || e.data, byAddress: pick.byAddress });
+      }
     }
-    if (pick === null) break;
-    done.add(pick.page);
-    const refused = refusedFor(g, p, pick.page);
-    for (const e of g.entries) {
-      if (e.from !== pick.page) continue;
-      if (refused && !frameLevel(e)) continue;
-      if (!holds(g, p, e.when)) continue;
-      const clicks = pick.clicks + e.clicks;
-      const held = best.get(e.to);
-      if (held === undefined || clicks < held.clicks) best.set(e.to, { page: e.to, clicks, via: e, prev: pick.page, usesData: pick.usesData || e.data });
-    }
-  }
+  };
+  best.set('start', { page: 'start', clicks: 0, via: null, prev: null, usesData: false, byAddress: null });
+  settle(new Set());
+  const fromStart = new Set(best.keys());
+  for (const pg of Object.values(g.pages)) if (pg.byAddress && !best.has(pg.id)) best.set(pg.id, { page: pg.id, clicks: 0, via: null, prev: null, usesData: false, byAddress: pg.id });
+  if (best.size > fromStart.size) settle(fromStart);
   return best;
 }
 
