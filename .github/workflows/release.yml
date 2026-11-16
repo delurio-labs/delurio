@@ -1,6 +1,8 @@
-# A tag vX.Y.Z releases that version twice from one build. To npm it is staged with provenance (trusted publishing, no
-# token): it goes live only when a maintainer approves it on npmjs.com, with 2FA. As a container image it goes to GHCR,
-# signed with cosign and attested.
+# A tag vX.Y.Z releases that version from one build per platform: the `delurio` binary and the Node addon of the npm
+# package. The binaries go to the GitHub release with their checksums. To npm, every platform package and the main
+# package are staged with provenance (trusted publishing, no token): each goes live only when a maintainer approves it
+# on npmjs.com, with 2FA. As a container image (the static musl binary, amd64 and arm64) it goes to GHCR, signed with
+# cosign and attested.
 name: release
 
 on:
@@ -10,8 +12,97 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_TERM_COLOR: always
+  ZIG: 0.17.1
+  CARGO_ZIGBUILD: 0.24.1
+
 jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # glibc targets are built against glibc 2.17 (napi-rs's cross toolchain for the addon, zig for the binary),
+          # so they load on every Linux delurio supports; musl ones are static
+          - { target: x86_64-unknown-linux-gnu, platform: linux-x64-gnu, os: ubuntu-24.04, binary: x86_64-unknown-linux-gnu.2.17, addon: --use-napi-cross }
+          - { target: x86_64-unknown-linux-musl, platform: linux-x64-musl, os: ubuntu-24.04, binary: x86_64-unknown-linux-musl, addon: --cross-compile }
+          - { target: aarch64-unknown-linux-gnu, platform: linux-arm64-gnu, os: ubuntu-24.04, binary: aarch64-unknown-linux-gnu.2.17, addon: --use-napi-cross }
+          - { target: aarch64-unknown-linux-musl, platform: linux-arm64-musl, os: ubuntu-24.04, binary: aarch64-unknown-linux-musl, addon: --cross-compile }
+          - { target: aarch64-apple-darwin, platform: darwin-arm64, os: macos-15, binary: aarch64-apple-darwin, addon: '' }
+          - { target: x86_64-apple-darwin, platform: darwin-x64, os: macos-15, binary: x86_64-apple-darwin, addon: '' }
+          - { target: x86_64-pc-windows-msvc, platform: win32-x64-msvc, os: windows-2025, binary: x86_64-pc-windows-msvc, addon: '' }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.13.1
+      - name: The toolchain rust-toolchain.toml names, for this target
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup target add ${{ matrix.target }}
+      - name: zig and cargo-zigbuild (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL "https://ziglang.org/download/$ZIG/zig-x86_64-linux-$ZIG.tar.xz" -o zig.tar.xz
+          echo "3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a  zig.tar.xz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/zig" && tar -xJf zig.tar.xz -C "$RUNNER_TEMP/zig" --strip-components 1 && rm zig.tar.xz
+          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+          cargo install cargo-zigbuild --version "$CARGO_ZIGBUILD" --locked
+      - run: npm ci --ignore-scripts --omit=optional
+      - name: The addon
+        shell: bash
+        run: npx napi build --platform --release --target ${{ matrix.target }} ${{ matrix.addon }} --manifest-path crates/delurio-node/Cargo.toml --package-json-path package.json --output-dir . --no-js
+      - name: The binary
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            cargo zigbuild --release --locked -p delurio --target ${{ matrix.binary }}
+          else
+            cargo build --release --locked -p delurio --target ${{ matrix.binary }}
+          fi
+          ext=""; [ "$RUNNER_OS" = Windows ] && ext=".exe"
+          mkdir -p out
+          cp "target/${{ matrix.target }}/release/delurio$ext" "out/delurio-${GITHUB_REF_NAME}-${{ matrix.platform }}$ext"
+          cp "delurio.${{ matrix.platform }}.node" out/
+      - name: The binary runs and checks the examples (where this runner can run it)
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || matrix.target == 'x86_64-unknown-linux-musl' || matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-pc-windows-msvc'
+        shell: bash
+        run: |
+          ext=""; [ "$RUNNER_OS" = Windows ] && ext=".exe"
+          "out/delurio-${GITHUB_REF_NAME}-${{ matrix.platform }}$ext" check examples --strict
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: build-${{ matrix.platform }}
+          path: out/
+          if-no-files-found: error
+
+  github-release:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: build-*
+          path: built
+          merge-multiple: true
+      - name: The binaries and their checksums on the tag's release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd built
+          sha256sum delurio-* > SHA256SUMS
+          cat SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --title "$GITHUB_REF_NAME" \
+            --notes "delurio $GITHUB_REF_NAME: the binaries for each platform and their SHA-256 checksums. npm: @delurio/cli@${GITHUB_REF_NAME#v} (staged; live once approved). Image: ghcr.io/delurio-labs/delurio:$GITHUB_REF_NAME" \
+            delurio-* SHA256SUMS
+
   npm:
+    needs: build
     runs-on: ubuntu-24.04
     environment: npm
     permissions:
@@ -21,21 +112,38 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 26
+          node-version: 26.13.1
           registry-url: https://registry.npmjs.org
       - name: npm with staged publishing (11.15.0 or later)
         run: npm install -g npm@12.2.2
-      - run: npm ci
-      - name: The tag is the package's version
-        run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
-      - run: npm run check
-      - run: npm run build
-      - run: node dist/cli.js check examples --strict
-      - name: Stage it on npm; a maintainer approves it there, with 2FA
-        run: npm stage publish --access public
+      - name: The tag is the version of every package
+        run: |
+          test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
+          for d in npm/*/; do test "v$(node -p "require('./$d/package.json').version")" = "$GITHUB_REF_NAME"; done
+          node -e 'const p = require("./package.json"); for (const [n, v] of Object.entries(p.optionalDependencies)) if (v !== p.version) throw new Error(`${n} is at ${v}`)'
+      - run: npm ci --ignore-scripts --omit=optional
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: build-*
+          path: built
+          merge-multiple: true
+      - name: Each addon in its platform package
+        run: |
+          npx napi artifacts --output-dir built --npm-dir npm
+          for d in npm/*/; do cp LICENSE NOTICE "$d"; ls -l "$d"; done
+      - name: The package works on this runner with its own addon
+        run: |
+          cp npm/linux-x64-gnu/delurio.linux-x64-gnu.node .
+          node js/cli.js check examples --strict
+          node --test tests/node/
+          rm delurio.linux-x64-gnu.node
+      - name: Stage every platform package, then the main package; a maintainer approves each on npmjs.com, with 2FA
+        run: |
+          for d in npm/*/; do (cd "$d" && npm stage publish --access public); done
+          npm stage publish --access public
 
   image:
-    needs: npm
+    needs: build
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -44,11 +152,18 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          node-version: 26
-      - run: npm ci
-      - run: npm run build
+          pattern: build-linux-*-musl
+          path: built
+          merge-multiple: true
+      - name: The static binaries, by the architecture Docker names them
+        run: |
+          mkdir -p image
+          cp "built/delurio-$GITHUB_REF_NAME-linux-x64-musl" image/delurio-amd64
+          cp "built/delurio-$GITHUB_REF_NAME-linux-arm64-musl" image/delurio-arm64
+          chmod +x image/delurio-*
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -59,11 +174,17 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/delurio-labs/delurio:${{ github.ref_name }}
           labels: |
             org.opencontainers.image.source=https://github.com/delurio-labs/delurio
             org.opencontainers.image.licenses=Apache-2.0
+      - name: Each architecture's image checks the examples
+        run: |
+          for arch in amd64 arm64; do
+            docker run --rm --platform "linux/$arch" -v "$PWD/examples:/work/examples:ro" "ghcr.io/delurio-labs/delurio@${{ steps.push.outputs.digest }}" check examples --strict
+          done
       - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Sign the image by its digest
         run: cosign sign --yes "ghcr.io/delurio-labs/delurio@${{ steps.push.outputs.digest }}"
