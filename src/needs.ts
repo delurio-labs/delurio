@@ -42,7 +42,7 @@ export interface Needs {
   needs: Need[];
 }
 
-export type NeedRule = 'evidence-unresolved' | 'need-no-evidence' | 'need-unlisted' | 'need-gap' | 'need-twice' | 'needs-place' | 'gap-met' | 'gap-unknown';
+export type NeedRule = 'evidence-unresolved' | 'need-no-evidence' | 'need-names-built' | 'need-unlisted' | 'need-gap' | 'need-twice' | 'needs-place' | 'gap-met' | 'gap-unknown';
 
 export interface NeedProblem {
   rule: NeedRule;
@@ -140,6 +140,7 @@ interface Context {
   dir: string; // the flow's folder
   flowId: string | null;
   states: Set<string> | null; // null when flow.yaml cannot be read: its own check says why
+  built: Map<string, string>; // the states of a captured flow that name their code, with their source: they are built
   nodes: Set<string> | null | 'none'; // 'none' when the flow has no ui.yaml
 }
 
@@ -207,6 +208,14 @@ function unresolved(ctx: Context, kind: Kind, e: Record<string, unknown>): strin
       return sets(readFileSync(abs, 'utf8'), value) ? null : `setting ${value} is not set in ${where}: no line sets it, or the one that does is commented out`;
     }
   }
+}
+
+// the states of a captured flow that name their code (SPEC.md §9), which are therefore built, each with its anchor
+function builtStates(flow: Record<string, unknown> | null): Map<string, string> {
+  const out = new Map<string, string>();
+  if (flow?.status !== 'captured' || !isMap(flow.states)) return out;
+  for (const [name, st] of Object.entries(flow.states)) if (isMap(st) && typeof st.source === 'string') out.set(name, st.source);
+  return out;
 }
 
 // the nodes of a ui.yaml, or null when it cannot be read
@@ -287,6 +296,7 @@ export function checkNeeds(files: string[], app: string | null): NeedsCheck {
       dir,
       flowId,
       states: flow === null ? null : new Set(isMap(flow.doc.states) ? Object.keys(flow.doc.states) : []),
+      built: builtStates(flow?.doc ?? null),
       nodes: !existsSync(flowFile) ? null : existsSync(uiFile) ? nodesOf(uiFile) : 'none',
     };
     const key = flowId ?? ownId ?? graph; // the flow, as the gaps name it
@@ -319,6 +329,11 @@ export function checkNeeds(files: string[], app: string | null): NeedsCheck {
         }
         const why = unresolved(ctx, kind, e);
         if (why !== null) problem('evidence-unresolved', file, body, [...at, 'evidence', String(j), kind], `need ${id}: ${why} (SPEC.md §13)`, graph, `needs/${id}/evidence/${kind}:${String(e[kind])}`);
+        // a missing need names only what is not built: a walk leaves out a state that only missing needs name
+        const built = kind === 'state' && isMissing(item) ? ctx.built.get(e.state as string) : undefined;
+        if (built !== undefined) {
+          problem('need-names-built', file, body, [...at, 'evidence', String(j), kind], `need ${id} is missing, and names state ${String(e.state)}, which is built: it names its code (source: ${built}). A walk on the app leaves out a state that only missing needs name, so a missing need names only what is not built yet; say in its note that it is about ${String(e.state)} (SPEC.md §13)`, graph, `needs/${id}/built/state:${String(e.state)}`);
+        }
       });
       const missing = isMissing(item);
       const state: State = missing ? 'missing' : outside ? 'met' : 'unproven';

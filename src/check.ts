@@ -24,7 +24,7 @@ import { schemaKindOf, validateFile } from './schemas.ts';
 import { inReadingOrder, mergeDomain } from './domain.ts';
 import { checkDomainNames } from './domain-names.ts';
 import type { EntityElsewhere } from './domain-names.ts';
-import { checkNeeds } from './needs.ts';
+import { checkNeeds, planned, readNeeds } from './needs.ts';
 import { checkAnchors } from './anchors.ts';
 
 export const CHECK_USAGE = [
@@ -97,6 +97,7 @@ const RULES: Rule[] = [
   { id: 'tutorial-mismatch', text: 'A tutorial no longer matches its flow (SPEC.md §7)', level: 'error' },
   { id: 'evidence-unresolved', text: "A need's evidence names what is not there (SPEC.md §13)", level: 'error' },
   { id: 'need-no-evidence', text: 'A need that is not missing names no evidence outside the graph (SPEC.md §13)', level: 'error' },
+  { id: 'need-names-built', text: 'A missing need names a state that is built as its evidence (SPEC.md §13)', level: 'warning' },
   { id: 'need-unlisted', text: "A missing need is not in the product's gaps (SPEC.md §13)", level: 'error' },
   { id: 'need-twice', text: "A need's id is given twice in its flow's needs (SPEC.md §13)", level: 'error' },
   { id: 'needs-place', text: 'A needs file is beside no flow, or is the needs of another one (SPEC.md §13)', level: 'error' },
@@ -295,10 +296,18 @@ function checkFlow(dir: string, domains: Map<string, Domain | null>): CheckResul
     }
   }
   // a captured flow is read from code, so every state names the code that makes it true; an exit may leave it out, as
-  // the transition into it names that code (SPEC.md §9)
+  // the transition into it names that code, and so may a state that only missing needs name, which is not built yet
+  // (SPEC.md §9, §13)
   if (g.flow.status === 'captured') {
+    let needs: ReturnType<typeof readNeeds> = null;
+    try {
+      needs = readNeeds(dir);
+    } catch {
+      // a needs.yaml that cannot be read plans nothing; its schema check says why
+    }
+    const notBuilt = planned(needs).states;
     for (const [name, st] of Object.entries(g.flow.states)) {
-      if (st.source !== undefined || st.type === 'final') continue;
+      if (st.source !== undefined || st.type === 'final' || notBuilt.has(name)) continue;
       out.push(result('source-missing', file, keyAt(flowText, ['states', name]), `state ${name} names no code: in a captured flow every state but an exit carries source: <path>:<line> (SPEC.md §9)`, g.flow.id, `states/${name}`));
     }
   }
