@@ -47,7 +47,6 @@ jobs:
           - { target: aarch64-unknown-linux-gnu, platform: linux-arm64-gnu, os: ubuntu-24.04, binary: aarch64-unknown-linux-gnu.2.17, addon: zig }
           - { target: aarch64-unknown-linux-musl, platform: linux-arm64-musl, os: ubuntu-24.04, binary: aarch64-unknown-linux-musl, addon: --cross-compile }
           - { target: aarch64-apple-darwin, platform: darwin-arm64, os: macos-15, binary: aarch64-apple-darwin, addon: '' }
-          - { target: x86_64-apple-darwin, platform: darwin-x64, os: macos-15, binary: x86_64-apple-darwin, addon: '' }
           - { target: x86_64-pc-windows-msvc, platform: win32-x64-msvc, os: windows-2025, binary: x86_64-pc-windows-msvc, addon: '' }
     runs-on: ${{ matrix.os }}
     steps:

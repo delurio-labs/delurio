@@ -15,7 +15,7 @@ cargo install --locked --git https://github.com/delurio-labs/delurio --tag v<x.y
 ```
 
 or download the binary of your platform from the [releases](https://github.com/delurio-labs/delurio/releases) (Linux
-x64 and arm64, glibc and musl; macOS arm64 and x64; Windows x64; each release lists their SHA-256 in `SHA256SUMS`), or
+x64 and arm64, glibc and musl; macOS arm64; Windows x64; each release lists their SHA-256 in `SHA256SUMS`), or
 run the container image, pinned by its digest (the binary alone, `FROM scratch`):
 
 ```sh
