@@ -336,7 +336,7 @@ facts: { role: { values: [..], say: .. } }
 sets: { staffRoles: [..] }
 guards: { name: "<expression over facts>" }
 personas: { visitor: { title, say, facts: { .. } } }
-pages: { start: { route: /, title: <catalog key>, kind: screen, frame: site, source, opensFor, refusal } }
+pages: { start: { route: /, title: <catalog key>, kind: screen, frame: site, source, opensFor, refusal, byAddress } }
 entries: [ { from: <page> | frame:<frame> | [..], to: <page>, how: menu, label: <catalog key>, when, clicks, data, back } ]
 goals: [ { id, say, page, for: [persona], within: <clicks> } ]
 notModeled: [ "..." ]
@@ -344,6 +344,7 @@ notModeled: [ "..." ]
 
 - A **frame** is the chrome around a page (a menu, a top bar). An entry `from: frame:<f>` is on every page of that frame.
 - A **page** has a `kind`: `screen`, `placeholder`, `missing`, `redirect` or `external`. `opensFor` is the guard under which it opens; `refusal` says in words how it says no. A page called `start` is required.
+- A page that nothing in the app links to, such as a sign-in page that another site sends people to or a page that any unknown address lands on, says `byAddress: true`: people open it by its address, typed or followed from outside the app, such as a link in an e-mail. A persona whom no way from `start` brings there reaches it so, with no clicks, and goes on from it by its entries; a page that only such a way reaches is counted from it. So such a page is not unreachable: the persona views, the navigation page and the revision diff say "by its address" where they give the way, and a way from `start`, where there is one, stays as it is. Decided on 16 Nov 2026 (d-1116-14).
 - An **entry** is a way from page to page: `how` is `auto`, `menu`, `picker`, `user`, `link` or `button`; `when` is the guard under which it is offered; `data: true` means it needs an item to exist (a row to click).
 - A **persona** is a fixed set of facts, so no search is needed: the tool works out each persona's view, menu and reachable pages, and checks every goal (the page is reached within the clicks).
 - A `nav.yaml` may `extends` a generated `nav.extracted.yaml`: the generated pages and entries come first, and the hand-written file adds to them or overrides single fields.
