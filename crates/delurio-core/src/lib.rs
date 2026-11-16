@@ -22,6 +22,7 @@ pub mod nodepath;
 pub mod schemas;
 pub mod starts;
 pub mod story;
+pub mod tutorial_check;
 pub mod ui_check;
 pub mod wireframe;
 pub mod yaml;
