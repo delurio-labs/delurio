@@ -21,7 +21,7 @@
     "./package.json": "./package.json"
   },
   "files": ["dist", "schemas", "SPEC.md", "NOTICE", "CHANGELOG.md"],
-  "engines": { "node": ">=22.18" },
+  "engines": { "node": ">=26" },
   "repository": { "type": "git", "url": "git+https://github.com/delurio-labs/delurio.git" },
   "homepage": "https://delur.io",
   "bugs": "https://github.com/delurio-labs/delurio/issues",
@@ -34,11 +34,11 @@
   "dependencies": {
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
-    "elkjs": "0.12.0",
+    "elkjs": "0.12.1",
     "yaml": "2.9.1"
   },
   "devDependencies": {
-    "@types/node": "22.20.5",
+    "@types/node": "26.6.6",
     "typescript": "7.0.2"
   }
 }

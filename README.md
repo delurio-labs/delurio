@@ -25,7 +25,7 @@ or the container image, pinned by its digest:
 docker run --rm -v "$PWD:/work" -w /work ghcr.io/delurio-labs/delurio@sha256:<digest> check graphs --strict
 ```
 
-Node 22.18 or later.
+Node 26 or later.
 
 ## Check every graph
 
