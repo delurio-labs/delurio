@@ -108,7 +108,7 @@ jobs:
           exit $code
       - name: The addon, built
         run: |
-          npm ci --ignore-scripts --omit=optional
+          npm install --no-save --ignore-scripts --omit=optional --no-audit --no-fund
           npm run build
       - name: The package's modules give what the TypeScript modules gave
         run: DELURIO_TS_REF="$GITHUB_WORKSPACE/reference/dist" DELURIO_SETS="$RUNNER_TEMP/sets/qauth/graphs" node --test tests/node/differential.test.mjs
@@ -133,7 +133,9 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26.13.1
-      - run: npm ci --ignore-scripts --omit=optional
+      # npm ci refuses a lockfile that cannot hold the platform packages of the version being built (they are
+      # published with it); npm install --no-save installs every other package at the version the lockfile pins
+      - run: npm install --no-save --ignore-scripts --omit=optional --no-audit --no-fund
       - name: The addon, built
         run: npm run build
       - name: The module API tests in the checkout

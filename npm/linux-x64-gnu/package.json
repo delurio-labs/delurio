@@ -10,7 +10,8 @@
   "homepage": "https://delur.io",
   "main": "delurio.linux-x64-gnu.node",
   "files": [
-    "delurio.linux-x64-gnu.node"
+    "delurio.linux-x64-gnu.node",
+    "NOTICE"
   ],
   "os": [
     "linux"

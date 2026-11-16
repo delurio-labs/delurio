@@ -10,7 +10,8 @@
   "homepage": "https://delur.io",
   "main": "delurio.darwin-arm64.node",
   "files": [
-    "delurio.darwin-arm64.node"
+    "delurio.darwin-arm64.node",
+    "NOTICE"
   ],
   "os": [
     "darwin"
