@@ -9,22 +9,6 @@ use std::process::Command;
 
 const BIN: &str = env!("CARGO_BIN_EXE_delurio");
 
-/// the cases that need a command beyond `check`, and why. Each is SKIPPED while the binary's command is still the stub
-/// of the integration branch (it answers "not ported yet"), and runs by itself once the command is ported.
-const NEEDS: [(&str, &[&str], &str); 5] = [
-    ("ci-02-", &["page"], "writes the examples' pages"),
-    ("ci-22-", &["page"], "reads the pages ci-02 wrote"),
-    ("ci-23-", &["page"], "writes a flow's page"),
-    ("ci-25-", &["page"], "writes a flow's page"),
-    ("ci-32-", &["page", "diff"], "writes a navigation graph's page and diffs two revisions of it"),
-];
-
-/// whether the binary's command is the stub that is not ported yet
-fn stub(command: &str) -> bool {
-    let out = Command::new(BIN).arg(command).output().expect("the delurio binary runs");
-    String::from_utf8_lossy(&out.stderr).contains("not ported yet")
-}
-
 fn copy_dir(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).expect("the copy's folder is made");
     for entry in std::fs::read_dir(from).expect("the folder is read") {
@@ -58,19 +42,9 @@ fn the_reference_ci_steps_hold() {
     copy_dir(&root.join("examples"), &repo.join("examples"));
     std::fs::create_dir_all(&tmp).expect("the shared folder is made");
 
-    let missing: Vec<&str> = ["page", "diff"].into_iter().filter(|c| stub(c)).collect();
-    let mut ran = 0;
-    let mut skipped = Vec::new();
     let mut failed = Vec::new();
     for case in &cases {
         let name = case.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_string();
-        if let Some((_, needs, why)) = NEEDS.iter().find(|(prefix, _, _)| name.starts_with(prefix))
-            && let Some(command) = needs.iter().find(|c| missing.contains(c))
-        {
-            skipped
-                .push(format!("{name}: SKIPPED, it {why}, and `delurio {command}` is not ported on this branch yet"));
-            continue;
-        }
         let out = Command::new("bash")
             .arg("-e")
             .arg(case)
@@ -82,7 +56,6 @@ fn the_reference_ci_steps_hold() {
             .env("TZ", "UTC")
             .output()
             .expect("bash runs");
-        ran += 1;
         if !out.status.success() {
             let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
             let lines: Vec<&str> = said.lines().collect();
@@ -90,9 +63,6 @@ fn the_reference_ci_steps_hold() {
             failed.push(format!("{name}: {}\n{}", out.status, tail.join("\n")));
         }
     }
-    for s in &skipped {
-        eprintln!("{s}");
-    }
-    eprintln!("{ran} of {} cases ran, {} skipped, {} failed", cases.len(), skipped.len(), failed.len());
+    eprintln!("{} cases ran, {} failed", cases.len(), failed.len());
     assert!(failed.is_empty(), "{} of the reference CI's steps failed:\n\n{}", failed.len(), failed.join("\n\n"));
 }
