@@ -6,26 +6,25 @@ This package is the part a project's own CI runs: it reads graph files and nothi
 
 ## Install
 
-Run it once, without installing:
+`delurio` is one program with no runtime of its own to install. Pin an exact version in a project, in whichever way it
+already installs its tools:
 
 ```sh
-npx @delurio/cli@0.1.1 check graphs --strict
+npm install --save-dev --save-exact @delurio/cli   # then: npx delurio check graphs --strict
+cargo install --locked --git https://github.com/delurio-labs/delurio --tag v<x.y.z> delurio   # then: delurio check graphs --strict
 ```
 
-or pin an exact version in a project, after which the command is `delurio`:
-
-```sh
-npm install --save-dev --save-exact @delurio/cli
-npx delurio check graphs --strict
-```
-
-or the container image, pinned by its digest:
+or download the binary of your platform from the [releases](https://github.com/delurio-labs/delurio/releases) (Linux
+x64 and arm64, glibc and musl; macOS arm64 and x64; Windows x64; each release lists their SHA-256 in `SHA256SUMS`), or
+run the container image, pinned by its digest (the binary alone, `FROM scratch`):
 
 ```sh
 docker run --rm -v "$PWD:/work" -w /work ghcr.io/delurio-labs/delurio@sha256:<digest> check graphs --strict
 ```
 
-Node 26 or later.
+The npm package installs a prebuilt addon of your platform (one of the `@delurio/cli-<platform>` packages, chosen by
+npm, with no install script) and needs Node 26 or later. Running it once without installing works too:
+`npx @delurio/cli@<x.y.z> check graphs --strict`.
 
 ## Check every graph
 
@@ -135,7 +134,7 @@ This prints Markdown for a pull request. It covers what the flow does differentl
 
 ## As a library
 
-A tool built on the format can use the same loader and checker the CLI uses:
+A tool built on the format can use the same loader and checker the CLI uses, from Node:
 
 ```ts
 import { load } from '@delurio/cli/graph';
@@ -145,7 +144,9 @@ const g = load('graphs/billing/billing.payment');
 const configurations = explore(new Model(g.flow)).configs.length;
 ```
 
-The entry points are `graph`, `model`, `story`, `wireframe`, `kit`, `edges`, `html`, `nav`, `expr`, `yaml` and `needs`, each with its types. `yaml` reads a graph file's text as the CLI does (`readYaml`), refusing what SPEC.md §1 rules out before the text is resolved; a server that reads graphs it was sent should read them with it. `needs` reads a flow's needs (`readNeeds`) and gives the states and nodes that only missing needs are drawn as (`planned`), which a tool that walks the flow on the app leaves out. While the version is 0.x their API may change in any minor release: pin an exact version.
+The entry points are `graph`, `model`, `story`, `wireframe`, `kit`, `edges`, `html`, `nav`, `expr`, `spine`, `yaml` and `needs`, each with its types. They run the checker's Rust code in a native addon: values go in and come out as plain JavaScript objects, callbacks (`load`'s readers, `explore`'s `keep`, `evaluate`'s lookup, the warnings) are called as the code reaches them, and errors are real `GraphError`, `ModelError` and `KitError` instances. `renderSpine` lays the diagram out with the package's own elkjs. Under Node's permission model a process that imports them needs `--allow-addons`, and a bundler must leave `@delurio/cli` (and `@delurio/cli-*`) external. `yaml` reads a graph file's text as the CLI does (`readYaml`), refusing what SPEC.md §1 rules out before the text is resolved; a server that reads graphs it was sent should read them with it. `needs` reads a flow's needs (`readNeeds`) and gives the states and nodes that only missing needs are drawn as (`planned`), which a tool that walks the flow on the app leaves out. While the version is 0.x their API may change in any minor release: pin an exact version.
+
+The Rust crates are the same code for a Rust program: `delurio-core` (the graph, the model, every rule of `check`, `diff`), `delurio-page` (the page) and `delurio` (the command line).
 
 ## Licence
 
