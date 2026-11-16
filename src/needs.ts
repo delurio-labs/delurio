@@ -59,6 +59,7 @@ export interface NeedsCheck {
   files: number; // the needs files read
   needs: number;
   gaps: number; // the needs that say missing
+  notLookedFor: number; // under --no-app: the pieces of evidence that name a file of the application, not looked for
 }
 
 const KINDS = ['source', 'test', 'scenario', 'state', 'node', 'setting'] as const;
@@ -135,6 +136,7 @@ const sets = (body: string, name: string): boolean => new RegExp(`^[ \\t]*(?:-[ 
 interface Context {
   app: string;
   code: AppFiles; // the application's files, as a source: anchor reads them (SPEC.md §9)
+  lookFor: boolean; // false under --no-app: the application's files are not here
   dir: string; // the flow's folder
   flowId: string | null;
   states: Set<string> | null; // null when flow.yaml cannot be read: its own check says why
@@ -157,6 +159,11 @@ function scenariosOf(file: string, seen = new Set<string>()): Set<string> {
   if (typeof read.doc.extends === 'string') for (const s of scenariosOf(join(dirname(file), read.doc.extends), seen)) out.add(s);
   return out;
 }
+
+// whether a piece of evidence names a file of the application by its path from the repository's root: a source, a test,
+// the file a setting is set in, a binding named by its path (SPEC.md §13)
+const namesAppFile = (kind: Kind, e: Record<string, unknown>): boolean =>
+  kind === 'source' || kind === 'test' || kind === 'setting' || (kind === 'scenario' && text(e.binding) !== null);
 
 // why a piece of evidence does not resolve, or null when it does (or when what it names cannot be read, which is
 // reported where it is)
@@ -233,11 +240,12 @@ function gapsReader(): (file: string) => Listed | null {
 type State = 'met' | 'missing' | 'unproven';
 
 // every needs file and gaps file among `files` (the graph files under the folders checked), with the application's
-// repository root that evidence paths are relative to
-export function checkNeeds(files: string[], app: string): NeedsCheck {
-  const out: NeedsCheck = { problems: [], files: 0, needs: 0, gaps: 0 };
+// repository root that evidence paths are relative to; with `app` null (--no-app), evidence that names a file of the
+// application is counted and not looked for, and the rest is held as before
+export function checkNeeds(files: string[], app: string | null): NeedsCheck {
+  const out: NeedsCheck = { problems: [], files: 0, needs: 0, gaps: 0, notLookedFor: 0 };
   const gapsOf = gapsReader();
-  const code = new AppFiles(app);
+  const code = new AppFiles(app ?? '.');
   // each needs file's flow and the state of each of its needs, by the gaps file that covers it; null for a needs file
   // that cannot be read, whose entries are then not judged
   const covered = new Map<string, Map<string, Map<string, State> | null>>();
@@ -273,8 +281,9 @@ export function checkNeeds(files: string[], app: string): NeedsCheck {
     }
     const uiFile = join(dir, 'ui.yaml');
     const ctx: Context = {
-      app,
+      app: app ?? '.',
       code,
+      lookFor: app !== null,
       dir,
       flowId,
       states: flow === null ? null : new Set(isMap(flow.doc.states) ? Object.keys(flow.doc.states) : []),
@@ -304,6 +313,10 @@ export function checkNeeds(files: string[], app: string): NeedsCheck {
         if (kind === undefined) return; // the schema says it names no kind
         kinds++;
         if (!IN_GRAPH.has(kind)) outside = true;
+        if (!ctx.lookFor && namesAppFile(kind, e)) {
+          out.notLookedFor++;
+          return;
+        }
         const why = unresolved(ctx, kind, e);
         if (why !== null) problem('evidence-unresolved', file, body, [...at, 'evidence', String(j), kind], `need ${id}: ${why} (SPEC.md §13)`, graph, `needs/${id}/evidence/${kind}:${String(e[kind])}`);
       });

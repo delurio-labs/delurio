@@ -28,11 +28,11 @@ import { checkNeeds } from './needs.ts';
 import { checkAnchors } from './anchors.ts';
 
 export const CHECK_USAGE = [
-  '  node src/cli.ts check <graphs folder>... [--strict] [--baseline <sarif>] [--format sarif --output <file>] [--app <dir>]',
+  '  node src/cli.ts check <graphs folder>... [--strict] [--baseline <sarif>] [--format sarif --output <file>] [--app <dir> | --no-app]',
   '    checks every graph under the folders and writes nothing else: GNU error lines on stdout, or SARIF 2.1.0;',
   '    exit 0 clean, 1 a graph cannot be loaded or needs a newer format, 2 an error under --strict (new since --baseline);',
   '    the evidence of needs and the source: anchors are found under --app, the application\'s repository root',
-  '    (default: the working directory)',
+  '    (default: the working directory); --no-app checks the graphs without the code, and does not look for them',
 ].join('\n');
 
 const FORMAT = 'delurio-graph/0';
@@ -440,7 +440,7 @@ function toolVersion(): string {
   return pkg.version ?? '0.0.0';
 }
 
-function sarif(results: CheckResult[], exitCode: number): object {
+function sarif(results: CheckResult[], exitCode: number, said: string[]): object {
   const used = RULES.filter((r) => results.some((x) => x.rule === r.id));
   return {
     $schema: 'https://json.schemastore.org/sarif-2.1.0.json',
@@ -456,7 +456,13 @@ function sarif(results: CheckResult[], exitCode: number): object {
           },
         },
         automationDetails: { id: 'delurio/check/' },
-        invocations: [{ executionSuccessful: exitCode !== 1, exitCode }],
+        invocations: [
+          {
+            executionSuccessful: exitCode !== 1,
+            exitCode,
+            ...(said.length === 0 ? {} : { toolExecutionNotifications: said.map((text) => ({ level: 'note', message: { text } })) }),
+          },
+        ],
         results: results.map((r) => ({
           ruleId: r.rule,
           ruleIndex: used.findIndex((u) => u.id === r.rule),
@@ -516,7 +522,13 @@ function checkRun(args: string[]): number {
     console.error(`--app ${appGiven} is not a folder\nusage:\n${CHECK_USAGE}`);
     return 1;
   }
-  const app = resolve(appGiven ?? '.');
+  // --no-app: the graphs are here without the application's code, so what they name of it is not looked for (SPEC.md §10)
+  const noApp = args.includes('--no-app');
+  if (noApp && appGiven !== undefined) {
+    console.error(`--app names the application's code and --no-app says it is not here: give one of them\nusage:\n${CHECK_USAGE}`);
+    return 1;
+  }
+  const app = noApp ? null : resolve(appGiven ?? '.');
 
   const results: CheckResult[] = [];
   const domains = new Map<string, Domain | null>(); // the domains found, for every flow that names one
@@ -556,11 +568,18 @@ function checkRun(args: string[]): number {
     const prints = baselinePrints(baseline);
     for (const r of results) r.baselineState = prints.has(fingerprint(r)) ? 'unchanged' : 'new';
   }
+  // what --no-app did not look for, said once rather than as a finding each (SPEC.md §10)
+  const said: string[] = [];
+  if (noApp) {
+    const of = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+    const what = [count(anchors.anchors, 'source anchor'), of(anchors.citations, 'citation in words', 'citations in words'), of(needs.notLookedFor, 'piece of evidence', 'pieces of evidence')];
+    said.push(`--no-app: ${what.slice(0, -1).join(', ')} and ${what[what.length - 1]} name files of the application, which are not here, and were not looked for (SPEC.md §10)`);
+  }
   const failing = results.filter((r) => r.level === 'error' && !BREAKING.has(r.rule) && (r.baselineState === undefined || r.baselineState === 'new'));
   const exitCode = broken ? 1 : strict && failing.length > 0 ? 2 : 0;
 
   if (format === 'sarif') {
-    const text = `${JSON.stringify(sarif(results, exitCode), null, 2)}\n`;
+    const text = `${JSON.stringify(sarif(results, exitCode, said), null, 2)}\n`;
     if (output === undefined) process.stdout.write(text);
     else writeFileSync(output, text);
   }
@@ -579,6 +598,7 @@ function checkRun(args: string[]): number {
     const notes = results.filter((r) => r.rule === 'changes-note-gap');
     const newNotes = notes.filter((r) => r.baselineState === 'new').length;
     const missingNotes = notes.length === 0 ? '' : `, ${count(notes.length, 'missing changes note')}${newNotes > 0 ? ` (${newNotes} new)` : ''}`;
+    for (const s of said) console.error(`delurio check: note: ${s}`);
     console.error(`delurio check: ${count(graphs, 'graph')}, ${count(errors, 'error')}, ${count(warnings, 'warning')}${gaps}${missingNotes}; exit ${exitCode}`);
   }
   return exitCode;
