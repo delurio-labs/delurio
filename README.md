@@ -2,7 +2,7 @@
 
 The open checker and page of **delurio-graph/0**, a format for writing a product's flows, screens and API as one graph that people review in words, that is checked against the code, replayed on the real app and turned into tutorials. The format is [SPEC.md](SPEC.md).
 
-This package is the part a project's own CI runs: it reads graph files and nothing else. There is no network, no account and no model.
+`delurio` is the part a project's own CI runs. It reads graph files and nothing else: there is no network, no account and no model. It is written in Rust and ships as a binary, a container image and an npm package, all built from the same tag. [CHANGELOG.md](CHANGELOG.md) says what each release changed.
 
 ## Install
 
@@ -25,6 +25,19 @@ docker run --rm -v "$PWD:/work" -w /work ghcr.io/delurio-labs/delurio@sha256:<di
 The npm package installs a prebuilt addon of your platform (one of the `@delurio/cli-<platform>` packages, chosen by
 npm, with no install script) and needs Node 26 or later. Running it once without installing works too:
 `npx @delurio/cli@<x.y.z> check graphs --strict`.
+
+Each of them can be checked against the release that built it:
+
+- a binary: `sha256sum --check --ignore-missing SHA256SUMS`, with the release's `SHA256SUMS` beside it;
+- the npm packages carry npm provenance from the release workflow: `npm audit signatures` in the project that
+  installed them;
+- the image is signed with cosign by the repository's workflows:
+
+  ```sh
+  cosign verify ghcr.io/delurio-labs/delurio@sha256:<digest> \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity-regexp '^https://github.com/delurio-labs/delurio/\.github/workflows/(release|image-sign)\.yml@'
+  ```
 
 ## Check every graph
 
@@ -96,20 +109,21 @@ A kit (SPEC.md §8) says how the components of `ui.yaml` look in one product, so
 
 ## Write a graph in an editor
 
-The package ships a JSON Schema (2020-12) for each kind of graph file in `schemas/`: `flow`, `ui`, `nav` (also `nav.extracted.yaml`), `domain`, `catalog`, `needs` and `gaps` (`needs.gaps.yaml`). With them an editor completes keys, explains each one from SPEC.md on hover, and marks a typo, a value of the wrong kind, or a title cut short by a comma inside `{ }`. In VS Code, with the YAML extension, put this in `.vscode/settings.json`:
+The npm package ships a JSON Schema (2020-12) for each kind of graph file in `schemas/`: `flow`, `ui`, `nav` (also `nav.extracted.yaml`), `domain`, `catalog`, `needs` and `gaps` (`needs.gaps.yaml`). With them an editor completes keys, explains each one from SPEC.md on hover, and marks a typo, a value of the wrong kind, or a title cut short by a comma inside `{ }`. In VS Code, with the YAML extension, put this in `.vscode/settings.json`, with the version your project pins in
+place of 0.11.0 (a schema from an older release does not know the keys added since):
 
 ```json
 {
   "yaml.schemas": {
-    "https://unpkg.com/@delurio/cli@0.2.0/schemas/flow.schema.json": "**/flow.yaml",
-    "https://unpkg.com/@delurio/cli@0.2.0/schemas/ui.schema.json": "**/ui.yaml",
-    "https://unpkg.com/@delurio/cli@0.2.0/schemas/nav.schema.json": ["**/nav.yaml", "**/nav.extracted.yaml"],
-    "https://unpkg.com/@delurio/cli@0.2.0/schemas/domain.schema.json": ["**/domain.yaml", "**/domain/*.yaml"],
-    "https://unpkg.com/@delurio/cli@0.9.0/schemas/needs.schema.json": "**/needs.yaml",
-    "https://unpkg.com/@delurio/cli@0.9.0/schemas/gaps.schema.json": "**/needs.gaps.yaml"
+    "https://unpkg.com/@delurio/cli@0.11.0/schemas/flow.schema.json": "**/flow.yaml",
+    "https://unpkg.com/@delurio/cli@0.11.0/schemas/ui.schema.json": "**/ui.yaml",
+    "https://unpkg.com/@delurio/cli@0.11.0/schemas/nav.schema.json": ["**/nav.yaml", "**/nav.extracted.yaml"],
+    "https://unpkg.com/@delurio/cli@0.11.0/schemas/domain.schema.json": ["**/domain.yaml", "**/domain/*.yaml"],
+    "https://unpkg.com/@delurio/cli@0.11.0/schemas/needs.schema.json": "**/needs.yaml",
+    "https://unpkg.com/@delurio/cli@0.11.0/schemas/gaps.schema.json": "**/needs.gaps.yaml"
   },
   "json.schemas": [
-    { "fileMatch": ["**/catalog/*.json"], "url": "https://unpkg.com/@delurio/cli@0.2.0/schemas/catalog.schema.json" }
+    { "fileMatch": ["**/catalog/*.json"], "url": "https://unpkg.com/@delurio/cli@0.11.0/schemas/catalog.schema.json" }
   ]
 }
 ```
