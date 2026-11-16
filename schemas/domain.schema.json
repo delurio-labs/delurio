@@ -87,6 +87,7 @@
           "examples": [[{ "userId": "0199f9a0-11aa-7b22-8c33-4d44e55f6601", "clientId": "0199f9b2-3c4d-7e5f-8a6b-7c8d9e0f1a2b", "scopes": ["openid"] }]]
         },
         "note": { "type": "string", "description": "The author's own words about the entity, which no tool reads (SPEC.md §5)." },
+        "planned": { "type": "string", "minLength": 1, "description": "The entity is written before its code: no code makes it true yet. Why, or where that is tracked: words, an issue. It names no code (`source`) while it says so (SPEC.md §5).", "examples": ["the second phase builds it (#12)"] },
         "source": { "$ref": "#/$defs/sourceAnchor" }
       }
     },
@@ -245,6 +246,7 @@
           "examples": [["audit:consent.decided"]]
         },
         "note": { "type": "string", "description": "The author's own words about the action, which no tool reads (SPEC.md §5)." },
+        "planned": { "type": "string", "minLength": 1, "description": "The action is written before its code: no code makes it true yet. Why, or where that is tracked: words, an issue. It names no code (`source`) while it says so (SPEC.md §5).", "examples": ["the second phase builds it (#12)"] },
         "source": { "$ref": "#/$defs/sourceAnchor" }
       }
     },

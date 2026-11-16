@@ -107,6 +107,7 @@ const RULES: Rule[] = [
   { id: 'invoke-unknown', text: "An invoke or a failures entry names an action its flow's domain does not have, or the domain is not found (SPEC.md §5)", level: 'error' },
   { id: 'refusal-unknown', text: 'A failure class lists a code that is neither a refusal of its action nor a transport code (SPEC.md §2, §5)', level: 'error' },
   { id: 'policy-unknown', text: 'A policy names an action or an entity its domain does not have (SPEC.md §5)', level: 'error' },
+  { id: 'planned-built', text: 'A planned entity or action names its code (SPEC.md §5)', level: 'error' },
   { id: 'graph-warning', text: 'Another warning of the graph', level: 'error' },
   { id: 'nav-problem', text: 'A problem of the navigation graph', level: 'error' },
   { id: 'nav-note', text: 'A note on the navigation graph', level: 'warning' },
@@ -353,6 +354,36 @@ function checkServerFunctions(parts: DomainPart[], doc: Record<string, unknown>,
   return out;
 }
 
+// an entity or an action that says it is planned, written before its code, and names its code all the same (SPEC.md
+// §5): at its `planned`, with a note where its `source` is given, as the two may come from two files of a split domain
+function checkPlanned(parts: DomainPart[], doc: Record<string, unknown>, id: string): CheckResult[] {
+  const out: CheckResult[] = [];
+  const read = parts.map((p) => {
+    try {
+      return readYaml(p.text) as Record<string, Record<string, Record<string, unknown> | null> | undefined> | null;
+    } catch {
+      return null;
+    }
+  });
+  const given = (section: string, name: string, key: string): { file: string; line: number; column: number } | null => {
+    const i = read.findIndex((d) => d?.[section]?.[name]?.[key] !== undefined);
+    return i < 0 ? null : { file: parts[i].file, ...keyAt(parts[i].text, [section, name, key]) };
+  };
+  for (const [section, word] of [['entities', 'entity'], ['actions', 'action']] as const) {
+    const items = (doc[section] ?? {}) as Record<string, Record<string, unknown> | null>;
+    if (items === null || typeof items !== 'object') continue;
+    for (const [name, item] of Object.entries(items)) {
+      if (item === null || typeof item !== 'object' || typeof item.planned !== 'string' || typeof item.source !== 'string') continue;
+      const at = given(section, name, 'planned');
+      const src = given(section, name, 'source');
+      if (at === null) continue;
+      const notes: Note[] = src === null ? [] : [{ file: rel(src.file), line: src.line, column: src.column, message: `its source is given here` }];
+      out.push(result('planned-built', at.file, at, `the ${word} ${name} says it is planned (${item.planned}), and names its code, ${item.source}: a planned ${word} has no code yet; once it is built, take out planned (SPEC.md §5)`, id, `${section}/${name}/planned`, notes));
+    }
+  }
+  return out;
+}
+
 // whether a domain's file gives the entity
 function givesEntity(text: string, entity: string): boolean {
   try {
@@ -393,6 +424,7 @@ function checkDomains(files: string[]): CheckResult[] {
       out.push(result(p.rule, p.file, p, p.message, id, p.element, notes));
     }
     out.push(...checkServerFunctions(parts, merged.doc, id));
+    out.push(...checkPlanned(parts, merged.doc, id));
     for (const p of checkDomainNames(parts, merged.doc, id, elsewhere(id))) {
       out.push(result(p.rule, p.file, p, p.message, id, p.element, p.notes.map((n) => ({ ...n, file: rel(n.file) }))));
     }
