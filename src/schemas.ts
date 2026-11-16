@@ -89,6 +89,55 @@ function chain(root: Schema, schema: unknown): Schema[] {
   return out;
 }
 
+const ANCHOR = '#/$defs/sourceAnchor';
+const patterns = new Map<string, RegExp>();
+const matches = (pattern: string, name: string): boolean => {
+  let re = patterns.get(pattern);
+  if (re === undefined) patterns.set(pattern, (re = new RegExp(pattern, 'u')));
+  return re.test(name);
+};
+const refAt = (root: Schema, ref: string): unknown => ref.slice(2).split('/').reduce<unknown>((x, k) => (x as Schema | undefined)?.[k], root);
+
+export interface AnchorPlace {
+  path: string[]; // the keys from the file's top to its `source`
+  value: string;
+}
+
+// every source anchor in a graph file's value (SPEC.md §9): each `source` whose schema is the kind's `sourceAnchor`,
+// found by walking the value along its schema, so a key `source` that the schema gives another meaning (a nav graph's
+// `source`, a sample value or a parameter of ui.yaml, a field of a record) is none. Where the schema has alternatives,
+// every one that the value's shape reaches is walked.
+export function anchorsIn(kind: SchemaKind, data: unknown): AnchorPlace[] {
+  const root = schemas().roots[kind];
+  const out = new Map<string, AnchorPlace>();
+  const visit = (schema: unknown, value: unknown, path: string[], seen: Set<unknown>): void => {
+    if (schema === null || typeof schema !== 'object' || seen.has(schema)) return;
+    seen.add(schema);
+    const s = schema as Schema;
+    if (s.$ref === ANCHOR) {
+      if (typeof value === 'string') out.set(path.join('\0'), { path, value });
+      return;
+    }
+    if (typeof s.$ref === 'string' && s.$ref.startsWith('#/')) visit(refAt(root, s.$ref), value, path, seen);
+    for (const k of ['allOf', 'anyOf', 'oneOf']) for (const branch of (s[k] as unknown[] | undefined) ?? []) visit(branch, value, path, seen);
+    for (const k of ['then', 'else']) visit(s[k], value, path, seen);
+    if (Array.isArray(value)) {
+      const prefix = (s.prefixItems as unknown[] | undefined) ?? [];
+      value.forEach((x, i) => visit(i < prefix.length ? prefix[i] : s.items, x, [...path, String(i)], new Set()));
+      return;
+    }
+    if (value === null || typeof value !== 'object') return;
+    const properties = (s.properties ?? {}) as Schema;
+    const byPattern = Object.entries((s.patternProperties ?? {}) as Schema);
+    for (const [k, x] of Object.entries(value)) {
+      const sub = Object.hasOwn(properties, k) ? properties[k] : (byPattern.find(([p]) => matches(p, k))?.[1] ?? s.additionalProperties);
+      visit(sub, x, [...path, k], new Set());
+    }
+  };
+  visit(root, data, [], new Set());
+  return [...out.values()];
+}
+
 // edits between two names, a swap of two neighbours counting as one (titel, title)
 function distance(a: string, b: string): number {
   const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array<number>(b.length).fill(0)]);

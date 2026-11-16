@@ -25,12 +25,14 @@ import { inReadingOrder, mergeDomain } from './domain.ts';
 import { checkDomainNames } from './domain-names.ts';
 import type { EntityElsewhere } from './domain-names.ts';
 import { checkNeeds } from './needs.ts';
+import { checkAnchors } from './anchors.ts';
 
 export const CHECK_USAGE = [
   '  node src/cli.ts check <graphs folder>... [--strict] [--baseline <sarif>] [--format sarif --output <file>] [--app <dir>]',
   '    checks every graph under the folders and writes nothing else: GNU error lines on stdout, or SARIF 2.1.0;',
   '    exit 0 clean, 1 a graph cannot be loaded or needs a newer format, 2 an error under --strict (new since --baseline);',
-  '    the evidence of needs is found under --app, the application\'s repository root (default: the working directory)',
+  '    the evidence of needs and the source: anchors are found under --app, the application\'s repository root',
+  '    (default: the working directory)',
 ].join('\n');
 
 const FORMAT = 'delurio-graph/0';
@@ -86,6 +88,8 @@ const RULES: Rule[] = [
   { id: 'changes-note-gap', text: 'A writing flow says why it has no changes note yet: counted, and fails nothing (SPEC.md §4)', level: 'note' },
   { id: 'task-locale', text: "The flow's name for its users is missing from a locale's catalog (SPEC.md §4)", level: 'error' },
   { id: 'source-missing', text: 'A state of a captured flow names no code (SPEC.md §9)', level: 'error' },
+  { id: 'source-unresolved', text: 'A source anchor names a file that is not there, or a line past its end (SPEC.md §9)', level: 'error' },
+  { id: 'citation-unresolved', text: "Words that cite the code name a file that is not there, or a line past its end (SPEC.md §9)", level: 'warning' },
   { id: 'focus-not-shown', text: 'A focus or a returnsFocus gives the focus to a node that is not shown there (SPEC.md §4)', level: 'error' },
   { id: 'returns-focus-not-dialog', text: 'A returnsFocus does not start at a dialog (SPEC.md §4)', level: 'error' },
   { id: 'state-no-way-out', text: 'A state that is not an exit has no way out (SPEC.md §2)', level: 'error' },
@@ -543,6 +547,9 @@ function checkRun(args: string[]): number {
   // each flow's needs held to their evidence, and the product's gaps to its needs (SPEC.md §13)
   const needs = checkNeeds(files, app);
   for (const p of needs.problems) results.push(result(p.rule, p.file, p, p.message, p.graph, p.element));
+  // every source anchor, and every citation of the code in a graph's words, held to the application's files (SPEC.md §9)
+  const anchors = checkAnchors(files, app);
+  for (const p of anchors.problems) results.push(result(p.rule, p.file, p, p.message, p.graph, p.element));
   results.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line || a.column - b.column || a.rule.localeCompare(b.rule) || a.message.localeCompare(b.message));
 
   if (baseline !== undefined) {
