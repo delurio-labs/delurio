@@ -146,6 +146,7 @@ const RULES: &[Rule] = &[
     rule("citation-unresolved", "Words that cite the code name a file that is not there, or a line past its end (SPEC.md §9)", W),
     rule("focus-not-shown", "A focus or a returnsFocus gives the focus to a node that is not shown there (SPEC.md §4)", E),
     rule("returns-focus-not-dialog", "A returnsFocus does not start at a dialog (SPEC.md §4)", E),
+    rule("role-missing", "A field or an action gives no role, by which a screen reader finds it (SPEC.md §4)", W),
     rule("state-no-way-out", "A state that is not an exit has no way out (SPEC.md §2)", E),
     rule("state-unreachable", "No situation the flow starts in reaches the state (SPEC.md §2)", E),
     rule("tutorial-mismatch", "A tutorial no longer matches its flow (SPEC.md §7)", E),
