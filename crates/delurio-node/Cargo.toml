@@ -26,9 +26,6 @@ serde = "1.0.229"
 # the values the addon hands JavaScript, written as JSON (the version napi-rs itself locks)
 serde_json = "1.0.154"
 
-[features]
-# the diagram of renderSpine, once crates/delurio-page/src/spine.rs is on the branch (src/spine.rs)
-spine = []
 
 [build-dependencies]
 napi-build = "=2.6.0"

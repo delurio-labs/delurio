@@ -292,20 +292,16 @@ test('the page CSS keeps the lines the video stage reads out of it', () => {
   const lines = html.CSS.split('\n');
   assert.ok(lines.some((l) => l.startsWith(':root {')));
   assert.ok(lines.filter((l) => /^(svg)?\.spine[ .]/.test(l)).length > 5);
-  assert.throws(() => html.renderPage({}), /not ported/);
+  assert.throws(() => html.renderPage({}), /delurio page/);
 });
 
-test('renderSpine draws the diagram the page draws', async (t) => {
+test('renderSpine draws the diagram the page draws', async () => {
   const g = graph.load('examples/notes/edit');
   const m = new model.Model(g.flow);
   const ex = model.explore(m);
-  let svg;
-  try {
-    svg = await spine.renderSpine(g, ex, 'full', [{ state: g.flow.initial }]);
-  } catch (e) {
-    if (/not ported/.test(String(e.message))) return t.skip('the diagram is not in this build yet (crates/delurio-page/src/spine.rs)');
-    throw e;
-  }
+  // the main story as the page finds it, the same steps cli.ts hands renderSpine
+  const steps = story.stepsTo(m, ex, story.mainStoryIndex(g, ex));
+  const svg = await spine.renderSpine(g, ex, 'full', steps);
   assert.match(svg, /viewBox="0 0 (\d+) (\d+)"/);
   const page = mkdtempSync(join(tmpdir(), 'delurio-page-'));
   const r = spawnSync(process.execPath, [join(pkgRoot, 'js/cli.js'), 'page', 'examples/notes/edit', '--out', page], { encoding: 'utf8' });
