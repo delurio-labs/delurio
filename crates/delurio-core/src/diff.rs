@@ -18,8 +18,8 @@ use crate::js::{self, Object, Value};
 use crate::nav::load_nav_with;
 use crate::nodepath;
 
-pub const DIFF_USAGE: &str = "  node src/cli.ts diff <old dir> <new dir> [--base <rev>] [--head <rev>] [--json] [--fail-on-behaviour] [--fail-on-regression]
-  node src/cli.ts diff <graph dir> --base <rev> [--head <rev>] ...
+pub const DIFF_USAGE: &str = "  delurio diff <old dir> <new dir> [--base <rev>] [--head <rev>] [--json] [--fail-on-behaviour] [--fail-on-regression]
+  delurio diff <graph dir> --base <rev> [--head <rev>] ...
     what the new revision changes, as markdown for a PR description (--json: for machines); --base reads the old side
     from a git revision, --head the new one (default: the directory on disk). Works for flow and navigation graphs.
     --fail-on-behaviour: exit 2 when what the graph does changed;  --fail-on-regression: exit 2 when a guarantee newly

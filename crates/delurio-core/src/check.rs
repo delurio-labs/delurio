@@ -33,7 +33,7 @@ use crate::ui_check::check_ui;
 use crate::wireframe::render_screens;
 use crate::yaml::{key_at, parsing_once, read_yaml};
 
-pub const CHECK_USAGE: &str = "  node src/cli.ts check <graphs folder>... [--strict] [--baseline <sarif>] [--format sarif --output <file>] [--app <dir> | --no-app]
+pub const CHECK_USAGE: &str = "  delurio check <graphs folder>... [--strict] [--baseline <sarif>] [--format sarif --output <file>] [--app <dir> | --no-app]
     checks every graph under the folders and writes nothing else: GNU error lines on stdout, or SARIF 2.1.0;
     exit 0 clean, 1 a graph cannot be loaded or needs a newer format, 2 an error under --strict (new since --baseline);
     the evidence of needs and the source: anchors are found under --app, the application's repository root
