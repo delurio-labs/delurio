@@ -8,6 +8,7 @@ pub mod anchors;
 pub mod changes;
 pub mod domain;
 pub mod domain_names;
+pub mod edges;
 pub mod error;
 pub mod expr;
 pub mod graph;
