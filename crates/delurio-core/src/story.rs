@@ -32,17 +32,16 @@ pub struct Story {
 pub fn steps_to(m: &Model, ex: &Exploration, index: usize) -> Result<Vec<PathStep>> {
     let mut chain: Vec<usize> = Vec::new();
     let mut i = Some(index);
-    while let Some(k) = i.filter(|&k| k < ex.configs.len()) {
+    while let Some(k) = i.filter(|&k| k < ex.len()) {
         chain.push(k);
-        i = ex.configs[k].parent_index();
+        i = ex.parent(k);
     }
     chain.reverse();
-    let mut out = Vec::with_capacity(chain.len());
-    for (k, &ci) in chain.iter().enumerate() {
-        let c = &ex.configs[ci];
+    let mut out: Vec<PathStep> = Vec::with_capacity(chain.len());
+    for &ci in &chain {
+        let Some(c) = ex.config(ci) else { break };
         let mut taken = None;
-        if k > 0 {
-            let prev = &ex.configs[chain[k - 1]];
+        if let Some(prev) = out.last() {
             let joined = m.joined(&c.ctx);
             let hit = m
                 .steps(&prev.state, &prev.ctx)?
@@ -50,7 +49,7 @@ pub fn steps_to(m: &Model, ex: &Exploration, index: usize) -> Result<Vec<PathSte
                 .find(|s| s.target == c.state && s.event == c.event && m.joined(&s.ctx) == joined);
             taken = hit.map(|s| s.taken);
         }
-        out.push(PathStep { state: c.state.clone(), ctx: c.ctx.clone(), event: c.event.clone(), taken });
+        out.push(PathStep { state: c.state, ctx: c.ctx, event: c.event, taken });
     }
     Ok(out)
 }
@@ -116,17 +115,18 @@ fn walk(m: &Model, path: &mut Vec<PathStep>, events: &[Value], i: usize) -> Resu
 // The first success exit reachable through at least one screen: the story a person expects to read first.
 pub fn main_story_index(g: &Graph, ex: &Exploration) -> Option<usize> {
     let mut screen: std::collections::HashMap<&str, bool> = std::collections::HashMap::new();
-    let mut via_screen: Vec<bool> = Vec::with_capacity(ex.configs.len());
-    for c in &ex.configs {
-        let here = *screen.entry(&c.state).or_insert_with(|| kind_of(g, &c.state) == NodeKind::Screen);
-        let v = here || c.parent_index().is_some_and(|p| via_screen[p]);
+    let mut via_screen: Vec<bool> = Vec::with_capacity(ex.len());
+    for i in 0..ex.len() {
+        let state = ex.state(i);
+        let here = *screen.entry(state).or_insert_with(|| kind_of(g, state) == NodeKind::Screen);
+        let v = here || ex.parent(i).is_some_and(|p| via_screen.get(p).copied().unwrap_or(false));
         via_screen.push(v);
     }
     for (name, st) in g.flow().states() {
         if !st.is_final() || st.redirect() != Some("success") {
             continue;
         }
-        if let Some(i) = ex.configs.iter().enumerate().position(|(idx, c)| &*c.state == name && via_screen[idx]) {
+        if let Some(i) = (0..ex.len()).find(|&i| ex.state(i) == name && via_screen[i]) {
             return Some(i);
         }
     }

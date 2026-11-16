@@ -479,7 +479,7 @@ pub fn render_page(p: &PageInput<'_>) -> Result<String> {
     out.push("<h2>What is guaranteed</h2>".into());
     out.push(format!(
         "<p>These hold in all {} situations the model can reach, from {} different starting situations{}.</p>",
-        ex.configs.len(),
+        ex.len(),
         ex.starts,
         if holds == assertions.len() {
             String::new()

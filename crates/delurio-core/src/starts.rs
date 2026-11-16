@@ -125,11 +125,13 @@ pub fn check_starts(g: &Graph, m: &Model, ex: &Exploration) -> Result<Vec<HandOv
                 }
             }
             let taken = format!("{name}|{}|{i}", event.unwrap_or("always"));
-            for c in &ex.configs {
-                if &*c.state != name {
+            let mut ctx = Vec::new();
+            for c in 0..ex.len() {
+                if ex.state(c) != name {
                     continue;
                 }
-                for s in m.steps(&c.state, &c.ctx)? {
+                ex.ctx_into(c, &mut ctx);
+                for s in m.steps(name, &ctx)? {
                     if *s.taken != *taken {
                         continue;
                     }

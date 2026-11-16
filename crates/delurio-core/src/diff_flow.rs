@@ -979,20 +979,23 @@ fn run(g: &Graph) -> Result<FlowRun<'_>> {
     let mut violations: IndexMap<String, usize> = IndexMap::new();
     for a in g.flow().assertions() {
         let mut hit: Option<usize> = None;
-        if !ex.configs.is_empty() {
+        if !ex.is_empty() {
+            let mut ctx = Vec::new();
             match a.get("never") {
                 Some(Value::String(src)) => {
                     let test = m.tester(src)?;
-                    for (i, c) in ex.configs.iter().enumerate() {
-                        if test(&c.state, &c.ctx)? {
+                    for i in 0..ex.len() {
+                        ex.ctx_into(i, &mut ctx);
+                        if test(ex.state(i), &ctx)? {
                             hit = Some(i);
                             break;
                         }
                     }
                 }
                 other => {
-                    for (i, c) in ex.configs.iter().enumerate() {
-                        if m.test_value(other, &c.state, &c.ctx)? {
+                    for i in 0..ex.len() {
+                        ex.ctx_into(i, &mut ctx);
+                        if m.test_value(other, ex.state(i), &ctx)? {
                             hit = Some(i);
                             break;
                         }
@@ -1006,8 +1009,10 @@ fn run(g: &Graph) -> Result<FlowRun<'_>> {
     }
     let exits: IndexMap<String, usize> = final_paths(&m, &ex).into_iter().map(|f| (f.state, f.index)).collect();
     let mut moves = 0;
-    for c in &ex.configs {
-        moves += m.steps(&c.state, &c.ctx)?.len();
+    let mut ctx = Vec::new();
+    for i in 0..ex.len() {
+        ex.ctx_into(i, &mut ctx);
+        moves += m.steps(ex.state(i), &ctx)?.len();
     }
     let main_spec = g.flow().main();
     let declared = match main_spec {
@@ -1023,9 +1028,9 @@ fn run(g: &Graph) -> Result<FlowRun<'_>> {
         },
     };
     let mut reached: HashSet<String> = HashSet::new();
-    for c in &ex.configs {
-        if !reached.contains(&*c.state) {
-            reached.insert(c.state.to_string());
+    for i in 0..ex.len() {
+        if !reached.contains(ex.state(i)) {
+            reached.insert(ex.state(i).to_string());
         }
     }
     Ok(FlowRun { g, m, ex, violations, exits, moves, main, main_broken, reached })
@@ -1114,7 +1119,7 @@ pub fn flow_behaviour(rb: &FlowRun<'_>, ra: &FlowRun<'_>, s: &FlowStructure) -> 
     let at = |r: &FlowRun<'_>, i: usize| -> Result<Value> {
         let steps = steps_to(&r.m, &r.ex, i)?;
         let mut o = Object::new();
-        o.insert("state", Value::from(&*r.ex.configs[i].state));
+        o.insert("state", Value::from(r.ex.state(i)));
         o.insert("start", Value::Object(steps.first().map_or_else(Object::new, |s| r.m.scenario(&s.ctx))));
         o.insert("events", Value::Array(steps.iter().filter_map(|x| x.event.as_deref().map(Value::from)).collect()));
         Ok(Value::Object(o))
@@ -1129,8 +1134,7 @@ pub fn flow_behaviour(rb: &FlowRun<'_>, ra: &FlowRun<'_>, s: &FlowStructure) -> 
             (None, Some(va)) if in_a => {
                 let lead = if in_b { "A guarantee no longer holds" } else { "A new guarantee does not hold" };
                 let before = Value::from(if in_b { "holds" } else { "absent" });
-                let say =
-                    format!("{lead}: {}. It breaks in {}:", said(&id), state_name(ra.g, &ra.ex.configs[va].state));
+                let say = format!("{lead}: {}. It breaks in {}:", said(&id), state_name(ra.g, ra.ex.state(va)));
                 let detail = told(ra, &steps_to(&ra.m, &ra.ex, va)?);
                 shift("guarantee", &id, before, violated(at(ra, va)?), say, detail, true);
             }
@@ -1143,11 +1147,7 @@ pub fn flow_behaviour(rb: &FlowRun<'_>, ra: &FlowRun<'_>, s: &FlowStructure) -> 
                 if same_path(rb, ra, &pb, &pa) {
                     continue;
                 }
-                let say = format!(
-                    "Still broken, now first in {}: {}.",
-                    state_name(ra.g, &ra.ex.configs[va].state),
-                    said(&id)
-                );
+                let say = format!("Still broken, now first in {}: {}.", state_name(ra.g, ra.ex.state(va)), said(&id));
                 shift("guarantee", &id, violated(at(rb, vb)?), violated(at(ra, va)?), say, told(ra, &pa), false);
             }
             (Some(vb), _) if !in_a && in_b => {
@@ -1327,8 +1327,8 @@ pub fn flow_behaviour(rb: &FlowRun<'_>, ra: &FlowRun<'_>, s: &FlowStructure) -> 
         }
     }
 
-    let nb = rb.ex.configs.len();
-    let na = ra.ex.configs.len();
+    let nb = rb.ex.len();
+    let na = ra.ex.len();
     if na != nb || ra.ex.starts != rb.ex.starts || ra.moves != rb.moves {
         let starts = if ra.ex.starts == rb.ex.starts {
             ra.ex.starts.to_string()
@@ -1378,5 +1378,5 @@ pub fn flow_same_behaviour(r: &FlowRun<'_>) -> String {
     .filter(|x| !x.is_empty())
     .collect();
     let lead = if parts.is_empty() { String::new() } else { format!("{}, ", join_words(&parts)) };
-    format!("Nothing: {lead}in the same {} situations.", r.ex.configs.len())
+    format!("Nothing: {lead}in the same {} situations.", r.ex.len())
 }
