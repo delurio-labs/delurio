@@ -77,11 +77,15 @@ dependencies = [
 name = "delurio-node"
 version = "0.9.0"
 dependencies = [
+ "delurio",
  "delurio-core",
+ "delurio-page",
+ "indexmap",
  "napi",
  "napi-build",
  "napi-derive",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -473,8 +477,6 @@ dependencies = [
  "napi-sys",
  "nohash-hasher",
  "rustc-hash",
- "serde",
- "serde_json",
 ]
 
 [[package]]
