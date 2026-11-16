@@ -1,12 +1,19 @@
-//! The JSON Schemas of schemas/ (one per kind of graph file, SPEC.md §12): the part of the port of schemas.ts that the
-//! anchors rule reads. `schema_kind_of` is the port; `anchors_in` here walks the schemas as schemas.ts does, a stand-in
-//! for the port of the schemas module, which replaces it.
+//! The JSON Schemas of schemas/ (one per kind of graph file, SPEC.md §12): the kind of a graph file, each kind's
+//! schema compiled, and the source anchors a value holds, found by walking it along its schema.
+//!
+//! The port of schemas.ts, its first part. Its validator, Ajv 8.20.0 (with ajv-formats, which these schemas do not
+//! use), is `ajv.rs`: the findings depend on Ajv's exact error list and its order. `regexp.rs` writes the schemas'
+//! JavaScript patterns for the regex crate.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{LazyLock, Mutex};
+mod ajv;
+mod regexp;
+
+use std::collections::HashSet;
+use std::sync::LazyLock;
 
 use indexmap::IndexMap;
-use regex::Regex;
+
+pub use ajv::{AjvError, Data, Params, SchemaId, Validator};
 
 use crate::domain::{is_domain_text, may_be_domain};
 use crate::js::{self, Value};
@@ -24,7 +31,7 @@ pub enum SchemaKind {
 }
 
 impl SchemaKind {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             SchemaKind::Flow => "flow",
             SchemaKind::Ui => "ui",
@@ -35,7 +42,48 @@ impl SchemaKind {
             SchemaKind::Gaps => "gaps",
         }
     }
+    fn index(self) -> usize {
+        self as usize
+    }
 }
+
+pub const KINDS: [SchemaKind; 7] = [
+    SchemaKind::Flow,
+    SchemaKind::Ui,
+    SchemaKind::Domain,
+    SchemaKind::Nav,
+    SchemaKind::Catalog,
+    SchemaKind::Needs,
+    SchemaKind::Gaps,
+];
+
+// schemas/<kind>.schema.json, in the order of KINDS
+const TEXTS: [&str; 7] = [
+    include_str!("../../../../schemas/flow.schema.json"),
+    include_str!("../../../../schemas/ui.schema.json"),
+    include_str!("../../../../schemas/domain.schema.json"),
+    include_str!("../../../../schemas/nav.schema.json"),
+    include_str!("../../../../schemas/catalog.schema.json"),
+    include_str!("../../../../schemas/needs.schema.json"),
+    include_str!("../../../../schemas/gaps.schema.json"),
+];
+
+static ROOTS: LazyLock<Vec<Value>> = LazyLock::new(|| {
+    TEXTS
+        .iter()
+        .zip(KINDS)
+        .map(|(t, k)| js::json_parse(t).unwrap_or_else(|e| panic!("{}.schema.json: {e}", k.as_str())))
+        .collect()
+});
+
+// compiled once, on first use; a keyword the validator does not run fails here, as Ajv's strict mode fails to compile
+static VALIDATORS: LazyLock<Vec<Validator>> = LazyLock::new(|| {
+    ROOTS
+        .iter()
+        .zip(KINDS)
+        .map(|(r, k)| Validator::new(r).unwrap_or_else(|e| panic!("{}.schema.json: {e}", k.as_str())))
+        .collect()
+});
 
 /// the kind of graph file, by its name, and a domain also by its `kind` (a domain may be split across files, SPEC.md
 /// §5): None for a file no schema covers (binding, tutorial, kit, anchors.lock). A file that cannot be read is none
@@ -63,6 +111,45 @@ pub fn schema_kind_of(file: &str) -> Option<SchemaKind> {
     None
 }
 
+/// A kind's schema, as written (schemas/<kind>.schema.json).
+pub fn root(kind: SchemaKind) -> &'static Value {
+    &ROOTS[kind.index()]
+}
+
+/// A kind's schema, compiled (schemas.ts's `validators[kind]`): `validate` gives Ajv's raw error list.
+pub fn validator(kind: SchemaKind) -> &'static Validator {
+    &VALIDATORS[kind.index()]
+}
+
+// `x[k]` on a schema value, as the TypeScript reads a `$ref` step
+fn step_into<'v>(x: &'v Value, k: &str) -> Option<&'v Value> {
+    match x {
+        Value::Object(o) => o.get(k),
+        Value::Array(a) => array_index(k).and_then(|i| a.get(i)),
+        _ => None,
+    }
+}
+
+fn array_index(k: &str) -> Option<usize> {
+    if k.is_empty() || (k.len() > 1 && k.starts_with('0')) || !k.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    k.parse().ok()
+}
+
+const ANCHOR: &str = "#/$defs/sourceAnchor";
+
+fn matches(v: &Validator, pattern: &str, name: &str) -> bool {
+    match v.regex(pattern) {
+        Some(re) => re.is_match(name),
+        None => regexp::compile(pattern).is_ok_and(|re| re.is_match(name)),
+    }
+}
+
+fn ref_at(root: &'static Value, r: &str) -> Option<&'static Value> {
+    r[2..].split('/').try_fold(root, |x, k| step_into(x, k))
+}
+
 /// where a source anchor is in a graph file's value, and what it says
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AnchorPlace {
@@ -70,122 +157,73 @@ pub struct AnchorPlace {
     pub value: String,
 }
 
-fn parsed(text: &str) -> Value {
-    js::json_parse(text).expect("the schemas compiled in are JSON")
-}
-
-static ROOTS: LazyLock<[Value; 7]> = LazyLock::new(|| {
-    [
-        parsed(include_str!("../../../../schemas/flow.schema.json")),
-        parsed(include_str!("../../../../schemas/ui.schema.json")),
-        parsed(include_str!("../../../../schemas/domain.schema.json")),
-        parsed(include_str!("../../../../schemas/nav.schema.json")),
-        parsed(include_str!("../../../../schemas/catalog.schema.json")),
-        parsed(include_str!("../../../../schemas/needs.schema.json")),
-        parsed(include_str!("../../../../schemas/gaps.schema.json")),
-    ]
-});
-
-fn root_of(kind: SchemaKind) -> &'static Value {
-    let at = match kind {
-        SchemaKind::Flow => 0,
-        SchemaKind::Ui => 1,
-        SchemaKind::Domain => 2,
-        SchemaKind::Nav => 3,
-        SchemaKind::Catalog => 4,
-        SchemaKind::Needs => 5,
-        SchemaKind::Gaps => 6,
-    };
-    &ROOTS[at]
-}
-
-const ANCHOR: &str = "#/$defs/sourceAnchor";
-
-static PATTERNS: LazyLock<Mutex<HashMap<String, Option<Regex>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
-
-fn matches(pattern: &str, name: &str) -> bool {
-    let Ok(mut patterns) = PATTERNS.lock() else { return false };
-    patterns
-        .entry(pattern.to_string())
-        .or_insert_with(|| Regex::new(pattern).ok())
-        .as_ref()
-        .is_some_and(|re| re.is_match(name))
-}
-
-fn ref_at(root: &'static Value, r: &str) -> Option<&'static Value> {
-    r[2..].split('/').try_fold(root, |x, k| x.get(k))
+/// Every source anchor in a graph file's value (SPEC.md §9): each `source` whose schema is the kind's `sourceAnchor`,
+/// found by walking the value along its schema, so a key `source` that the schema gives another meaning (a nav graph's
+/// `source`, a sample value or a parameter of ui.yaml, a field of a record) is none. Where the schema has
+/// alternatives, every one that the value's shape reaches is walked.
+pub fn anchors_in(kind: SchemaKind, data: &Value) -> Vec<AnchorPlace> {
+    let root = root(kind);
+    let mut out: IndexMap<String, AnchorPlace> = IndexMap::new();
+    visit(root, validator(kind), Some(root), data, &[], &mut HashSet::new(), &mut out);
+    out.into_values().collect()
 }
 
 fn visit(
     root: &'static Value,
+    v: &Validator,
     schema: Option<&'static Value>,
     value: &Value,
-    path: Vec<String>,
+    path: &[String],
     seen: &mut HashSet<*const Value>,
     out: &mut IndexMap<String, AnchorPlace>,
 ) {
-    let Some(schema) = schema else { return };
-    let Value::Object(s) = schema else { return };
-    if !seen.insert(schema as *const Value) {
+    let Some(s) = schema.filter(|s| s.is_collection()) else { return };
+    if !seen.insert(s as *const Value) {
         return;
     }
-    let r = s.get("$ref").and_then(Value::as_str);
-    if r == Some(ANCHOR) {
-        if let Value::String(v) = value {
-            out.insert(path.join("\0"), AnchorPlace { path, value: v.clone() });
+    if s.get_str("$ref") == Some(ANCHOR) {
+        if let Value::String(text) = value {
+            out.insert(path.join("\0"), AnchorPlace { path: path.to_vec(), value: text.clone() });
         }
         return;
     }
-    if let Some(r) = r
-        && r.starts_with("#/")
-    {
-        visit(root, ref_at(root, r), value, path.clone(), seen, out);
+    if let Some(r) = s.get_str("$ref").filter(|r| r.starts_with("#/")) {
+        visit(root, v, ref_at(root, r), value, path, seen, out);
     }
     for k in ["allOf", "anyOf", "oneOf"] {
-        for branch in s.get(k).and_then(Value::as_array).into_iter().flatten() {
-            visit(root, Some(branch), value, path.clone(), seen, out);
+        for branch in s.get_array(k).map(Vec::as_slice).unwrap_or(&[]) {
+            visit(root, v, Some(branch), value, path, seen, out);
         }
     }
     for k in ["then", "else"] {
-        visit(root, s.get(k), value, path.clone(), seen, out);
+        visit(root, v, s.get(k), value, path, seen, out);
     }
+    let child = |k: &str| {
+        let mut p = path.to_vec();
+        p.push(k.to_string());
+        p
+    };
     if let Value::Array(items) = value {
-        let prefix = s.get("prefixItems").and_then(Value::as_array);
+        let prefix = s.get_array("prefixItems").map(Vec::as_slice).unwrap_or(&[]);
         for (i, x) in items.iter().enumerate() {
-            let sub = match prefix {
-                Some(p) if i < p.len() => p.get(i),
-                _ => s.get("items"),
-            };
-            let mut p = path.clone();
-            p.push(i.to_string());
-            visit(root, sub, x, p, &mut HashSet::new(), out);
+            let sub = if i < prefix.len() { Some(&prefix[i]) } else { s.get("items") };
+            visit(root, v, sub, x, &child(&i.to_string()), &mut HashSet::new(), out);
         }
         return;
     }
-    let Value::Object(value) = value else { return };
-    let properties = s.get("properties").and_then(Value::as_object);
-    let by_pattern = s.get("patternProperties").and_then(Value::as_object);
-    for (k, x) in value.iter() {
+    let Value::Object(entries) = value else { return };
+    let properties = s.get_object("properties");
+    let by_pattern = s.get_object("patternProperties");
+    for (k, x) in entries.iter() {
         let sub = match properties.and_then(|p| p.get(k)) {
             Some(sub) => Some(sub),
             None => by_pattern
-                .and_then(|o| o.iter().find(|(p, _)| matches(p, k)).map(|(_, sub)| sub))
-                .filter(|sub| !sub.is_null())
+                .and_then(|ps| ps.iter().find(|(p, _)| matches(v, p, k)).map(|(_, sub)| sub))
                 .or_else(|| s.get("additionalProperties")),
         };
-        let mut p = path.clone();
-        p.push(k.clone());
-        visit(root, sub, x, p, &mut HashSet::new(), out);
+        visit(root, v, sub, x, &child(k), &mut HashSet::new(), out);
     }
 }
 
-/// every source anchor in a graph file's value (SPEC.md §9): each `source` whose schema is the kind's `sourceAnchor`,
-/// found by walking the value along its schema, so a key `source` that the schema gives another meaning (a nav graph's
-/// `source`, a sample value or a parameter of ui.yaml, a field of a record) is none. Where the schema has alternatives,
-/// every one that the value's shape reaches is walked.
-pub fn anchors_in(kind: SchemaKind, data: &Value) -> Vec<AnchorPlace> {
-    let root = root_of(kind);
-    let mut out = IndexMap::new();
-    visit(root, Some(root), data, Vec::new(), &mut HashSet::new(), &mut out);
-    out.into_values().collect()
-}
+#[cfg(test)]
+mod tests;
