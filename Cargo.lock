@@ -49,7 +49,9 @@ name = "delurio-page"
 version = "0.9.0"
 dependencies = [
  "delurio-core",
+ "indexmap",
  "notify",
+ "regex",
  "rquickjs",
 ]
 
