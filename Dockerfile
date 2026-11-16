@@ -1,12 +1,11 @@
-# The same build as the npm package: dist/ from `npm run build`, the schemas check validates with, the production
-# dependencies, and nothing else.
-FROM node:26.13.1-alpine3.24@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5
-WORKDIR /opt/delurio
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
-COPY dist ./dist
-COPY schemas ./schemas
-COPY SPEC.md NOTICE LICENSE ./
+# The image: the static `delurio` binary (musl) on an empty base, for linux/amd64 and linux/arm64. The release
+# workflow builds the binaries and puts them in image/ as delurio-<arch> before `docker buildx build`; the checker
+# reads graph files and nothing else, so the image holds nothing else: no shell, no package manager, no runtime.
+FROM scratch
+ARG TARGETARCH
+COPY image/delurio-${TARGETARCH} /opt/delurio/delurio
+COPY schemas /opt/delurio/schemas
+COPY SPEC.md NOTICE LICENSE /opt/delurio/
 WORKDIR /work
-USER node
-ENTRYPOINT ["node", "/opt/delurio/dist/cli.js"]
+USER 65532:65532
+ENTRYPOINT ["/opt/delurio/delurio"]
