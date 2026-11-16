@@ -9,6 +9,7 @@ pub mod changes;
 pub mod check;
 pub mod compare;
 pub mod diff;
+pub mod diff_flow;
 pub mod diff_nav;
 pub mod domain;
 pub mod domain_names;
