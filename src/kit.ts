@@ -308,7 +308,8 @@ function checkCss(css: string, where: string): void {
     throw new KitError(`${where}: ${why}`);
   };
   if (css.includes('<')) fail('"<" is not allowed in kit CSS (percent-encode it in a data: URL)');
-  if (/expression\(|javascript:|-moz-binding|behavior\s*:/i.test(css)) fail('script-like CSS is not allowed');
+  // `behavior:` is old Internet Explorer's script binding; `scroll-behavior` and `overscroll-behavior` are not
+  if (/expression\(|javascript:|-moz-binding|(?:^|[^-\w])behavior\s*:/i.test(css)) fail('script-like CSS is not allowed');
   let depth = 0;
   let prelude = '';
   let i = 0;
