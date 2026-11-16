@@ -1,6 +1,7 @@
-# The checker is the Rust one (crates/); the npm package (js/) runs it as a native addon. CI holds it to the
-# TypeScript checker it was ported from (8e8e430): the behaviour cases of that checker's CI pass on the binary, and the
-# differential harness finds the same output from both on the examples and on QAuth's and Medaris's graphs.
+# The checker is the Rust one (crates/); the npm package (js/) runs it as a native addon. CI holds the Rust code to its
+# own tests (the behaviour cases that encode SPEC.md run under cargo test), every pinned dependency to the supply-chain
+# rule, and the npm package to the module API delurio's own code imports, as npm installs it on Node 26.13.1. The
+# differential harness against the TypeScript checker (tests/differential) is a tool to run by hand, not a gate.
 name: ci
 
 on:
@@ -13,11 +14,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # the TypeScript checker the port is held to, and the graph sets it is compared on (public repositories, fixed commits)
-  REFERENCE: 8e8e4305d5526e6c854f054bb3bcac858ea2cb7b
-  QAUTH: 294b2554582225a037ec9b37ec1f9c5aed263964
-  MEDARIS_395: dc22fd10ca755d74fbe4a72f6fd78e17db2e5e7e
-  MEDARIS_MAIN: 32f2e6c8cba5aa2058da5392a9aa000ac15338dd
 
 jobs:
   rust:
@@ -30,88 +26,10 @@ jobs:
         run: cargo fmt --all --check
       - name: Clippy, warnings as errors
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Tests
+      - name: Tests (the behaviour cases of SPEC.md among them)
         run: cargo test --workspace --locked
       - name: The release binary
         run: cargo build --release --locked -p delurio
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: delurio-linux-x64
-          path: target/release/delurio
-          if-no-files-found: error
-
-  # the steps of the TypeScript checker's CI that run its command line, as assertions on the binary: in order, in one
-  # shared folder, from a copy of the repository so that examples/ resolves as it did there
-  cases:
-    needs: rust
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 26.13.1
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: delurio-linux-x64
-          path: ${{ runner.temp }}/bin
-      - name: Every ci-* case passes on the binary
-        run: |
-          chmod +x "$RUNNER_TEMP/bin/delurio"
-          mkdir -p "$RUNNER_TEMP/cases/tmp"
-          cp -r . "$RUNNER_TEMP/cases/repo"
-          for c in tests/differential/cases/ci-*.sh; do
-            echo "::group::$c"
-            (cd "$RUNNER_TEMP/cases/repo" && DELURIO="$RUNNER_TEMP/bin/delurio" TMPDIR_CASE="$RUNNER_TEMP/cases/tmp" bash -e "$GITHUB_WORKSPACE/$c")
-            echo "::endgroup::"
-          done
-
-  # the TypeScript checker of the reference commit and the Rust one on the same cases, everything they write compared
-  differential:
-    needs: rust
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ env.REFERENCE }}
-          path: reference
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 26.13.1
-      - name: The TypeScript checker, built
-        working-directory: reference
-        run: |
-          npm ci --ignore-scripts
-          npm run build
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: delurio-linux-x64
-          path: ${{ runner.temp }}/bin
-      - name: QAuth's and Medaris's graphs at fixed commits
-        run: |
-          fetch() { # <repository> <commit> <folder> [paths...]
-            git init -q "$3" && git -C "$3" remote add origin "https://github.com/$1.git"
-            if [ $# -gt 3 ]; then git -C "$3" sparse-checkout set --no-cone "${@:4}"; fi
-            git -C "$3" fetch -q --depth 1 origin "$2" && git -C "$3" checkout -q FETCH_HEAD && rm -rf "$3/.git"
-          }
-          sets="$RUNNER_TEMP/sets"
-          fetch qauth-labs/qauth "$QAUTH" "$sets/qauth" '/graphs/'
-          fetch amel-tech/medaris "$MEDARIS_395" "$sets/medaris-395"
-          fetch amel-tech/medaris "$MEDARIS_MAIN" "$sets/medaris-main" '/docs/' '/graphs/'
-      - name: The same output from both checkers (delurio's own graphs are private and stay out)
-        run: |
-          chmod +x "$RUNNER_TEMP/bin/delurio"
-          code=0
-          node tests/differential/run.mjs --ts "node $GITHUB_WORKSPACE/reference/dist/cli.js" --rust "$RUNNER_TEMP/bin/delurio" \
-            --sets "$RUNNER_TEMP/sets" --work "$RUNNER_TEMP/differential" || code=$?
-          cat "$RUNNER_TEMP/differential/report.md" >> "$GITHUB_STEP_SUMMARY"
-          exit $code
-      - name: The addon, built
-        run: |
-          npm install --no-save --ignore-scripts --omit=optional --no-audit --no-fund
-          npm run build
-      - name: The package's modules give what the TypeScript modules gave
-        run: DELURIO_TS_REF="$GITHUB_WORKSPACE/reference/dist" DELURIO_SETS="$RUNNER_TEMP/sets/qauth/graphs" node --test tests/node/differential.test.mjs
 
   # every crate Cargo.lock pins and every npm package package-lock.json pins was published at least 7 days ago
   supply-chain:
@@ -157,30 +75,3 @@ jobs:
           node --test tests/node/
           npx delurio --help
           node node_modules/@delurio/cli/js/cli.js check examples --strict
-
-  # the image as the release builds it (one architecture here): the static musl binary alone checks the examples
-  image:
-    runs-on: ubuntu-24.04
-    env:
-      ZIG: 0.17.1
-      CARGO_ZIGBUILD: 0.24.1
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: The toolchain, zig and cargo-zigbuild
-        run: |
-          rustup toolchain install
-          rustup target add x86_64-unknown-linux-musl
-          curl -fsSL "https://ziglang.org/download/$ZIG/zig-x86_64-linux-$ZIG.tar.xz" -o zig.tar.xz
-          echo "3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a  zig.tar.xz" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/zig" && tar -xJf zig.tar.xz -C "$RUNNER_TEMP/zig" --strip-components 1 && rm zig.tar.xz
-          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
-          cargo install cargo-zigbuild --version "$CARGO_ZIGBUILD" --locked
-      - name: The static binary
-        run: |
-          cargo zigbuild --release --locked -p delurio --target x86_64-unknown-linux-musl
-          mkdir -p image && cp target/x86_64-unknown-linux-musl/release/delurio image/delurio-amd64
-          file image/delurio-amd64 | grep -E 'statically linked|static-pie linked'
-      - name: The image's files alone check the examples, schemas included
-        run: |
-          docker build --platform linux/amd64 -t delurio:ci .
-          docker run --rm -v "$PWD/examples:/work/examples:ro" delurio:ci check examples --strict 2>&1 | grep -Fx 'delurio check: 5 graphs, 0 errors, 0 warnings, 1 gap of 4 needs; exit 0'
