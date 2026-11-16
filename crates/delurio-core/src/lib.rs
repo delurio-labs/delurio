@@ -13,6 +13,7 @@ pub mod expr;
 pub mod graph;
 pub mod invokes;
 pub mod js;
+pub mod kit;
 pub mod nav;
 pub mod needs;
 pub mod nodepath;
