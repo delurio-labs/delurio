@@ -10,7 +10,8 @@
   "homepage": "https://delur.io",
   "main": "delurio.linux-arm64-musl.node",
   "files": [
-    "delurio.linux-arm64-musl.node"
+    "delurio.linux-arm64-musl.node",
+    "NOTICE"
   ],
   "os": [
     "linux"

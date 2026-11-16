@@ -23,9 +23,10 @@ async function modules(dir) {
   return out;
 }
 
-// a value as JSON can compare it: Sets and Maps as their items, an error as its class, message and place
+// a value as JSON can compare it: Sets and Maps as their items, an error as its class, place and code (its wording is
+// incidental: CONVENTIONS.md, ACCEPTANCE; an error a callback threw is the caller's own, compared by message too)
 function plain(v, seen = new Set()) {
-  if (v instanceof Error) return { error: v.constructor.name, name: v.name, message: v.message, place: v.place, code: v.code, linePos: v.linePos };
+  if (v instanceof Error) return { error: v.constructor.name, name: v.name, place: v.place, code: v.code, line: v.linePos?.[0]?.line };
   if (v instanceof Set) return { set: [...v].map((x) => plain(x, seen)) };
   if (v instanceof Map) return { map: [...v].map(([k, x]) => [k, plain(x, seen)]) };
   if (Array.isArray(v)) return v.map((x) => plain(x, seen));

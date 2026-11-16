@@ -51,7 +51,9 @@ jobs:
           mkdir -p "$RUNNER_TEMP/zig" && tar -xJf zig.tar.xz -C "$RUNNER_TEMP/zig" --strip-components 1 && rm zig.tar.xz
           echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
           cargo install cargo-zigbuild --version "$CARGO_ZIGBUILD" --locked
-      - run: npm ci --ignore-scripts --omit=optional
+      # npm ci refuses a lockfile that cannot hold the platform packages of the version being built (they are
+      # published with it); npm install --no-save installs every other package at the version the lockfile pins
+      - run: npm install --no-save --ignore-scripts --omit=optional --no-audit --no-fund
       - name: The addon
         shell: bash
         run: npx napi build --platform --release --target ${{ matrix.target }} ${{ matrix.addon }} --manifest-path crates/delurio-node/Cargo.toml --package-json-path package.json --output-dir . --no-js
@@ -121,7 +123,9 @@ jobs:
           test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
           for d in npm/*/; do test "v$(node -p "require('./$d/package.json').version")" = "$GITHUB_REF_NAME"; done
           node -e 'const p = require("./package.json"); for (const [n, v] of Object.entries(p.optionalDependencies)) if (v !== p.version) throw new Error(`${n} is at ${v}`)'
-      - run: npm ci --ignore-scripts --omit=optional
+      # npm ci refuses a lockfile that cannot hold the platform packages of the version being built (they are
+      # published with it); npm install --no-save installs every other package at the version the lockfile pins
+      - run: npm install --no-save --ignore-scripts --omit=optional --no-audit --no-fund
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: build-*

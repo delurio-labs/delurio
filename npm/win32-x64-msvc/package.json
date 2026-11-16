@@ -10,7 +10,8 @@
   "homepage": "https://delur.io",
   "main": "delurio.win32-x64-msvc.node",
   "files": [
-    "delurio.win32-x64-msvc.node"
+    "delurio.win32-x64-msvc.node",
+    "NOTICE"
   ],
   "os": [
     "win32"
