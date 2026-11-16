@@ -1,0 +1,53 @@
+<svg class="spine" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1216 394" style="width:1216px;max-width:none" role="img" aria-label="Flowchart of Sign out with failure paths. The text sections of this page describe every step.">
+<defs>
+<marker id="arrow-full-user" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="arrow arrow-user" d="M0 0 L10 5 L0 10 z"/></marker>
+<marker id="arrow-full-system" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="arrow arrow-system" d="M0 0 L10 5 L0 10 z"/></marker>
+<marker id="arrow-full-route" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="arrow arrow-route" d="M0 0 L10 5 L0 10 z"/></marker>
+<marker id="arrow-full-fail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="arrow arrow-fail" d="M0 0 L10 5 L0 10 z"/></marker>
+<marker id="arrow-full-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="arrow arrow-main" d="M0 0 L10 5 L0 10 z"/></marker>
+</defs>
+<path class="edge edge-system" d="M238.3 38 L238.3 94" marker-end="url(#arrow-full-system)"/>
+<path class="edge edge-route" data-from="checking" data-to="invalid_token.expired" d="M172 152 L172 312" marker-end="url(#arrow-full-route)"/>
+<path class="edge edge-route" data-from="checking" data-to="invalid_token.dpop_bound" d="M216.2 152 L216.2 194 L467 194 L467 312" marker-end="url(#arrow-full-route)"/>
+<path class="edge edge-route" data-from="checking" data-to="signed_out.cookie_cleared" d="M260.4 152 L260.4 184 L812.5 184 L812.5 312" marker-end="url(#arrow-full-route)"/>
+<path class="edge edge-route" data-from="checking" data-to="signed_out" d="M304.6 152 L304.6 174 L1098.5 174 L1098.5 312" marker-end="url(#arrow-full-route)"/>
+<g class="elabel" data-from="checking" data-to="invalid_token.expired"><rect x="24" y="224.5" width="142" height="23" rx="4"/>
+<text x="31" y="241.5">token == 'expired'</text>
+</g>
+<g class="elabel" data-from="checking" data-to="invalid_token.dpop_bound"><rect x="333" y="216" width="128" height="40" rx="4"/>
+<text x="340" y="233">token ==</text>
+<text x="340" y="250">'boundElsewhere'</text>
+</g>
+<g class="elabel" data-from="checking" data-to="signed_out.cookie_cleared"><rect x="728.5" y="224.5" width="78" height="23" rx="4"/>
+<text x="735.5" y="241.5">hasCookie</text>
+</g>
+<g class="elabel" data-from="checking" data-to="signed_out"><rect x="1014.5" y="224.5" width="78" height="23" rx="4"/>
+<text x="1021.5" y="241.5">otherwise</text>
+</g>
+<circle class="start" cx="238.3" cy="31" r="7"><title>start</title></circle>
+<g class="node node-server" data-state="checking"><title>checking</title>
+<rect x="127.8" y="94" width="221" height="58" rx="8"/>
+<text class="nname" x="238.3" y="119" text-anchor="middle">Check the access token</text>
+<text class="nline" x="238.3" y="138" text-anchor="middle">checking · server step</text>
+</g>
+<g class="node node-exit exit-error" data-state="signed_out"><title>signed_out</title>
+<rect x="1005.5" y="312" width="186" height="58" rx="28"/>
+<text class="nname" x="1098.5" y="337" text-anchor="middle">Signed out</text>
+<text class="nline" x="1098.5" y="356" text-anchor="middle">ends here</text>
+</g>
+<g class="node node-exit exit-error" data-state="signed_out.cookie_cleared"><title>signed_out.cookie_cleared</title>
+<rect x="655.5" y="312" width="314" height="58" rx="28"/>
+<text class="nname" x="812.5" y="337" text-anchor="middle">Signed out and the cookie cleared</text>
+<text class="nline" x="812.5" y="356" text-anchor="middle">ends here</text>
+</g>
+<g class="node node-exit exit-error" data-state="invalid_token.expired"><title>invalid_token.expired</title>
+<rect x="65.5" y="312" width="213" height="58" rx="28"/>
+<text class="nname" x="172" y="337" text-anchor="middle">The token has expired</text>
+<text class="nline" x="172" y="356" text-anchor="middle">ends here</text>
+</g>
+<g class="node node-exit exit-error" data-state="invalid_token.dpop_bound"><title>invalid_token.dpop_bound</title>
+<rect x="314.5" y="312" width="305" height="58" rx="28"/>
+<text class="nname" x="467" y="337" text-anchor="middle">The token belongs to another key</text>
+<text class="nline" x="467" y="356" text-anchor="middle">ends here</text>
+</g>
+</svg>

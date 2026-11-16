@@ -94,6 +94,17 @@ mod tests {
     }
 
     #[test]
+    fn a_flow_as_mermaid_text() {
+        // the fixture is the flow.mmd the TypeScript checker writes for the example
+        use delurio_core::graph::load;
+        use delurio_core::model::{Model, explore};
+        let g = load(&format!("{}/../../examples/sign-out", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let m = Model::new(g.flow.clone());
+        let ex = explore(&m, None, None).unwrap();
+        assert_eq!(render_mermaid(&g, &ex), include_str!("../tests/fixtures/sign-out-flow.mmd"));
+    }
+
+    #[test]
     fn labels_lose_what_ends_a_statement() {
         assert_eq!(clean("say \"x\": a; b"), "say 'x' - a, b");
     }

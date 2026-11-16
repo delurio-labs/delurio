@@ -1,0 +1,21 @@
+---
+title: Sign out
+---
+stateDiagram-v2
+  direction TB
+  state "Check the access token" as checking
+  state "Signed out (ends here)" as signed_out
+  state "Signed out and the cookie cleared (ends here)" as signed_out__cookie_cleared
+  state "The token has expired (ends here)" as invalid_token__expired
+  state "The token belongs to another key (ends here)" as invalid_token__dpop_bound
+  [*] --> checking
+  checking --> invalid_token__expired: token == 'expired'
+  checking --> invalid_token__dpop_bound: token == 'boundElsewhere'
+  checking --> signed_out__cookie_cleared: hasCookie
+  checking --> signed_out: otherwise
+  classDef server fill:#eeeeec,stroke:#6b6560,stroke-dasharray:4 3
+  classDef screen fill:#ffffff,stroke:#1c1917,stroke-width:2px
+  classDef subflow fill:#ffffff,stroke:#1d4ed8,stroke-width:2px
+  classDef exit fill:#ffffff,stroke:#6b6560,stroke-width:2px
+  class checking server
+  class signed_out,signed_out__cookie_cleared,invalid_token__expired,invalid_token__dpop_bound exit
