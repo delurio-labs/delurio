@@ -8,7 +8,13 @@
 //
 // --sets is a folder of graph sets (delurio/, qauth/, medaris-main/, medaris-395/: see cases/set-*.sh); a set case
 // whose set is not there is skipped. Each invocation's time and peak memory are recorded (GNU time, when installed)
-// and summed per case in the report. Exit 0 when every case is identical, 1 otherwise.
+// and summed per case in the report.
+//
+// What must be the same is the JUDGEMENT (the owner's acceptance, 16 Nov 2026): every command's exit code, and for
+// `check` its findings, each as its rule, level, file and line (text) and its fingerprint, the hash of its rule, graph
+// and element (SARIF), and the counts of its last line. A case whose bytes differ but whose judgement is the same is
+// "same judgement" (its wording differs, which the report shows); a different judgement, or a page or diagram whose
+// content differs, fails the run. Exit 0 when no case's judgement differs, 1 otherwise; --bytes fails on any byte.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -33,6 +39,7 @@ const sets = flag('--sets') === undefined ? '' : resolve(flag('--sets'));
 const work = resolve(flag('--work', join(repo, 'target', 'differential')));
 const reportFile = resolve(flag('--report', join(work, 'report.md')));
 const gnuTime = ['/usr/bin/time', '/usr/local/bin/gtime', '/opt/homebrew/bin/gtime'].find((t) => existsSync(t)) ?? null;
+const strictBytes = args.includes('--bytes');
 
 // what the two checkers may write differently by design: the tool's own version in SARIF
 const normalize = (text) => text.replace(/("name": "delurio",\n\s*"version": )"[^"]*"/g, '$1"<version>"');
@@ -96,6 +103,49 @@ function unified(a, b, label) {
   return r.stdout;
 }
 
+// the commands of a log: their arguments, exit code, stdout and stderr
+function commands(log) {
+  return log.split(/^(?=\$ delurio)/m).filter((b) => b.startsWith('$ delurio')).map((b) => {
+    const m = /^\$ delurio(.*)\n\[exit (\d+)\]\n--- stdout\n([\s\S]*?)--- stderr\n([\s\S]*)$/.exec(b);
+    return m === null ? { args: b, exit: null, stdout: '', stderr: '' } : { args: m[1].trim(), exit: Number(m[2]), stdout: m[3], stderr: m[4] };
+  });
+}
+
+// a check's judgement in its text or SARIF output: the sorted findings and the numbers of its last line
+const FINDING = /^(.+?):(\d+):\d+: (error|warning|note): .* \[([a-z-]+)\]$/;
+function judgement(text) {
+  const t = text.trim();
+  if (t.startsWith('{')) {
+    try {
+      const run = JSON.parse(t).runs?.[0];
+      const results = (run?.results ?? []).map((r) => `${r.ruleId} ${r.level} ${r.locations?.[0]?.physicalLocation?.artifactLocation?.uri}:${r.locations?.[0]?.physicalLocation?.region?.startLine} ${r.fingerprints?.['delurio/v1']} ${r.baselineState ?? ''}`);
+      return [`exit ${run?.invocations?.[0]?.exitCode}`, ...results.sort()].join('\n');
+    } catch {
+      return t;
+    }
+  }
+  const lines = t.split('\n');
+  const found = lines.map((l) => FINDING.exec(l)).filter((m) => m !== null).map((m) => `${m[4]} ${m[3]} ${m[1]}:${m[2]}`);
+  const counts = lines.filter((l) => l.startsWith('delurio check: ') && !l.startsWith('delurio check: note:')).map((l) => (l.match(/\d+/g) ?? []).join(' '));
+  return [...found.sort(), ...counts].join('\n');
+}
+
+// what a case decides: per command its exit code and, for check, its judgement; per file a check's output read for its
+// judgement, any other file (a page, a diagram) by its bytes
+function decided(run, files) {
+  const out = [];
+  for (const c of commands(run.log)) {
+    out.push(`$ ${c.args} -> exit ${c.exit}`);
+    if (/^check\b/.test(c.args)) out.push(judgement(c.stdout), judgement(c.stderr));
+  }
+  for (const [path, bytes] of files) {
+    const text = bytes.includes(0) ? null : normalize(bytes.toString('utf8'));
+    if (text !== null && (path.endsWith('.sarif') || path.endsWith('.txt'))) out.push(`${path}: ${judgement(text)}`);
+    else out.push(`${path}: ${createHash('sha256').update(text ?? bytes).digest('hex')}`);
+  }
+  return out.join('\n');
+}
+
 const cases = readdirSync(casesDir).filter((f) => f.endsWith('.sh') && only.test(f)).sort();
 const rows = [];
 const details = [];
@@ -125,11 +175,13 @@ for (const file of cases) {
     if (Buffer.compare(na, nb) === 0) continue;
     problems.push(binary(a) || binary(b) ? `${path} differs (binary): ${createHash('sha256').update(a).digest('hex').slice(0, 12)} vs ${createHash('sha256').update(b).digest('hex').slice(0, 12)}\n` : unified(na.toString('utf8'), nb.toString('utf8'), path));
   }
+  const sameJudgement = decided(ts, tsFiles) === decided(rust, rust.files);
+  if (!sameJudgement) problems.unshift(`JUDGEMENT:\n${unified(decided(ts, tsFiles), decided(rust, rust.files), 'judgement')}`);
   const sum = (t, k) => t.times.reduce((s, x) => s + (Number.isFinite(x[k]) ? x[k] : 0), 0);
   const peak = (t) => t.times.reduce((m, x) => Math.max(m, Number.isFinite(x.kb) ? x.kb : 0), 0);
   rows.push({
     file,
-    status: problems.length === 0 ? 'identical' : `DIFFERENT (${problems.length})`,
+    status: problems.length === 0 ? 'identical' : sameJudgement ? `same judgement, wording differs (${problems.length})` : `JUDGEMENT DIFFERS (${problems.length})`,
     commands: ts.times.length,
     files: tsFiles.size,
     tsSecs: sum(ts, 'secs'),
@@ -165,6 +217,7 @@ const lines = [
 ];
 mkdirSync(dirname(reportFile), { recursive: true });
 writeFileSync(reportFile, `${lines.join('\n')}\n`);
-const different = rows.filter((r) => r.status.startsWith('DIFFERENT')).length;
-console.log(`${rows.length} cases: ${rows.filter((r) => r.status === 'identical').length} identical, ${different} different, ${rows.filter((r) => r.status.startsWith('skipped')).length} skipped; report: ${reportFile}`);
-process.exit(different === 0 ? 0 : 1);
+const different = rows.filter((r) => r.status.startsWith('JUDGEMENT')).length;
+const worded = rows.filter((r) => r.status.startsWith('same judgement')).length;
+console.log(`${rows.length} cases: ${rows.filter((r) => r.status === 'identical').length} identical, ${worded} the same judgement in other words, ${different} judged differently, ${rows.filter((r) => r.status.startsWith('skipped')).length} skipped; report: ${reportFile}`);
+process.exit(different === 0 && (!strictBytes || worded === 0) ? 0 : 1);
