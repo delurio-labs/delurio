@@ -92,6 +92,7 @@ const RULES: Rule[] = [
   { id: 'citation-unresolved', text: "Words that cite the code name a file that is not there, or a line past its end (SPEC.md §9)", level: 'warning' },
   { id: 'focus-not-shown', text: 'A focus or a returnsFocus gives the focus to a node that is not shown there (SPEC.md §4)', level: 'error' },
   { id: 'returns-focus-not-dialog', text: 'A returnsFocus does not start at a dialog (SPEC.md §4)', level: 'error' },
+  { id: 'role-missing', text: 'A field or an action gives no role, by which a screen reader finds it (SPEC.md §4)', level: 'warning' },
   { id: 'state-no-way-out', text: 'A state that is not an exit has no way out (SPEC.md §2)', level: 'error' },
   { id: 'state-unreachable', text: 'No situation the flow starts in reaches the state (SPEC.md §2)', level: 'error' },
   { id: 'tutorial-mismatch', text: 'A tutorial no longer matches its flow (SPEC.md §7)', level: 'error' },

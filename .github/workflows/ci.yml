@@ -524,6 +524,22 @@ jobs:
           cat "$RUNNER_TEMP/kit-script.txt"
           test "$code" -eq 1
           grep -F 'event handlers are not allowed: a kit is data, never code [load]' "$RUNNER_TEMP/kit-script.txt"
+      - name: A field with no role is a warning, and the kit check's expectation says its role is not given
+        run: |
+          cp -r examples/notes "$RUNNER_TEMP/role-missing"
+          sed -i '/^  bodyField:$/,/^    role: textbox$/{/^    role: textbox$/d}' "$RUNNER_TEMP/role-missing/edit/ui.yaml"
+          node dist/cli.js check "$RUNNER_TEMP/role-missing" --strict > "$RUNNER_TEMP/role-missing.txt"
+          cat "$RUNNER_TEMP/role-missing.txt"
+          grep -F 'edit/ui.yaml' "$RUNNER_TEMP/role-missing.txt" | grep -F 'warning: bodyField is a field with no role' | grep -F '[role-missing]'
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { load } from "./dist/graph.js";
+            import { renderCheckScreens } from "./dist/wireframe.js";
+            const { expected } = renderCheckScreens(load(process.argv[1]), null, () => {});
+            const body = expected.filter((e) => e.id === "bodyField");
+            assert.ok(body.length > 0 && body.every((e) => e.roleGiven === false && e.role === "field"));
+            assert.ok(expected.filter((e) => e.id !== "bodyField").every((e) => e.roleGiven === true));
+          ' "$RUNNER_TEMP/role-missing/edit"
       - name: A kit's CSS may scroll smoothly, and old Internet Explorer's behavior is still refused
         run: |
           cp -r examples/notes "$RUNNER_TEMP/kit-scroll"

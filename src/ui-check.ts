@@ -8,7 +8,7 @@ import { alternatives, isDialog, OPENER, shownIn } from './graph.ts';
 import type { Graph, Label } from './graph.ts';
 
 export interface UiProblem {
-  rule: 'focus-not-shown' | 'returns-focus-not-dialog' | 'task-locale';
+  rule: 'focus-not-shown' | 'returns-focus-not-dialog' | 'task-locale' | 'role-missing';
   path: string[]; // where in ui.yaml
   message: string;
   element: string;
@@ -112,6 +112,11 @@ export function checkUi(g: Graph, warn: (message: string) => void): UiProblem[] 
     }
   };
   for (const n of Object.values(nodes)) if (n.value !== undefined) words(n.value);
+  // a control with no role: a screen reader, a replay and kit check find a field or an action by its WAI-ARIA role
+  for (const [id, n] of Object.entries(nodes)) {
+    if (n.role !== undefined || (n.type !== 'field' && n.type !== 'action')) continue;
+    out.push({ rule: 'role-missing', path: ['nodes', id], element: `nodes/${id}`, message: `${id} is ${n.type === 'field' ? 'a field' : 'an action'} with no role: a screen reader, a replay and kit check find a control by its WAI-ARIA role (textbox, combobox, button, link, ...), and kit check holds only its name and state (SPEC.md §4)` });
+  }
   // the flow's name for its users, in the catalog of every locale, as the changes note is
   const task = g.ui.task?.key;
   if (g.ui.absent !== true && typeof task === 'string') {

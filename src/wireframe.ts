@@ -240,9 +240,14 @@ export interface Expectation {
   id: string;
   index: number;
   role: string;
+  /** False when ui.yaml gives a control (a field or an action) no role: `role` is then its type, which no element is. */
+  roleGiven: boolean;
   name: string | undefined;
   disabled: boolean;
 }
+
+// a node's type that is no WAI-ARIA role: a field or an action with no `role` says nothing a screen reader can find
+const NO_ARIA_TYPES = new Set(['field', 'action']);
 
 // For `kit check`: every screen with all its nodes (flags revealed, no annotations), and what each node must expose.
 export function renderCheckScreens(g: Graph, kit: Kit | null, warn: Warn): { html: string; expected: Expectation[] } {
@@ -257,11 +262,12 @@ export function renderCheckScreens(g: Graph, kit: Kit | null, warn: Warn): { htm
       const n = it.node;
       if (n.component === 'Page') continue; // the screen itself: nothing is drawn for it
       if (n.component === 'ListItem') {
-        texts(g, n, warn).forEach((line, index) => expected.push({ state, id: it.id, index, role: n.role ?? 'listitem', name: line, disabled: it.disabled }));
+        texts(g, n, warn).forEach((line, index) => expected.push({ state, id: it.id, index, role: n.role ?? 'listitem', roleGiven: true, name: line, disabled: it.disabled }));
         continue;
       }
       const role = n.role ?? (n.type === 'text' ? 'text' : n.type);
-      expected.push({ state, id: it.id, index: 0, role, name: role === 'text' ? texts(g, n, warn)[0] : accessibleName(g, n, warn), disabled: it.disabled });
+      const roleGiven = n.role !== undefined || !NO_ARIA_TYPES.has(n.type);
+      expected.push({ state, id: it.id, index: 0, role, roleGiven, name: role === 'text' ? texts(g, n, warn)[0] : accessibleName(g, n, warn), disabled: it.disabled });
     }
   }
   return { html: html.join('\n'), expected };
