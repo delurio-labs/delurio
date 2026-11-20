@@ -17,6 +17,7 @@ pub mod edges;
 pub mod error;
 pub mod expr;
 pub mod graph;
+pub mod holds;
 pub mod invokes;
 pub mod js;
 pub mod kit;

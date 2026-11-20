@@ -18,6 +18,7 @@ use crate::domain::{DomainPart, MergedDomain, in_reading_order, merge_domain};
 use crate::domain_names::{EntityPlace, check_domain_names};
 use crate::error::{At, Error, ErrorPlace, Result};
 use crate::graph::{Graph, alternatives, load, read_error};
+use crate::holds::{HOLDS_UNKNOWN, check_holds};
 use crate::invokes::check_invokes;
 use crate::js::{self, Object, Value};
 use crate::kit::resolve_kit;
@@ -563,6 +564,15 @@ fn check_flow(dir: &str, domains: &mut DomainsSeen) -> Result<Vec<CheckResult>> 
     }
     for p in check_invokes(&g, || domain.get_or_init(|| flow_domain(&g, Some(&mut *domains))).clone()) {
         out.push(result(p.rule.as_str(), &file, key_at(&flow_text, &p.path), p.message, &id, p.element));
+    }
+    // what a node holds names a field of the flow's domain (SPEC.md §4)
+    let holds = check_holds(&g, || domain.get_or_init(|| flow_domain(&g, Some(&mut *domains))).clone());
+    if !holds.is_empty() {
+        let ui = join2(dir, "ui.yaml");
+        let text = read_text(&ui).unwrap_or_default();
+        for p in holds {
+            out.push(result(HOLDS_UNKNOWN, &ui, key_at(&text, &p.path), p.message, &id, p.element));
+        }
     }
     let tutorial = join2(dir, "tutorial.yaml");
     if exists(&tutorial) {
