@@ -2,7 +2,7 @@
 // the readers of its parts. The checker is the Rust one (crates/delurio-core/src/graph.rs), run in the addon.
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GraphError, Trap, call, json, native, nativeValue, placed, rememberGraph, warnings } from './internal.js';
+import { GraphError, Trap, call, json, native, nativeGraph, nativeValue, placed, rememberGraph, warnings } from './internal.js';
 
 export { GraphError, placed };
 
@@ -37,6 +37,12 @@ export function shownIn(n, state) {
 
 // The node that has focus once the flow has moved from the state `from` (null when it starts) into another state `to`
 // (SPEC.md §4, Focus). `ui` is read as it is at the call.
+// the nodes a recording masks: each node that holds a field of the flow's domain whose sensitivity is credential
+// (SPEC.md §4, §7), in the order of the ui's nodes; none when the domain is not found beside the graph
+export function maskedNodes(g) {
+  return native.maskedNodesOf(nativeGraph(g));
+}
+
 export function focusAfter(ui, from, to, pressed) {
   return JSON.parse(native.focusAfterStep(json(ui), from ?? undefined, String(to), pressed ?? undefined));
 }

@@ -275,6 +275,12 @@
           "const": "never"
         },
         "value": { "$ref": "#/$defs/value", "description": "On a field: what it holds when it is shown, until someone types in it. A replay reads the field's value and compares it." },
+        "holds": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$",
+          "description": "The field of the flow's domain whose value the node shows, or the control takes: <Entity>.<field>. A node that holds a field whose sensitivity is credential is masked wherever the flow's screens are recorded (SPEC.md §4, §7).",
+          "examples": ["Client.name", "Credential.secret"]
+        },
         "checked": {
           "type": ["boolean", "string"],
           "minLength": 1,

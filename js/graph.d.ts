@@ -98,6 +98,7 @@ export interface UiNode {
     repeat?: string;
     frame?: string;
     value?: Label;
+    holds?: string;
     checked?: boolean | string;
     script?: 'optional' | 'actions';
     source?: string;
@@ -152,6 +153,7 @@ export declare function transitionPath(state: string, st: State, event: string |
 export declare function humanize(id: string): string;
 export declare function titleOf(flow: Flow, state: string): string;
 export declare function shownIn(n: UiNode, state: string): boolean;
+export declare function maskedNodes(g: Graph): string[];
 export interface FocusAfter {
     node: string;
     by: 'returnsFocus' | 'initialFocus' | 'focus';

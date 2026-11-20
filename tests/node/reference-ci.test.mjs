@@ -112,3 +112,20 @@ test('A field with no role is a warning, and the kit check\'s expectation says i
   assert.ok(body.length > 0 && body.every((e) => e.roleGiven === false && e.role === 'field'));
   assert.ok(expected.filter((e) => e.id !== 'bodyField').every((e) => e.roleGiven === true));
 });
+
+test('A recording masks the nodes that hold a credential of the flow\'s domain: maskedNodes', async () => {
+  const { maskedNodes } = await import('@delurio/cli/graph');
+  const dir = mkdtempSync(join(tmpdir(), 'holds-'));
+  const flow = join(dir, 'graphs', 'qauth-authorize');
+  cpSync('examples/qauth-authorize', flow, { recursive: true });
+  assert.deepEqual(maskedNodes(load(flow)), []);
+  const ui = join(flow, 'ui.yaml');
+  const text = readFileSync(ui, 'utf8')
+    .replace(/^  title:\n/mu, '  title:\n    holds: Client.name\n')
+    .replace(/^  account:\n/mu, '  account:\n    holds: AuthorizationCode.value\n');
+  writeFileSync(ui, text);
+  const g = load(flow);
+  assert.equal(g.ui.nodes.account.holds, 'AuthorizationCode.value');
+  // Client.name is no credential; AuthorizationCode.value is
+  assert.deepEqual(maskedNodes(g), ['account']);
+});
