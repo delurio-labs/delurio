@@ -768,8 +768,7 @@
               },
               "nth": {
                 "type": "integer",
-                "minimum": 0,
-                "description": "Of what the rest finds, this one, from 0."
+                "description": "Of what the rest finds, this one: from 0, the first; a negative one counts from the end, -1 the last."
               },
               "before": {
                 "type": "array",
@@ -1236,8 +1235,7 @@
               },
               "nth": {
                 "type": "integer",
-                "minimum": 0,
-                "description": "Of what the rest finds, this one, from 0."
+                "description": "Of what the rest finds, this one: from 0, the first; a negative one counts from the end, -1 the last."
               },
               "skip": {
                 "type": "string",
@@ -1332,8 +1330,7 @@
         },
         "nth": {
           "type": "integer",
-          "minimum": 0,
-          "description": "Of what the rest finds, this one, from 0."
+          "description": "Of what the rest finds, this one: from 0, the first; a negative one counts from the end, -1 the last."
         }
       },
       "description": "Where an element is: by role (and name), text, label, testId or css, narrowed by hasText, within, nth and frame.",
@@ -1444,8 +1441,7 @@
             },
             "nth": {
               "type": "integer",
-              "minimum": 0,
-              "description": "Of what the rest finds, this one, from 0."
+              "description": "Of what the rest finds, this one: from 0, the first; a negative one counts from the end, -1 the last."
             },
             "value": {
               "type": [
@@ -1547,8 +1543,7 @@
             },
             "nth": {
               "type": "integer",
-              "minimum": 0,
-              "description": "Of what the rest finds, this one, from 0."
+              "description": "Of what the rest finds, this one: from 0, the first; a negative one counts from the end, -1 the last."
             },
             "file": {
               "description": "A fixture, or a list of them, each relative to the binding's file and inside its folder.",
