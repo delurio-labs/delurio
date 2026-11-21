@@ -110,21 +110,21 @@ A kit (SPEC.md §8) says how the components of `ui.yaml` look in one product, so
 ## Write a graph in an editor
 
 The npm package ships a JSON Schema (2020-12) for each kind of graph file in `schemas/`: `flow`, `ui`, `nav` (also `nav.extracted.yaml`), `domain`, `catalog`, `needs`, `gaps` (`needs.gaps.yaml`) and `binding` (`binding.yaml` and a shared `<name>.binding.yaml`). With them an editor completes keys, explains each one from SPEC.md on hover, and marks a typo, a value of the wrong kind, or a title cut short by a comma inside `{ }`. In VS Code, with the YAML extension, put this in `.vscode/settings.json`, with the version your project pins in
-place of 0.11.0 (a schema from an older release does not know the keys added since):
+place of 0.12.0 (a schema from an older release does not know the keys added since):
 
 ```json
 {
   "yaml.schemas": {
-    "https://unpkg.com/@delurio/cli@0.11.0/schemas/flow.schema.json": "**/flow.yaml",
-    "https://unpkg.com/@delurio/cli@0.11.0/schemas/ui.schema.json": "**/ui.yaml",
-    "https://unpkg.com/@delurio/cli@0.11.0/schemas/nav.schema.json": ["**/nav.yaml", "**/nav.extracted.yaml"],
-    "https://unpkg.com/@delurio/cli@0.11.0/schemas/domain.schema.json": ["**/domain.yaml", "**/domain/*.yaml"],
-    "https://unpkg.com/@delurio/cli@0.11.0/schemas/needs.schema.json": "**/needs.yaml",
-    "https://unpkg.com/@delurio/cli@0.11.0/schemas/gaps.schema.json": "**/needs.gaps.yaml",
+    "https://unpkg.com/@delurio/cli@0.12.0/schemas/flow.schema.json": "**/flow.yaml",
+    "https://unpkg.com/@delurio/cli@0.12.0/schemas/ui.schema.json": "**/ui.yaml",
+    "https://unpkg.com/@delurio/cli@0.12.0/schemas/nav.schema.json": ["**/nav.yaml", "**/nav.extracted.yaml"],
+    "https://unpkg.com/@delurio/cli@0.12.0/schemas/domain.schema.json": ["**/domain.yaml", "**/domain/*.yaml"],
+    "https://unpkg.com/@delurio/cli@0.12.0/schemas/needs.schema.json": "**/needs.yaml",
+    "https://unpkg.com/@delurio/cli@0.12.0/schemas/gaps.schema.json": "**/needs.gaps.yaml",
     "https://unpkg.com/@delurio/cli@0.12.0/schemas/binding.schema.json": ["**/binding.yaml", "**/*.binding.yaml"]
   },
   "json.schemas": [
-    { "fileMatch": ["**/catalog/*.json"], "url": "https://unpkg.com/@delurio/cli@0.11.0/schemas/catalog.schema.json" }
+    { "fileMatch": ["**/catalog/*.json"], "url": "https://unpkg.com/@delurio/cli@0.12.0/schemas/catalog.schema.json" }
   ]
 }
 ```

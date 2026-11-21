@@ -2,7 +2,7 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
-## 0.12.0 (unreleased)
+## 0.12.0 (2026-11-21)
 
 - A node of a flow's screens may say which field of the flow's domain it holds: `holds: <Entity>.<field>`, the value a text shows or a field takes (SPEC.md §4). New rule of `check`, which fails `--strict`: `holds-unknown`, at a `holds` that names an entity the domain does not have, a field the entity does not have, or a domain that is not found beside the flow; an entity that gives no `fields` yet is not held to them. A `holds` that is not `<Entity>.<field>` is the `schema` rule's. Graphs without `holds` are judged as before.
 - What a recording masks (SPEC.md §7): a recording, a video made from it and a replay's screenshots blur every element of a node that holds a field whose `sensitivity` the binding's `mask` names, in every frame of a state that shows it. What is masked is the binding's to say: `mask` lists the sensitivities, `[credential]` when it is left out; `mask: [credential, personal]` also keeps people's names and addresses out of a recording made on real data, and `mask: []` masks nothing, for a tutorial filmed with a password made up for it. `maskedNodes(g, mask)` in `@delurio/cli/graph` names those nodes, in the order of `nodes`, the domain looked up beside the graph as `check` finds it; `UiNode` gives `holds`.
