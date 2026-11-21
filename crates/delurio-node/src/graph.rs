@@ -90,12 +90,13 @@ pub fn humanize_id(id: String) -> String {
     humanize(&id)
 }
 
-/// `maskedNodes(g)`: the nodes a recording masks, those that hold a credential of the flow's domain (SPEC.md §4, §7),
-/// the domain looked up beside the graph as `check` finds it
+/// `maskedNodes(g, mask)`: the nodes a recording masks, those that hold a field of the flow's domain whose sensitivity
+/// `mask` names (SPEC.md §4, §7), the domain looked up beside the graph as `check` finds it; graph.js checks `mask`
 #[napi]
-pub fn masked_nodes_of(g: &NativeGraph) -> Vec<String> {
+pub fn masked_nodes_of(g: &NativeGraph, mask: Vec<String>) -> Vec<String> {
     let domain = delurio_core::changes::flow_domain(&g.g, None);
-    delurio_core::holds::masked_nodes(&g.g, domain.as_ref())
+    let mask: Vec<&str> = mask.iter().map(String::as_str).collect();
+    delurio_core::holds::masked_nodes(&g.g, domain.as_ref(), &mask)
 }
 
 /// `shownIn(n, state)`

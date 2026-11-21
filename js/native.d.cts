@@ -184,10 +184,10 @@ export declare function mainStoryIndex(g: NativeGraph, ex: NativeExploration): n
 export declare function mark(html: string, id: string, chips: string): string
 
 /**
- * `maskedNodes(g)`: the nodes a recording masks, those that hold a credential of the flow's domain (SPEC.md §4, §7),
- * the domain looked up beside the graph as `check` finds it
+ * `maskedNodes(g, mask)`: the nodes a recording masks, those that hold a field of the flow's domain whose sensitivity
+ * `mask` names (SPEC.md §4, §7), the domain looked up beside the graph as `check` finds it; graph.js checks `mask`
  */
-export declare function maskedNodesOf(g: NativeGraph): Array<string>
+export declare function maskedNodesOf(g: NativeGraph, mask: Array<string>): Array<string>
 
 /** `menuRows(g, views)`, as JSON */
 export declare function menuRows(g: NativeNav, views: string): string
