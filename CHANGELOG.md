@@ -2,7 +2,7 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
-## Unreleased
+## 0.13.0 (2026-11-21)
 
 - A variant of a flow's binding written beside it, `binding.<variant>.yaml` (`binding.noSessions.yaml`, `binding.common.yaml`), is a binding (SPEC.md §7): `check` holds it to the binding schema, as it holds `binding.yaml` and a shared `<name>.binding.yaml`. Before, it was read as no graph file at all, and a value the schema refuses passed unseen; Medaris had 271 such files.
 - A locator's `nth` may be negative, counting from the end: -1 is the last of what the rest finds, such as the row a step has just added (SPEC.md §7). The schema refused it, though a replay hands `nth` to the browser's locator as it is.
