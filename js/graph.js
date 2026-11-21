@@ -37,10 +37,18 @@ export function shownIn(n, state) {
 
 // The node that has focus once the flow has moved from the state `from` (null when it starts) into another state `to`
 // (SPEC.md §4, Focus). `ui` is read as it is at the call.
-// the nodes a recording masks: each node that holds a field of the flow's domain whose sensitivity is credential
-// (SPEC.md §4, §7), in the order of the ui's nodes; none when the domain is not found beside the graph
-export function maskedNodes(g) {
-  return native.maskedNodesOf(nativeGraph(g));
+// the sensitivities a field may have (SPEC.md §5), which a binding's `mask` names
+const SENSITIVITIES = ['credential', 'personal', 'internal'];
+
+// the nodes a recording masks: each node that holds a field of the flow's domain whose sensitivity `mask` names, the
+// binding's (SPEC.md §4, §7): `credential` unless it says, and nothing for []. In the order of the ui's nodes; none
+// when the domain is not found beside the graph.
+export function maskedNodes(g, mask = ['credential']) {
+  if (!Array.isArray(mask)) throw new TypeError('maskedNodes: mask is a list of sensitivities');
+  for (const s of mask)
+    if (!SENSITIVITIES.includes(s))
+      throw new TypeError(`maskedNodes: ${String(s)} is not a sensitivity (${SENSITIVITIES.join(', ')})`);
+  return native.maskedNodesOf(nativeGraph(g), [...mask]);
 }
 
 export function focusAfter(ui, from, to, pressed) {

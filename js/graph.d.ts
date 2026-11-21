@@ -153,7 +153,8 @@ export declare function transitionPath(state: string, st: State, event: string |
 export declare function humanize(id: string): string;
 export declare function titleOf(flow: Flow, state: string): string;
 export declare function shownIn(n: UiNode, state: string): boolean;
-export declare function maskedNodes(g: Graph): string[];
+export type Sensitivity = 'credential' | 'personal' | 'internal';
+export declare function maskedNodes(g: Graph, mask?: readonly Sensitivity[]): string[];
 export interface FocusAfter {
     node: string;
     by: 'returnsFocus' | 'initialFocus' | 'focus';

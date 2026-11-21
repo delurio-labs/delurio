@@ -113,7 +113,7 @@ test('A field with no role is a warning, and the kit check\'s expectation says i
   assert.ok(expected.filter((e) => e.id !== 'bodyField').every((e) => e.roleGiven === true));
 });
 
-test('A recording masks the nodes that hold a credential of the flow\'s domain: maskedNodes', async () => {
+test('A recording masks the nodes that hold what the binding\'s mask names: maskedNodes', async () => {
   const { maskedNodes } = await import('@delurio/cli/graph');
   const dir = mkdtempSync(join(tmpdir(), 'holds-'));
   const flow = join(dir, 'graphs', 'qauth-authorize');
@@ -128,4 +128,9 @@ test('A recording masks the nodes that hold a credential of the flow\'s domain: 
   assert.equal(g.ui.nodes.account.holds, 'AuthorizationCode.value');
   // Client.name is no credential; AuthorizationCode.value is
   assert.deepEqual(maskedNodes(g), ['account']);
+  assert.deepEqual(maskedNodes(g, ['credential']), ['account']);
+  // a mask that names nothing masks nothing: a tutorial filmed with a credential made up for it
+  assert.deepEqual(maskedNodes(g, []), []);
+  assert.deepEqual(maskedNodes(g, ['personal']), []);
+  assert.throws(() => maskedNodes(g, ['secret']), /secret is not a sensitivity \(credential, personal, internal\)/);
 });

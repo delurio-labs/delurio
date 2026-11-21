@@ -2,8 +2,8 @@
 //! of an entity of the domain the flow names, the value the node shows or the control takes. The domain is looked up as
 //! the `changes` rule and the invoke rule find it, among the graphs beside the flow, all its files read as one. Each
 //! finding is an error, `holds-unknown`, which fails --strict, as `invoke-unknown` does. A node that holds a field whose
-//! `sensitivity` is `credential` is masked wherever the flow's screens are recorded (SPEC.md §7): `masked_nodes` names
-//! them for a recorder.
+//! `sensitivity` the binding's `mask` names, `credential` unless it says, is masked wherever the flow's screens are
+//! recorded (SPEC.md §7): `masked_nodes` names them for a recorder.
 
 use crate::changes::Domain;
 use crate::graph::Graph;
@@ -11,8 +11,8 @@ use crate::js::{self, Value};
 
 pub const HOLDS_UNKNOWN: &str = "holds-unknown";
 
-/// the sensitivity of a field that a recording never shows (SPEC.md §5, §7)
-pub const MASKED_SENSITIVITY: &str = "credential";
+/// what a recording masks when its binding's `mask` does not say (SPEC.md §5, §7)
+pub const DEFAULT_MASK: [&str; 1] = ["credential"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HoldsProblem {
@@ -86,15 +86,16 @@ pub fn check_holds(g: &Graph, domain_of: impl FnOnce() -> Option<Domain>) -> Vec
     out
 }
 
-/// the nodes a recording masks (SPEC.md §7): each node that holds a field whose `sensitivity` is `credential`, in the
-/// order of `nodes`. None of them when the domain is not found, as `check` reports it.
-pub fn masked_nodes(g: &Graph, domain: Option<&Domain>) -> Vec<String> {
+/// the nodes a recording masks (SPEC.md §7): each node that holds a field whose `sensitivity` is one of `mask` (the
+/// binding's, `DEFAULT_MASK` unless it says; none masks nothing), in the order of `nodes`. None of them when the domain
+/// is not found, as `check` reports it.
+pub fn masked_nodes(g: &Graph, domain: Option<&Domain>, mask: &[&str]) -> Vec<String> {
     let Some(domain) = domain else { return Vec::new() };
     held(g)
         .into_iter()
         .filter(|(_, entity, field)| {
             matches!(field_of(domain, entity, field), Ok(Some(f))
-                if f.get("sensitivity").and_then(Value::as_str) == Some(MASKED_SENSITIVITY))
+                if f.get("sensitivity").and_then(Value::as_str).is_some_and(|s| mask.contains(&s)))
         })
         .map(|(node, ..)| node.to_string())
         .collect()
@@ -155,12 +156,18 @@ mod tests {
     }
 
     #[test]
-    fn a_recording_masks_the_nodes_that_hold_a_credential() {
+    fn a_recording_masks_the_nodes_that_hold_what_its_mask_names() {
         let g = with_holds(&[("title", "Client.name"), ("account", "AuthorizationCode.value")]);
         let d = crate::changes::flow_domain(&g, None);
-        assert_eq!(masked_nodes(&g, d.as_ref()), ["account"]);
-        assert_eq!(masked_nodes(&g, None), Vec::<String>::new());
-        let personal = domain(r#"{"entities":{"AuthorizationCode":{"fields":{"value":{"sensitivity":"personal"}}}}}"#);
-        assert_eq!(masked_nodes(&g, Some(&personal)), Vec::<String>::new());
+        assert_eq!(masked_nodes(&g, d.as_ref(), &DEFAULT_MASK), ["account"]);
+        assert_eq!(masked_nodes(&g, None, &DEFAULT_MASK), Vec::<String>::new());
+        // a mask that names nothing masks nothing: a tutorial filmed with a credential made up for it
+        assert_eq!(masked_nodes(&g, d.as_ref(), &[]), Vec::<String>::new());
+        let personal = domain(
+            r#"{"entities":{"AuthorizationCode":{"fields":{"value":{"sensitivity":"personal"}}},"Client":{"fields":{"name":{"sensitivity":"credential"}}}}}"#,
+        );
+        assert_eq!(masked_nodes(&g, Some(&personal), &DEFAULT_MASK), ["title"]);
+        assert_eq!(masked_nodes(&g, Some(&personal), &["personal"]), ["account"]);
+        assert_eq!(masked_nodes(&g, Some(&personal), &["credential", "personal"]), ["title", "account"]);
     }
 }
