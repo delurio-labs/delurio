@@ -29,6 +29,11 @@ fn findings_of(name: &str, files: &[(&str, &str)]) -> Vec<(String, Vec<String>)>
 fn a_binding_is_known_by_its_name() {
     assert_eq!(schema_kind_of("graphs/team/binding.yaml"), Some(SchemaKind::Binding));
     assert_eq!(schema_kind_of("graphs/replay.base.binding.yaml"), Some(SchemaKind::Binding));
+    assert_eq!(schema_kind_of("graphs/team/binding.noSessions.yaml"), Some(SchemaKind::Binding));
+    assert_eq!(schema_kind_of("graphs/team/binding.common.yaml"), Some(SchemaKind::Binding));
+    assert!(!is_binding_name("binding..yaml"));
+    assert!(!is_binding_name("bindings.yaml"));
+    assert!(!is_binding_name("binding.yml"));
     assert_eq!(schema_kind_of("graphs/team/tutorial.yaml"), None);
 }
 
