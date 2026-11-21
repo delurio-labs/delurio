@@ -115,9 +115,17 @@ static VALIDATORS: LazyLock<Vec<Validator>> = LazyLock::new(|| {
         .collect()
 });
 
+/// whether a file's name says it is a binding (SPEC.md §7): a flow's own `binding.yaml`, a variant of it beside it,
+/// `binding.<variant>.yaml` (`binding.noSessions.yaml`), or a shared one, `<name>.binding.yaml`
+pub fn is_binding_name(name: &str) -> bool {
+    name == "binding.yaml"
+        || name.ends_with(".binding.yaml")
+        || (name.len() > "binding..yaml".len() && name.starts_with("binding.") && name.ends_with(".yaml"))
+}
+
 /// the kind of graph file, by its name, and a domain also by its `kind` (a domain may be split across files, SPEC.md
-/// §5): None for a file no schema covers (tutorial, kit, anchors.lock). A binding is `binding.yaml`, or a shared one
-/// `<name>.binding.yaml` (SPEC.md §7). A file that cannot be read is none (the TypeScript checker threw there).
+/// §5): None for a file no schema covers (tutorial, kit, anchors.lock). A binding is named as `is_binding_name` says.
+/// A file that cannot be read is none (the TypeScript checker threw there).
 pub fn schema_kind_of(file: &str) -> Option<SchemaKind> {
     let name = nodepath::basename(file);
     match name.as_str() {
@@ -127,8 +135,7 @@ pub fn schema_kind_of(file: &str) -> Option<SchemaKind> {
         "needs.yaml" => return Some(SchemaKind::Needs),
         "nav.yaml" | "nav.extracted.yaml" => return Some(SchemaKind::Nav),
         "needs.gaps.yaml" => return Some(SchemaKind::Gaps),
-        "binding.yaml" => return Some(SchemaKind::Binding),
-        _ if name.ends_with(".binding.yaml") => return Some(SchemaKind::Binding),
+        _ if is_binding_name(&name) => return Some(SchemaKind::Binding),
         _ => {}
     }
     if name.ends_with(".json") && nodepath::basename(&nodepath::dirname(file)) == "catalog" {
