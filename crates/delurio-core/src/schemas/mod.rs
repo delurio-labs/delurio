@@ -35,6 +35,7 @@ pub enum SchemaKind {
     Catalog,
     Needs,
     Gaps,
+    Binding,
 }
 
 impl SchemaKind {
@@ -47,6 +48,7 @@ impl SchemaKind {
             SchemaKind::Catalog => "catalog",
             SchemaKind::Needs => "needs",
             SchemaKind::Gaps => "gaps",
+            SchemaKind::Binding => "binding",
         }
     }
     fn index(self) -> usize {
@@ -73,7 +75,7 @@ pub struct SchemaFinding {
 
 /// The format a graph file names in `schema:`; a file that names another is left to the format check.
 pub const FORMAT: &str = "delurio-graph/0";
-pub const KINDS: [SchemaKind; 7] = [
+pub const KINDS: [SchemaKind; 8] = [
     SchemaKind::Flow,
     SchemaKind::Ui,
     SchemaKind::Domain,
@@ -81,10 +83,11 @@ pub const KINDS: [SchemaKind; 7] = [
     SchemaKind::Catalog,
     SchemaKind::Needs,
     SchemaKind::Gaps,
+    SchemaKind::Binding,
 ];
 
 // schemas/<kind>.schema.json, in the order of KINDS
-const TEXTS: [&str; 7] = [
+const TEXTS: [&str; 8] = [
     include_str!("../../../../schemas/flow.schema.json"),
     include_str!("../../../../schemas/ui.schema.json"),
     include_str!("../../../../schemas/domain.schema.json"),
@@ -92,6 +95,7 @@ const TEXTS: [&str; 7] = [
     include_str!("../../../../schemas/catalog.schema.json"),
     include_str!("../../../../schemas/needs.schema.json"),
     include_str!("../../../../schemas/gaps.schema.json"),
+    include_str!("../../../../schemas/binding.schema.json"),
 ];
 
 static ROOTS: LazyLock<Vec<Value>> = LazyLock::new(|| {
@@ -112,8 +116,8 @@ static VALIDATORS: LazyLock<Vec<Validator>> = LazyLock::new(|| {
 });
 
 /// the kind of graph file, by its name, and a domain also by its `kind` (a domain may be split across files, SPEC.md
-/// §5): None for a file no schema covers (binding, tutorial, kit, anchors.lock). A file that cannot be read is none
-/// (the TypeScript checker threw there).
+/// §5): None for a file no schema covers (tutorial, kit, anchors.lock). A binding is `binding.yaml`, or a shared one
+/// `<name>.binding.yaml` (SPEC.md §7). A file that cannot be read is none (the TypeScript checker threw there).
 pub fn schema_kind_of(file: &str) -> Option<SchemaKind> {
     let name = nodepath::basename(file);
     match name.as_str() {
@@ -123,6 +127,8 @@ pub fn schema_kind_of(file: &str) -> Option<SchemaKind> {
         "needs.yaml" => return Some(SchemaKind::Needs),
         "nav.yaml" | "nav.extracted.yaml" => return Some(SchemaKind::Nav),
         "needs.gaps.yaml" => return Some(SchemaKind::Gaps),
+        "binding.yaml" => return Some(SchemaKind::Binding),
+        _ if name.ends_with(".binding.yaml") => return Some(SchemaKind::Binding),
         _ => {}
     }
     if name.ends_with(".json") && nodepath::basename(&nodepath::dirname(file)) == "catalog" {
