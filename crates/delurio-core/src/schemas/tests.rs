@@ -76,6 +76,7 @@ nodes:
   memberItem: { count: "{seed.members}" }
   removeButton: { role: button, name: Remove, within: { css: "#members" }, nth: 0, before: [{ click: { testId: menu } }] }
   avatar: { skip: drawn on a canvas }
+  newestRow: { role: row, within: { role: table, name: Weeks }, nth: -1 }
 effects:
   sendInvitation:
     - { run: [node, mail.mjs], expect: sent }
