@@ -147,6 +147,25 @@ npx @delurio/cli diff examples/qauth-authorize --base origin/main
 
 This prints Markdown for a pull request. It covers what the flow does differently (found by running both revisions) and what changed in the graph.
 
+## What a change touches
+
+```sh
+npx @delurio/cli affected --base origin/main
+```
+
+This says which graphs the change since the merge base with `origin/main` touches, each with why, and which changed files touch none, so that a CI checks or replays only the flows a pull request touches. On the notes example, with its graphs in `graphs/` and an anchor `source: app/notes.js:30` on the state `restoring`, a change to that line, to the action `editNote` and to a page of words gives:
+
+```
+2 graphs touched since 970359efe630 by 3 changed files; 1 not touched
+  graphs/edit (example.editNote), not bound
+    - graphs/domain/note.yaml changes the action editNote, which it invokes
+  graphs/restore (example.restoreNote)
+    - line 30 of app/notes.js changed: the anchor of states.restoring in flow.yaml [line-precise]
+touching no graph: docs/notes.md
+```
+
+A graph is touched by its own files, by a `source:` anchor on a line the change touches (or on a file it touches, where the anchor names the whole file), by an action of its domain that it invokes, by its bindings and the files they use, and by a catalog or a kit it shares with other graphs. What cannot be known, such as a base with no merge base or a graph file that does not load, touches every graph and says so (SPEC.md §9). Without `--head <ref>` the change runs to the working tree; `--graphs <dir>` names the graphs folder (default `graphs`), `--repo <dir>` the checkout, and `--json` writes the answer for machines.
+
 ## As a library
 
 A tool built on the format can use the same loader and checker the CLI uses, from Node:
@@ -161,7 +180,7 @@ const configurations = explore(new Model(g.flow)).configs.length;
 
 The entry points are `graph`, `model`, `story`, `wireframe`, `kit`, `edges`, `html`, `nav`, `expr`, `spine`, `yaml` and `needs`, each with its types. They run the checker's Rust code in a native addon: values go in and come out as plain JavaScript objects, callbacks (`load`'s readers, `explore`'s `keep`, `evaluate`'s lookup, the warnings) are called as the code reaches them, and errors are real `GraphError`, `ModelError` and `KitError` instances. `renderSpine` lays the diagram out with the package's own elkjs. Under Node's permission model a process that imports them needs `--allow-addons`, and a bundler must leave `@delurio/cli` (and `@delurio/cli-*`) external. `yaml` reads a graph file's text as the CLI does (`readYaml`), refusing what SPEC.md §1 rules out before the text is resolved; a server that reads graphs it was sent should read them with it. `needs` reads a flow's needs (`readNeeds`) and gives the states and nodes that only missing needs are drawn as (`planned`), which a tool that walks the flow on the app leaves out. While the version is 0.x their API may change in any minor release: pin an exact version.
 
-The Rust crates are the same code for a Rust program: `delurio-core` (the graph, the model, every rule of `check`, `diff`), `delurio-page` (the page) and `delurio` (the command line).
+The Rust crates are the same code for a Rust program: `delurio-core` (the graph, the model, every rule of `check`, `diff`, and the selection of `affected`, which takes the changed paths and the files of each side, so a program without a checkout can use it), `delurio-page` (the page) and `delurio` (the command line).
 
 ## Licence
 
