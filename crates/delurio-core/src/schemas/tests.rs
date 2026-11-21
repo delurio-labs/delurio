@@ -82,6 +82,7 @@ settle: { quiet: 300, max: 8000 }
 parallel: { walks: auto, serial: [[owner, entered]] }
 session: { check: { open: "{app}/account", find: { role: heading, name: Account } }, maxAge: 12h, fresh: [entered] }
 snapshot: { save: [{ run: [node, save.mjs] }], restore: [{ run: [node, restore.mjs] }] }
+mask: [credential, personal]
 pageErrors: report
 "##;
     let nav = r#"kind: binding
@@ -104,6 +105,7 @@ entries:
 parallel: 2
 "#;
     let shared = r#"kind: binding
+mask: []
 signIn: [{ goto: "{app}/login" }]
 browser: { locale: tr-TR }
 session: { check: { open: "{app}/", find: { role: main } } }
@@ -141,6 +143,7 @@ nodes:
 effects:
   sendInvitation: [{ attach: { label: File, run: [node, gen.mjs] } }]
 pageErrors: warn
+mask: [secret, credential, credential]
 "#;
     // in the order the schema finds them; check sorts every finding by its place
     let found = findings_of("bad", &[("binding.yaml", text)]);
@@ -148,6 +151,8 @@ pageErrors: warn
         found[0].1,
         [
             r#"3:1 the file: "scenarious" is not a key here; did you mean "scenarios"?"#,
+            r#"23:8 mask.0: must be "credential", "personal" or "internal""#,
+            r#"23:7 mask: must NOT have duplicate items (items ## 1 and 2 are identical)"#,
             r#"22:13 pageErrors: must be "fail" or "report""#,
             r#"8:13 scenarios.owner.setup.0: "run" is missing (only commands run here: there is no page)"#,
             r#"9:11 scenarios.member: "open" is missing"#,
