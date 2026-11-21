@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 
+use delurio_core::affected::AFFECTED_USAGE;
 use delurio_core::changes::{check_changes, flow_domain};
 use delurio_core::check::{CHECK_USAGE, count, graph_dirs};
 use delurio_core::diff::DIFF_USAGE;
@@ -41,7 +42,7 @@ pub const PAGE_USAGE: &str = "  delurio page <graph dir | graphs folder> [--out 
 
 /// the usage of the whole command line, as cli.ts writes it
 pub fn usage() -> String {
-    ["usage:", CHECK_USAGE, PAGE_USAGE, DIFF_USAGE].join("\n")
+    ["usage:", CHECK_USAGE, PAGE_USAGE, DIFF_USAGE, AFFECTED_USAGE].join("\n")
 }
 
 fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
