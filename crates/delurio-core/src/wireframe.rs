@@ -541,6 +541,10 @@ pub struct Expectation {
     /// false when ui.yaml gives a control (a field or an action) no role: `role` is then its type, which no element is
     #[serde(rename = "roleGiven")]
     pub role_given: bool,
+    /// the native control a field or an action with no role says it is (`native: date`), found by its name among
+    /// controls of that kind
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub disabled: bool,
@@ -585,6 +589,7 @@ pub fn render_check_screens(g: &Graph, kit: Option<&Kit>, warn: &mut dyn FnMut(&
                         index,
                         role: Some(graph::given(n.value(), "role").map_or_else(|| "listitem".into(), js::to_js_string)),
                         role_given: true,
+                        native: None,
                         name: Some(line),
                         disabled: it.disabled,
                     });
@@ -602,6 +607,7 @@ pub fn render_check_screens(g: &Graph, kit: Option<&Kit>, warn: &mut dyn FnMut(&
                 index: 0,
                 role,
                 role_given,
+                native: n.get("native").and_then(Value::as_str).map(str::to_string),
                 name,
                 disabled: it.disabled,
             });

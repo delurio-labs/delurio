@@ -85,6 +85,7 @@ export interface UiNode {
     type: string;
     component?: string;
     role?: string;
+    native?: 'date' | 'time' | 'datetime-local' | 'month' | 'week' | 'file' | 'color' | 'summary';
     intent?: string;
     name?: Label;
     text?: Label;

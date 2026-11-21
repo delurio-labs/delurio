@@ -248,6 +248,10 @@
             "tablist", "tabpanel", "term", "textbox", "time", "timer", "toolbar", "tooltip", "tree", "treegrid", "treeitem"
           ]
         },
+        "native": {
+          "description": "The HTML control the node is, when WAI-ARIA gives that control no role (HTML-AAM: no corresponding role): an <input> of type date, time, datetime-local, month, week, file or color, or a <summary>. A node that says it gives no `role`, and `role-missing` does not apply to it; a replay and `kit check` find it by its name among controls of that kind (SPEC.md §4).",
+          "enum": ["date", "time", "datetime-local", "month", "week", "file", "color", "summary"]
+        },
         "intent": {
           "description": "For actions: `confirm`, `dismiss` or `secondary`.",
           "enum": ["confirm", "dismiss", "secondary"]
@@ -308,6 +312,16 @@
           "$comment": "checked is only on a node whose role is checkbox, menuitemcheckbox, menuitemradio, option, radio or switch",
           "if": { "not": { "required": ["role"], "properties": { "role": { "enum": ["checkbox", "menuitemcheckbox", "menuitemradio", "option", "radio", "switch"] } } } },
           "then": { "properties": { "checked": false } }
+        },
+        {
+          "$comment": "native is only on a field or an action",
+          "if": { "not": { "properties": { "type": { "enum": ["field", "action"] } } } },
+          "then": { "properties": { "native": false } }
+        },
+        {
+          "$comment": "a node that names its native control gives no role: WAI-ARIA gives that control none",
+          "if": { "required": ["native"] },
+          "then": { "properties": { "role": false } }
         }
       ]
     },
