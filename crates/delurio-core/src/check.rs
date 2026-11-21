@@ -243,7 +243,8 @@ fn graph_dirs_into(root: &str, out: &mut Vec<String>) {
     }
 }
 
-// every file under root that a schema covers (flow, ui, nav, nav.extracted, domain, catalog), in path order
+// every file under root that a schema covers (flow, ui, nav, nav.extracted, domain, catalog, needs, gaps, binding), in
+// path order
 fn graph_files(root: &str, out: &mut Vec<String>) {
     for name in sorted_names(root) {
         if SKIP.contains(&name.as_str()) || name.starts_with('.') {

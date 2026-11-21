@@ -109,7 +109,7 @@ A kit (SPEC.md §8) says how the components of `ui.yaml` look in one product, so
 
 ## Write a graph in an editor
 
-The npm package ships a JSON Schema (2020-12) for each kind of graph file in `schemas/`: `flow`, `ui`, `nav` (also `nav.extracted.yaml`), `domain`, `catalog`, `needs` and `gaps` (`needs.gaps.yaml`). With them an editor completes keys, explains each one from SPEC.md on hover, and marks a typo, a value of the wrong kind, or a title cut short by a comma inside `{ }`. In VS Code, with the YAML extension, put this in `.vscode/settings.json`, with the version your project pins in
+The npm package ships a JSON Schema (2020-12) for each kind of graph file in `schemas/`: `flow`, `ui`, `nav` (also `nav.extracted.yaml`), `domain`, `catalog`, `needs`, `gaps` (`needs.gaps.yaml`) and `binding` (`binding.yaml` and a shared `<name>.binding.yaml`). With them an editor completes keys, explains each one from SPEC.md on hover, and marks a typo, a value of the wrong kind, or a title cut short by a comma inside `{ }`. In VS Code, with the YAML extension, put this in `.vscode/settings.json`, with the version your project pins in
 place of 0.11.0 (a schema from an older release does not know the keys added since):
 
 ```json
@@ -120,7 +120,8 @@ place of 0.11.0 (a schema from an older release does not know the keys added sin
     "https://unpkg.com/@delurio/cli@0.11.0/schemas/nav.schema.json": ["**/nav.yaml", "**/nav.extracted.yaml"],
     "https://unpkg.com/@delurio/cli@0.11.0/schemas/domain.schema.json": ["**/domain.yaml", "**/domain/*.yaml"],
     "https://unpkg.com/@delurio/cli@0.11.0/schemas/needs.schema.json": "**/needs.yaml",
-    "https://unpkg.com/@delurio/cli@0.11.0/schemas/gaps.schema.json": "**/needs.gaps.yaml"
+    "https://unpkg.com/@delurio/cli@0.11.0/schemas/gaps.schema.json": "**/needs.gaps.yaml",
+    "https://unpkg.com/@delurio/cli@0.12.0/schemas/binding.schema.json": ["**/binding.yaml", "**/*.binding.yaml"]
   },
   "json.schemas": [
     { "fileMatch": ["**/catalog/*.json"], "url": "https://unpkg.com/@delurio/cli@0.11.0/schemas/catalog.schema.json" }
@@ -128,7 +129,7 @@ place of 0.11.0 (a schema from an older release does not know the keys added sin
 }
 ```
 
-A domain may be split across the files of its directory (SPEC.md §5); `**/domain/*.yaml` covers them in a directory named `domain`, and a file elsewhere names its schema on its first line: `# yaml-language-server: $schema=<the domain schema's URL>`. With the package installed, `./node_modules/@delurio/cli/schemas/<kind>.schema.json` works the same, offline. `check` reports the same as the editor, as errors of the rule `schema` that fail `--strict`, and finds what a schema cannot see, such as a state that does not exist or a catalog key that is missing.
+The binding schema is in 0.12.0 and later. A domain may be split across the files of its directory (SPEC.md §5); `**/domain/*.yaml` covers them in a directory named `domain`, and a file elsewhere names its schema on its first line: `# yaml-language-server: $schema=<the domain schema's URL>`. With the package installed, `./node_modules/@delurio/cli/schemas/<kind>.schema.json` works the same, offline. `check` reports the same as the editor, as errors of the rule `schema` that fail `--strict`, and finds what a schema cannot see, such as a state that does not exist or a catalog key that is missing.
 
 Next to the editor, keep the pages open and current:
 

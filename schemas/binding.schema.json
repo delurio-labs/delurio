@@ -1,0 +1,2192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unpkg.com/@delurio/cli@0.12.0/schemas/binding.schema.json",
+  "title": "delurio binding (binding.yaml, <name>.binding.yaml)",
+  "description": "How a flow, or a navigation graph, maps onto a running app, for replay and recording (SPEC.md §7). A binding may `extends` a shared one, which may leave out what the bindings that extend it give. The keys are those the replay reads; what they name in the graph (a state, a node, an event, a scenario) is checked when a replay loads the binding (`replay --check`).",
+  "type": "object",
+  "required": [
+    "kind"
+  ],
+  "if": {
+    "anyOf": [
+      {
+        "required": [
+          "nav"
+        ]
+      },
+      {
+        "required": [
+          "setup"
+        ]
+      },
+      {
+        "required": [
+          "personas"
+        ]
+      },
+      {
+        "required": [
+          "frames"
+        ]
+      },
+      {
+        "required": [
+          "pages"
+        ]
+      },
+      {
+        "required": [
+          "entries"
+        ]
+      }
+    ]
+  },
+  "then": {
+    "$ref": "#/$defs/nav"
+  },
+  "else": {
+    "$ref": "#/$defs/flow"
+  },
+  "$comment": "a binding with nav, setup, personas, frames, pages or entries binds a navigation graph; any other, a flow",
+  "$defs": {
+    "flow": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/formatVersion"
+        },
+        "kind": {
+          "const": "binding",
+          "description": "The kind of graph file. A binding is `binding`."
+        },
+        "extends": {
+          "type": "string",
+          "description": "A shared binding this one extends, relative to it: its keys come first, and the maps (apps, data, accounts, scenarios, …) are merged key by key.",
+          "examples": [
+            "../replay.base.binding.yaml"
+          ]
+        },
+        "root": {
+          "type": "string",
+          "description": "The folder commands run in, relative to the binding's file; its folder when left out."
+        },
+        "apps": {
+          "type": "object",
+          "description": "Each app's base address, used as {<app>} in addresses.",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "examples": [
+            {
+              "app": "http://127.0.0.1:3000"
+            }
+          ]
+        },
+        "browser": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The window's width in CSS pixels (1280)."
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The window's height in CSS pixels (720)."
+            },
+            "locale": {
+              "$ref": "#/$defs/locale",
+              "description": "The BCP 47 tag the browser is set to; every screen is read against the flow's catalog of that language."
+            },
+            "timezone": {
+              "type": "string",
+              "description": "The IANA time zone the browser is set to.",
+              "examples": [
+                "Europe/Istanbul"
+              ]
+            },
+            "timeout": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "How many seconds a step waits at most (10)."
+            },
+            "ignoreHTTPSErrors": {
+              "type": "boolean",
+              "description": "true: a page served with a certificate no authority signed opens all the same."
+            }
+          },
+          "description": "The browser the replay opens."
+        },
+        "data": {
+          "type": "object",
+          "description": "Sources of values, each a JSON or dotenv file, used as {<source>.<path>}; read when a walk starts, after its setup, and again after each command. Secrets in them are masked in reports.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "json": {
+                "type": "string"
+              },
+              "dotenv": {
+                "type": "string"
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "json"
+                ]
+              },
+              {
+                "required": [
+                  "dotenv"
+                ]
+              }
+            ],
+            "$comment": "a source is { json: <path> } or { dotenv: <path> }"
+          }
+        },
+        "signIn": {
+          "type": "array",
+          "description": "How an account signs in: the actions, with the account's fields as {placeholders}. It signs in whoever acts, so no action carries `as`.",
+          "items": {
+            "$ref": "#/$defs/action"
+          }
+        },
+        "accounts": {
+          "type": "object",
+          "description": "The people a walk acts as, each with the fields signIn and the steps use as {placeholders}.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean"
+              ]
+            }
+          }
+        },
+        "samples": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number"
+            ]
+          },
+          "description": "Values for the sample placeholders of the graph's texts (a flow) or the :params of the routes (a navigation graph)."
+        },
+        "settle": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "quiet": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "description": "How many milliseconds the page is still before a screen is read (400)."
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "How many milliseconds a screen waits for that at most: browser.timeout, which it never passes."
+            }
+          },
+          "description": "When a screen is read: once the page has been still for `quiet` ms, waiting at most `max` ms."
+        },
+        "parallel": {
+          "description": "Walks at once: true (as many as the machine holds), a number from 1 to 16, auto, or { walks, serial }, where each serial group names scenarios or accounts (a navigation graph's personas or accounts) whose walks share something fixed and go one after another. false: one at a time.",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/atOnce"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "walks": {
+                  "$ref": "#/$defs/atOnce"
+                },
+                "serial": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "session": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "check": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "open": {
+                  "type": "string",
+                  "description": "An address a signed-in person opens."
+                },
+                "find": {
+                  "$ref": "#/$defs/locator",
+                  "description": "What only a signed-in page shows."
+                }
+              },
+              "required": [
+                "open",
+                "find"
+              ]
+            },
+            "maxAge": {
+              "description": "How long a saved sign-in lasts: 30m, 12h, 2d, or a number of seconds (12h).",
+              "anyOf": [
+                {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "string",
+                  "pattern": "^\\s*\\d+\\s*[smhd]\\s*$"
+                }
+              ]
+            },
+            "fresh": {
+              "type": "array",
+              "description": "Scenarios (a navigation graph's personas) or accounts that always sign in anew.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "check"
+          ],
+          "description": "A sign-in through signIn is kept and reused across runs once checked."
+        },
+        "flow": {
+          "$ref": "#/$defs/graphId",
+          "description": "The id of the flow it binds."
+        },
+        "pageErrors": {
+          "enum": [
+            "fail",
+            "report"
+          ],
+          "description": "An error the page leaves uncaught fails the walk (`fail`, the default), or is only listed (`report`)."
+        },
+        "snapshot": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "save": {
+              "type": "array",
+              "description": "Run after a scenario's setup and sign-in.",
+              "items": {
+                "$ref": "#/$defs/runOnly"
+              },
+              "minItems": 1
+            },
+            "restore": {
+              "type": "array",
+              "description": "Run in place of the setup on the scenario's later walks.",
+              "items": {
+                "$ref": "#/$defs/runOnly"
+              },
+              "minItems": 1
+            },
+            "drop": {
+              "type": "array",
+              "description": "Run once for each snapshot when the replay ends.",
+              "items": {
+                "$ref": "#/$defs/runOnly"
+              }
+            }
+          },
+          "required": [
+            "save",
+            "restore"
+          ],
+          "description": "A scenario's setup run once, kept, and given back to its later walks: commands only."
+        },
+        "scenarios": {
+          "type": "object",
+          "description": "How walks start, by name.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "given": {
+                "type": "object",
+                "description": "Where the walk starts: a value for each context variable the flow starts with `initial: any`.",
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null"
+                  ]
+                }
+              },
+              "as": {
+                "type": "string",
+                "description": "The account whose browser the walk is in."
+              },
+              "signIn": {
+                "type": "boolean",
+                "description": "false: the account is not signed in through signIn first."
+              },
+              "open": {
+                "type": "string",
+                "description": "The address the walk starts at.",
+                "examples": [
+                  "{app}/team"
+                ]
+              },
+              "vars": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number"
+                  ]
+                },
+                "description": "Values for {placeholders} of this scenario's walks. A var is not named like a field of an account the scenario acts as."
+              },
+              "samples": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number"
+                  ]
+                },
+                "description": "Values for the sample placeholders of the graph's texts, over the binding's samples."
+              },
+              "setup": {
+                "type": "array",
+                "description": "Commands run before the walk, such as seeding the database: run only.",
+                "items": {
+                  "$ref": "#/$defs/runOnly"
+                }
+              },
+              "teardown": {
+                "type": "array",
+                "description": "Commands run after the walk: run only.",
+                "items": {
+                  "$ref": "#/$defs/runOnly"
+                }
+              },
+              "javaScript": {
+                "type": "boolean",
+                "description": "false: the walk's browser runs no JavaScript, through the pages marked `script`."
+              },
+              "viewport": {
+                "$ref": "#/$defs/viewport",
+                "description": "The walk's window, instead of the binding's browser width and height: a phone's."
+              },
+              "enter": {
+                "description": "How the scenario's walk comes into the flow after it opens its page: by an entry of a navigation graph ({ nav, bind, entry }), or from another flow that starts this one ({ flow, bind, given, event }). Paths are relative to the binding's file.",
+                "type": "object",
+                "$comment": "enter by a nav entry with nav, else from a flow",
+                "if": {
+                  "required": [
+                    "nav"
+                  ]
+                },
+                "then": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "nav": {
+                      "type": "string",
+                      "description": "The navigation graph's folder."
+                    },
+                    "bind": {
+                      "type": "string",
+                      "description": "Its binding; may be left out when the entry's label alone finds it."
+                    },
+                    "entry": {
+                      "type": "string",
+                      "description": "The entry, as `<from>-><to>`.",
+                      "examples": [
+                        "frame:workspace->projects"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "nav",
+                    "entry"
+                  ]
+                },
+                "else": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "flow": {
+                      "type": "string",
+                      "description": "The other flow's folder."
+                    },
+                    "bind": {
+                      "type": "string",
+                      "description": "Its binding."
+                    },
+                    "given": {
+                      "type": "object",
+                      "description": "Where the other flow starts: its context."
+                    },
+                    "event": {
+                      "type": "string",
+                      "description": "The event of the transition whose `starts` names this flow."
+                    }
+                  },
+                  "required": [
+                    "flow",
+                    "bind",
+                    "event"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "open"
+            ],
+            "description": "How a walk starts: where (`given`), as whom, on which page, after what setup."
+          }
+        },
+        "events": {
+          "type": "object",
+          "description": "The actions that cause an event no node on screen sends, by event.",
+          "additionalProperties": {
+            "type": "array",
+            "description": "The actions.",
+            "items": {
+              "$ref": "#/$defs/action"
+            }
+          }
+        },
+        "states": {
+          "type": "object",
+          "description": "By state.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "A glob the page's address matches in this state (* is one path segment, ** anything)."
+              },
+              "text": {
+                "type": "string",
+                "description": "A text the state shows."
+              },
+              "reach": {
+                "type": "string",
+                "description": "A scenario whose shortest drivable path reaches this state, for a tutorial's `cut`."
+              },
+              "call": {
+                "description": "The server call the state makes: its URL glob, or { url, method, action, code, returns }. Held while the state's own screen is checked, and its HTTP status compared with the refusal's on a FAIL.<class> walk.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "url": {
+                        "type": "string",
+                        "description": "The URL glob the call goes to (a server action: the page's own address).",
+                        "minLength": 1
+                      },
+                      "method": {
+                        "type": "string",
+                        "description": "Its HTTP method.",
+                        "pattern": "^[A-Za-z]+$",
+                        "examples": [
+                          "POST"
+                        ]
+                      },
+                      "action": {
+                        "description": "The server action's id, as its Next-Action header carries it (a text between slashes is a regular expression), or true for any server action posted there.",
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "const": true
+                          }
+                        ]
+                      },
+                      "code": {
+                        "type": "string",
+                        "description": "The path of the refusal code in what the call returned.",
+                        "examples": [
+                          "error.code"
+                        ]
+                      },
+                      "returns": {
+                        "type": "object",
+                        "description": "By DONE or a FAIL event of the state: what the call returned, { path, equals } or { text }.",
+                        "additionalProperties": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "path": {
+                              "type": "string",
+                              "description": "Keys and indexes in what it returned.",
+                              "examples": [
+                                "error.code"
+                              ]
+                            },
+                            "equals": {
+                              "description": "The value there."
+                            },
+                            "text": {
+                              "type": "string",
+                              "description": "A text its answer holds. A text between slashes is a regular expression."
+                            }
+                          },
+                          "minProperties": 1
+                        }
+                      }
+                    },
+                    "required": [
+                      "url"
+                    ]
+                  }
+                ]
+              },
+              "fail": {
+                "type": "object",
+                "description": "FAIL.<class> → how the held call is made to fail on a walk that leaves the state so, where the context does not cause it. Needs `call`.",
+                "propertyNames": {
+                  "pattern": "^FAIL(\\.|$)"
+                },
+                "additionalProperties": {
+                  "description": "How the held call is made to fail: abort (no answer, or { abort: <network error> }), { status, body, contentType, headers } (an answer the replay gives instead of the server), hang (no answer while the walk is at the state) or signOut (the session ends and the call goes on without its credentials).",
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "abort",
+                        "hang",
+                        "signOut"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "abort": {
+                          "enum": [
+                            "aborted",
+                            "accessdenied",
+                            "addressunreachable",
+                            "blockedbyclient",
+                            "blockedbyresponse",
+                            "connectionaborted",
+                            "connectionclosed",
+                            "connectionfailed",
+                            "connectionrefused",
+                            "connectionreset",
+                            "internetdisconnected",
+                            "namenotresolved",
+                            "timedout",
+                            "failed"
+                          ],
+                          "description": "The browser's network error."
+                        }
+                      },
+                      "required": [
+                        "abort"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "minimum": 200,
+                          "maximum": 599,
+                          "description": "The answer's HTTP status."
+                        },
+                        "body": {
+                          "type": "string",
+                          "description": "The answer's text; {placeholders} are filled as in every binding string."
+                        },
+                        "contentType": {
+                          "type": "string",
+                          "description": "Its media type.",
+                          "examples": [
+                            "application/json"
+                          ]
+                        },
+                        "headers": {
+                          "type": "object",
+                          "description": "Each header's name and value.",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ]
+                    }
+                  ]
+                }
+              },
+              "as": {
+                "type": "string",
+                "description": "The account whose screen this state is: it is checked, and its nodes pressed, in that person's context."
+              },
+              "before": {
+                "type": "array",
+                "description": "Done when the walk reaches the state, before it is checked.",
+                "items": {
+                  "$ref": "#/$defs/action"
+                }
+              }
+            },
+            "description": "What a replay checks of a state beyond its nodes, and the call it holds.",
+            "allOf": [
+              {
+                "$comment": "fail makes the state's call fail, so it needs call",
+                "if": {
+                  "required": [
+                    "fail"
+                  ]
+                },
+                "then": {
+                  "required": [
+                    "call"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "nodes": {
+          "type": "object",
+          "description": "By node of ui.yaml.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "frame": {
+                "type": "string",
+                "description": "The CSS selector of the iframe the element is drawn in, such as a payment provider's hosted form; looked in first."
+              },
+              "role": {
+                "type": "string",
+                "description": "The element's WAI-ARIA role.",
+                "examples": [
+                  "button",
+                  "textbox",
+                  "link"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "number"
+                ],
+                "description": "With role: its accessible name. A text between slashes is a regular expression."
+              },
+              "text": {
+                "type": [
+                  "string",
+                  "number"
+                ],
+                "description": "The text it shows. A text between slashes is a regular expression."
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "number"
+                ],
+                "description": "The label of a form control. A text between slashes is a regular expression."
+              },
+              "testId": {
+                "type": "string",
+                "description": "Its test id (data-testid)."
+              },
+              "css": {
+                "type": "string",
+                "description": "A CSS selector."
+              },
+              "hasText": {
+                "type": [
+                  "string",
+                  "number"
+                ],
+                "description": "Of what the rest finds, those that hold this text. A text between slashes is a regular expression."
+              },
+              "within": {
+                "$ref": "#/$defs/locator",
+                "description": "Looked for inside what this locator finds."
+              },
+              "nth": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Of what the rest finds, this one, from 0."
+              },
+              "before": {
+                "type": "array",
+                "description": "Done before the node is pressed, such as opening the menu it sits in.",
+                "items": {
+                  "$ref": "#/$defs/action"
+                }
+              },
+              "skip": {
+                "type": "string",
+                "description": "Not checked, with the reason."
+              },
+              "count": {
+                "description": "How many elements its locator finds: a number, or a value of the data (\"{data.path}\").",
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(?:\\{[^{}]+\\}|[0-9]+)$"
+                  }
+                ]
+              }
+            },
+            "description": "Where the replay finds a node that its role and name cannot find, what it does before pressing it, how many elements it finds, or that it is skipped."
+          }
+        },
+        "effects": {
+          "type": "object",
+          "description": "By flow effect, or domain action a state invokes: the checks of what a step changes outside the screen, run after a walked transition applies it (typically `run` with `expect`).",
+          "additionalProperties": {
+            "type": "array",
+            "description": "The checks.",
+            "items": {
+              "$ref": "#/$defs/action"
+            }
+          }
+        }
+      },
+      "description": "A binding of a flow."
+    },
+    "nav": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/formatVersion"
+        },
+        "kind": {
+          "const": "binding",
+          "description": "The kind of graph file. A binding is `binding`."
+        },
+        "extends": {
+          "type": "string",
+          "description": "A shared binding this one extends, relative to it: its keys come first, and the maps (apps, data, accounts, scenarios, …) are merged key by key.",
+          "examples": [
+            "../replay.base.binding.yaml"
+          ]
+        },
+        "root": {
+          "type": "string",
+          "description": "The folder commands run in, relative to the binding's file; its folder when left out."
+        },
+        "apps": {
+          "type": "object",
+          "description": "Each app's base address, used as {<app>} in addresses.",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "examples": [
+            {
+              "app": "http://127.0.0.1:3000"
+            }
+          ]
+        },
+        "browser": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "width": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The window's width in CSS pixels (1280)."
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The window's height in CSS pixels (720)."
+            },
+            "locale": {
+              "$ref": "#/$defs/locale",
+              "description": "The BCP 47 tag the browser is set to; every screen is read against the flow's catalog of that language."
+            },
+            "timezone": {
+              "type": "string",
+              "description": "The IANA time zone the browser is set to.",
+              "examples": [
+                "Europe/Istanbul"
+              ]
+            },
+            "timeout": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "How many seconds a step waits at most (10)."
+            },
+            "ignoreHTTPSErrors": {
+              "type": "boolean",
+              "description": "true: a page served with a certificate no authority signed opens all the same."
+            }
+          },
+          "description": "The browser the replay opens."
+        },
+        "data": {
+          "type": "object",
+          "description": "Sources of values, each a JSON or dotenv file, used as {<source>.<path>}; read when a walk starts, after its setup, and again after each command. Secrets in them are masked in reports.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "json": {
+                "type": "string"
+              },
+              "dotenv": {
+                "type": "string"
+              }
+            },
+            "oneOf": [
+              {
+                "required": [
+                  "json"
+                ]
+              },
+              {
+                "required": [
+                  "dotenv"
+                ]
+              }
+            ],
+            "$comment": "a source is { json: <path> } or { dotenv: <path> }"
+          }
+        },
+        "signIn": {
+          "type": "array",
+          "description": "How an account signs in: the actions, with the account's fields as {placeholders}. It signs in whoever acts, so no action carries `as`.",
+          "items": {
+            "$ref": "#/$defs/action"
+          }
+        },
+        "accounts": {
+          "type": "object",
+          "description": "The people a walk acts as, each with the fields signIn and the steps use as {placeholders}.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean"
+              ]
+            }
+          }
+        },
+        "samples": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number"
+            ]
+          },
+          "description": "Values for the sample placeholders of the graph's texts (a flow) or the :params of the routes (a navigation graph)."
+        },
+        "settle": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "quiet": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000,
+              "description": "How many milliseconds the page is still before a screen is read (400)."
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "How many milliseconds a screen waits for that at most: browser.timeout, which it never passes."
+            }
+          },
+          "description": "When a screen is read: once the page has been still for `quiet` ms, waiting at most `max` ms."
+        },
+        "parallel": {
+          "description": "Walks at once: true (as many as the machine holds), a number from 1 to 16, auto, or { walks, serial }, where each serial group names scenarios or accounts (a navigation graph's personas or accounts) whose walks share something fixed and go one after another. false: one at a time.",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/atOnce"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "walks": {
+                  "$ref": "#/$defs/atOnce"
+                },
+                "serial": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "session": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "check": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "open": {
+                  "type": "string",
+                  "description": "An address a signed-in person opens."
+                },
+                "find": {
+                  "$ref": "#/$defs/locator",
+                  "description": "What only a signed-in page shows."
+                }
+              },
+              "required": [
+                "open",
+                "find"
+              ]
+            },
+            "maxAge": {
+              "description": "How long a saved sign-in lasts: 30m, 12h, 2d, or a number of seconds (12h).",
+              "anyOf": [
+                {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "string",
+                  "pattern": "^\\s*\\d+\\s*[smhd]\\s*$"
+                }
+              ]
+            },
+            "fresh": {
+              "type": "array",
+              "description": "Scenarios (a navigation graph's personas) or accounts that always sign in anew.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "check"
+          ],
+          "description": "A sign-in through signIn is kept and reused across runs once checked."
+        },
+        "nav": {
+          "$ref": "#/$defs/graphId",
+          "description": "The id of the navigation graph it binds."
+        },
+        "setup": {
+          "type": "array",
+          "description": "Commands run once before the first persona, such as signing the people up: run only.",
+          "items": {
+            "$ref": "#/$defs/runOnly"
+          }
+        },
+        "personas": {
+          "type": "object",
+          "description": "Who signs in as each persona. Without it, the account named like the persona.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "as": {
+                "type": "string",
+                "description": "The account."
+              },
+              "setup": {
+                "type": "array",
+                "description": "Commands that give the account the persona's facts, such as its role: run only.",
+                "items": {
+                  "$ref": "#/$defs/runOnly"
+                }
+              }
+            },
+            "required": [
+              "as"
+            ]
+          }
+        },
+        "frames": {
+          "type": "object",
+          "description": "By frame: where its chrome, its pages' own entries, the person's menu and the switcher are.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "find": {
+                "$ref": "#/$defs/locator",
+                "description": "The frame's chrome, where its menu entries are."
+              },
+              "page": {
+                "$ref": "#/$defs/locator",
+                "description": "Where a page of the frame draws its own entries."
+              },
+              "user": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "open": {
+                    "type": "array",
+                    "description": "What opens the menu.",
+                    "items": {
+                      "$ref": "#/$defs/action"
+                    }
+                  },
+                  "find": {
+                    "$ref": "#/$defs/locator",
+                    "description": "The open menu, where its entries are found."
+                  }
+                },
+                "required": [
+                  "find"
+                ],
+                "description": "The person's menu."
+              },
+              "picker": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "open": {
+                    "type": "array",
+                    "description": "What opens the menu.",
+                    "items": {
+                      "$ref": "#/$defs/action"
+                    }
+                  },
+                  "find": {
+                    "$ref": "#/$defs/locator",
+                    "description": "The open menu, where its entries are found."
+                  }
+                },
+                "required": [
+                  "find"
+                ],
+                "description": "The switcher."
+              }
+            }
+          }
+        },
+        "pages": {
+          "type": "object",
+          "description": "By page.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "shows": {
+                "$ref": "#/$defs/locator",
+                "description": "What proves the page opened; absent when it refuses."
+              },
+              "refusal": {
+                "$ref": "#/$defs/locator",
+                "description": "The words in which the page says no."
+              },
+              "skip": {
+                "type": "string",
+                "description": "Not visited, with the reason."
+              },
+              "samples": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "number"
+                  ]
+                },
+                "description": "The :params of its route for this page, over the binding's own."
+              }
+            }
+          }
+        },
+        "entries": {
+          "type": "object",
+          "description": "By entry, keyed by its ends (`<from>-><to>`, then its how or label key where two share them): a locator for its element, skip, or follow.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "frame": {
+                "type": "string",
+                "description": "The CSS selector of the iframe the element is drawn in, such as a payment provider's hosted form; looked in first."
+              },
+              "role": {
+                "type": "string",
+                "description": "The element's WAI-ARIA role.",
+                "examples": [
+                  "button",
+                  "textbox",
+                  "link"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "number"
+                ],
+                "description": "With role: its accessible name. A text between slashes is a regular expression."
+              },
+              "text": {
+                "type": [
+                  "string",
+                  "number"
+                ],
+                "description": "The text it shows. A text between slashes is a regular expression."
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "number"
+                ],
+                "description": "The label of a form control. A text between slashes is a regular expression."
+              },
+              "testId": {
+                "type": "string",
+                "description": "Its test id (data-testid)."
+              },
+              "css": {
+                "type": "string",
+                "description": "A CSS selector."
+              },
+              "hasText": {
+                "type": [
+                  "string",
+                  "number"
+                ],
+                "description": "Of what the rest finds, those that hold this text. A text between slashes is a regular expression."
+              },
+              "within": {
+                "$ref": "#/$defs/locator",
+                "description": "Looked for inside what this locator finds."
+              },
+              "nth": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Of what the rest finds, this one, from 0."
+              },
+              "skip": {
+                "type": "string",
+                "description": "Not checked, with the reason."
+              },
+              "follow": {
+                "type": "boolean",
+                "description": "--follow: false never takes it (it signs out, deletes); true also takes a button."
+              }
+            },
+            "description": "An entry's element, where its label is not its accessible name."
+          }
+        }
+      },
+      "description": "A binding of a navigation graph."
+    },
+    "formatVersion": {
+      "description": "The format and its version.",
+      "const": "delurio-graph/0"
+    },
+    "graphId": {
+      "type": "string",
+      "description": "The id of a graph.",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "locale": {
+      "type": "string",
+      "description": "A BCP 47 language tag.",
+      "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$",
+      "examples": [
+        "en",
+        "tr",
+        "pt-BR"
+      ]
+    },
+    "locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "frame": {
+          "type": "string",
+          "description": "The CSS selector of the iframe the element is drawn in, such as a payment provider's hosted form; looked in first."
+        },
+        "role": {
+          "type": "string",
+          "description": "The element's WAI-ARIA role.",
+          "examples": [
+            "button",
+            "textbox",
+            "link"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "number"
+          ],
+          "description": "With role: its accessible name. A text between slashes is a regular expression."
+        },
+        "text": {
+          "type": [
+            "string",
+            "number"
+          ],
+          "description": "The text it shows. A text between slashes is a regular expression."
+        },
+        "label": {
+          "type": [
+            "string",
+            "number"
+          ],
+          "description": "The label of a form control. A text between slashes is a regular expression."
+        },
+        "testId": {
+          "type": "string",
+          "description": "Its test id (data-testid)."
+        },
+        "css": {
+          "type": "string",
+          "description": "A CSS selector."
+        },
+        "hasText": {
+          "type": [
+            "string",
+            "number"
+          ],
+          "description": "Of what the rest finds, those that hold this text. A text between slashes is a regular expression."
+        },
+        "within": {
+          "$ref": "#/$defs/locator",
+          "description": "Looked for inside what this locator finds."
+        },
+        "nth": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Of what the rest finds, this one, from 0."
+        }
+      },
+      "description": "Where an element is: by role (and name), text, label, testId or css, narrowed by hasText, within, nth and frame.",
+      "anyOf": [
+        {
+          "required": [
+            "role"
+          ]
+        },
+        {
+          "required": [
+            "text"
+          ]
+        },
+        {
+          "required": [
+            "label"
+          ]
+        },
+        {
+          "required": [
+            "testId"
+          ]
+        },
+        {
+          "required": [
+            "css"
+          ]
+        }
+      ],
+      "$comment": "a locator finds by role (and name), text, label, testId or css"
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "goto": {
+          "type": "string",
+          "description": "Opens this address. {placeholders} are filled from the accounts, the data and the scenario.",
+          "examples": [
+            "{app}/login"
+          ]
+        },
+        "reload": {
+          "const": true,
+          "description": "Loads the page again."
+        },
+        "click": {
+          "$ref": "#/$defs/locator",
+          "description": "Presses the element."
+        },
+        "fill": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "frame": {
+              "type": "string",
+              "description": "The CSS selector of the iframe the element is drawn in, such as a payment provider's hosted form; looked in first."
+            },
+            "role": {
+              "type": "string",
+              "description": "The element's WAI-ARIA role.",
+              "examples": [
+                "button",
+                "textbox",
+                "link"
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "number"
+              ],
+              "description": "With role: its accessible name. A text between slashes is a regular expression."
+            },
+            "text": {
+              "type": [
+                "string",
+                "number"
+              ],
+              "description": "The text it shows. A text between slashes is a regular expression."
+            },
+            "label": {
+              "type": [
+                "string",
+                "number"
+              ],
+              "description": "The label of a form control. A text between slashes is a regular expression."
+            },
+            "testId": {
+              "type": "string",
+              "description": "Its test id (data-testid)."
+            },
+            "css": {
+              "type": "string",
+              "description": "A CSS selector."
+            },
+            "hasText": {
+              "type": [
+                "string",
+                "number"
+              ],
+              "description": "Of what the rest finds, those that hold this text. A text between slashes is a regular expression."
+            },
+            "within": {
+              "$ref": "#/$defs/locator",
+              "description": "Looked for inside what this locator finds."
+            },
+            "nth": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Of what the rest finds, this one, from 0."
+            },
+            "value": {
+              "type": [
+                "string",
+                "number"
+              ],
+              "description": "What is typed, or the option chosen."
+            }
+          },
+          "required": [
+            "value"
+          ],
+          "description": "Types `value` into the field. A native <select> gets the option whose visible text is the value.",
+          "anyOf": [
+            {
+              "required": [
+                "role"
+              ]
+            },
+            {
+              "required": [
+                "text"
+              ]
+            },
+            {
+              "required": [
+                "label"
+              ]
+            },
+            {
+              "required": [
+                "testId"
+              ]
+            },
+            {
+              "required": [
+                "css"
+              ]
+            }
+          ],
+          "$comment": "a locator finds by role (and name), text, label, testId or css"
+        },
+        "attach": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "frame": {
+              "type": "string",
+              "description": "The CSS selector of the iframe the element is drawn in, such as a payment provider's hosted form; looked in first."
+            },
+            "role": {
+              "type": "string",
+              "description": "The element's WAI-ARIA role.",
+              "examples": [
+                "button",
+                "textbox",
+                "link"
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "number"
+              ],
+              "description": "With role: its accessible name. A text between slashes is a regular expression."
+            },
+            "text": {
+              "type": [
+                "string",
+                "number"
+              ],
+              "description": "The text it shows. A text between slashes is a regular expression."
+            },
+            "label": {
+              "type": [
+                "string",
+                "number"
+              ],
+              "description": "The label of a form control. A text between slashes is a regular expression."
+            },
+            "testId": {
+              "type": "string",
+              "description": "Its test id (data-testid)."
+            },
+            "css": {
+              "type": "string",
+              "description": "A CSS selector."
+            },
+            "hasText": {
+              "type": [
+                "string",
+                "number"
+              ],
+              "description": "Of what the rest finds, those that hold this text. A text between slashes is a regular expression."
+            },
+            "within": {
+              "$ref": "#/$defs/locator",
+              "description": "Looked for inside what this locator finds."
+            },
+            "nth": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Of what the rest finds, this one, from 0."
+            },
+            "file": {
+              "description": "A fixture, or a list of them, each relative to the binding's file and inside its folder.",
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              ]
+            },
+            "run": {
+              "$ref": "#/$defs/command",
+              "description": "A helper and its arguments, run with no shell: its output is the file."
+            },
+            "fileName": {
+              "type": "string",
+              "description": "With run: the name of the file its output becomes.",
+              "pattern": "^[^/\\\\]+$"
+            },
+            "mimeType": {
+              "type": "string",
+              "description": "The file's media type; else it follows from the name's extension.",
+              "examples": [
+                "text/csv"
+              ]
+            }
+          },
+          "description": "Gives a file input its files: fixtures (`file`), or what a helper writes to its standard output (`run`, as `fileName`). Where it finds something else, it is pressed and the files go to the file chooser it opens.",
+          "anyOf": [
+            {
+              "required": [
+                "role"
+              ]
+            },
+            {
+              "required": [
+                "text"
+              ]
+            },
+            {
+              "required": [
+                "label"
+              ]
+            },
+            {
+              "required": [
+                "testId"
+              ]
+            },
+            {
+              "required": [
+                "css"
+              ]
+            }
+          ],
+          "$comment": "attach takes file (fixtures) or run (a helper), one of them",
+          "oneOf": [
+            {
+              "required": [
+                "file"
+              ]
+            },
+            {
+              "required": [
+                "run"
+              ]
+            }
+          ],
+          "allOf": [
+            {
+              "$comment": "run gives a file of the name fileName",
+              "if": {
+                "required": [
+                  "run"
+                ]
+              },
+              "then": {
+                "required": [
+                  "fileName"
+                ]
+              }
+            }
+          ]
+        },
+        "key": {
+          "type": "string",
+          "description": "Presses a key on the focused element.",
+          "examples": [
+            "Enter",
+            "Escape"
+          ]
+        },
+        "waitUrl": {
+          "type": "string",
+          "description": "Waits until the address matches this glob."
+        },
+        "waitText": {
+          "type": "string",
+          "description": "Waits until this text is shown."
+        },
+        "waitResponse": {
+          "description": "Waits for a response from an address that matches this glob, of this status when it says.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "url": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "integer",
+                  "minimum": 100,
+                  "maximum": 599
+                }
+              },
+              "required": [
+                "url"
+              ]
+            }
+          ]
+        },
+        "download": {
+          "description": "The download the last step started, waited for, saved and checked: what the file holds. `true` checks only that one came.",
+          "anyOf": [
+            {
+              "const": true
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "A glob of the file's name.",
+                  "pattern": "^[^/\\\\]+$",
+                  "examples": [
+                    "grades-*.csv"
+                  ]
+                },
+                "size": {
+                  "description": "Its size in bytes, or { min, max }.",
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "min": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "max": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "minProperties": 1
+                    }
+                  ]
+                },
+                "type": {
+                  "enum": [
+                    "csv",
+                    "tsv",
+                    "txt",
+                    "json",
+                    "xlsx",
+                    "zip",
+                    "pdf",
+                    "png",
+                    "jpeg",
+                    "jpg",
+                    "gif"
+                  ],
+                  "description": "What kind of file it is, by its content."
+                },
+                "text": {
+                  "type": "string",
+                  "description": "A text the file holds. A text between slashes is a regular expression.",
+                  "minLength": 1
+                },
+                "sheet": {
+                  "type": "string",
+                  "description": "Of an xlsx workbook, the sheet the table is read from.",
+                  "minLength": 1
+                },
+                "rows": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "How many rows the table has after its header."
+                },
+                "columns": {
+                  "description": "The header, as a list, or how many columns there are.",
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    {
+                      "type": "array",
+                      "minItems": 1,
+                      "items": {
+                        "type": [
+                          "string",
+                          "number"
+                        ]
+                      }
+                    }
+                  ]
+                },
+                "cells": {
+                  "type": "array",
+                  "minItems": 1,
+                  "description": "Cells and what each holds: { row, column, equals } or { cell, equals }.",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "row": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "The row after the header, from 1."
+                          },
+                          "column": {
+                            "description": "The header's text, or the column's number from 1.",
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "integer",
+                                "minimum": 1
+                              }
+                            ]
+                          },
+                          "equals": {
+                            "type": [
+                              "string",
+                              "number",
+                              "boolean"
+                            ],
+                            "description": "The cell's text."
+                          }
+                        },
+                        "required": [
+                          "row",
+                          "column",
+                          "equals"
+                        ]
+                      },
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "cell": {
+                            "type": "string",
+                            "description": "An A1 reference.",
+                            "pattern": "^[A-Z]+[1-9][0-9]*$",
+                            "examples": [
+                              "B2"
+                            ]
+                          },
+                          "equals": {
+                            "type": [
+                              "string",
+                              "number",
+                              "boolean"
+                            ],
+                            "description": "The cell's text."
+                          }
+                        },
+                        "required": [
+                          "cell",
+                          "equals"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "resize": {
+          "$ref": "#/$defs/viewport",
+          "description": "The window of the person acting, from here on: a phone turned, a window made narrow."
+        },
+        "run": {
+          "$ref": "#/$defs/command",
+          "description": "A command and its arguments, as a list, run with no shell."
+        },
+        "expect": {
+          "type": [
+            "string",
+            "number"
+          ],
+          "description": "With run: what the command's output must contain."
+        },
+        "as": {
+          "type": "string",
+          "description": "Done in this account's own browser context, opened and signed in on first use: a step another person takes."
+        }
+      },
+      "description": "One thing the replay does: one of goto, reload, click, fill, attach, key, waitUrl, waitText, waitResponse, download, resize and run, which may carry `as`.",
+      "anyOf": [
+        {
+          "required": [
+            "goto"
+          ]
+        },
+        {
+          "required": [
+            "reload"
+          ]
+        },
+        {
+          "required": [
+            "click"
+          ]
+        },
+        {
+          "required": [
+            "fill"
+          ]
+        },
+        {
+          "required": [
+            "attach"
+          ]
+        },
+        {
+          "required": [
+            "key"
+          ]
+        },
+        {
+          "required": [
+            "waitUrl"
+          ]
+        },
+        {
+          "required": [
+            "waitText"
+          ]
+        },
+        {
+          "required": [
+            "waitResponse"
+          ]
+        },
+        {
+          "required": [
+            "download"
+          ]
+        },
+        {
+          "required": [
+            "resize"
+          ]
+        },
+        {
+          "required": [
+            "run"
+          ]
+        }
+      ],
+      "$comment": "an action is one of goto, reload, click, fill, attach, key, waitUrl, waitText, waitResponse, download, resize, run",
+      "allOf": [
+        {
+          "$comment": "an action does one thing: give each its own item",
+          "if": {
+            "required": [
+              "goto"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reload": false,
+              "click": false,
+              "fill": false,
+              "attach": false,
+              "key": false,
+              "waitUrl": false,
+              "waitText": false,
+              "waitResponse": false,
+              "download": false,
+              "resize": false,
+              "run": false
+            }
+          }
+        },
+        {
+          "$comment": "an action does one thing: give each its own item",
+          "if": {
+            "required": [
+              "reload"
+            ]
+          },
+          "then": {
+            "properties": {
+              "click": false,
+              "fill": false,
+              "attach": false,
+              "key": false,
+              "waitUrl": false,
+              "waitText": false,
+              "waitResponse": false,
+              "download": false,
+              "resize": false,
+              "run": false
+            }
+          }
+        },
+        {
+          "$comment": "an action does one thing: give each its own item",
+          "if": {
+            "required": [
+              "click"
+            ]
+          },
+          "then": {
+            "properties": {
+              "fill": false,
+              "attach": false,
+              "key": false,
+              "waitUrl": false,
+              "waitText": false,
+              "waitResponse": false,
+              "download": false,
+              "resize": false,
+              "run": false
+            }
+          }
+        },
+        {
+          "$comment": "an action does one thing: give each its own item",
+          "if": {
+            "required": [
+              "fill"
+            ]
+          },
+          "then": {
+            "properties": {
+              "attach": false,
+              "key": false,
+              "waitUrl": false,
+              "waitText": false,
+              "waitResponse": false,
+              "download": false,
+              "resize": false,
+              "run": false
+            }
+          }
+        },
+        {
+          "$comment": "an action does one thing: give each its own item",
+          "if": {
+            "required": [
+              "attach"
+            ]
+          },
+          "then": {
+            "properties": {
+              "key": false,
+              "waitUrl": false,
+              "waitText": false,
+              "waitResponse": false,
+              "download": false,
+              "resize": false,
+              "run": false
+            }
+          }
+        },
+        {
+          "$comment": "an action does one thing: give each its own item",
+          "if": {
+            "required": [
+              "key"
+            ]
+          },
+          "then": {
+            "properties": {
+              "waitUrl": false,
+              "waitText": false,
+              "waitResponse": false,
+              "download": false,
+              "resize": false,
+              "run": false
+            }
+          }
+        },
+        {
+          "$comment": "an action does one thing: give each its own item",
+          "if": {
+            "required": [
+              "waitUrl"
+            ]
+          },
+          "then": {
+            "properties": {
+              "waitText": false,
+              "waitResponse": false,
+              "download": false,
+              "resize": false,
+              "run": false
+            }
+          }
+        },
+        {
+          "$comment": "an action does one thing: give each its own item",
+          "if": {
+            "required": [
+              "waitText"
+            ]
+          },
+          "then": {
+            "properties": {
+              "waitResponse": false,
+              "download": false,
+              "resize": false,
+              "run": false
+            }
+          }
+        },
+        {
+          "$comment": "an action does one thing: give each its own item",
+          "if": {
+            "required": [
+              "waitResponse"
+            ]
+          },
+          "then": {
+            "properties": {
+              "download": false,
+              "resize": false,
+              "run": false
+            }
+          }
+        },
+        {
+          "$comment": "an action does one thing: give each its own item",
+          "if": {
+            "required": [
+              "download"
+            ]
+          },
+          "then": {
+            "properties": {
+              "resize": false,
+              "run": false
+            }
+          }
+        },
+        {
+          "$comment": "an action does one thing: give each its own item",
+          "if": {
+            "required": [
+              "resize"
+            ]
+          },
+          "then": {
+            "properties": {
+              "run": false
+            }
+          }
+        },
+        {
+          "$comment": "expect goes with run",
+          "if": {
+            "required": [
+              "expect"
+            ]
+          },
+          "then": {
+            "required": [
+              "run"
+            ]
+          }
+        }
+      ]
+    },
+    "runOnly": {
+      "$ref": "#/$defs/action",
+      "required": [
+        "run"
+      ],
+      "$comment": "only commands run here: there is no page"
+    },
+    "command": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": [
+          "string",
+          "number"
+        ]
+      }
+    },
+    "viewport": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "CSS pixels."
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "CSS pixels."
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ],
+      "description": "A window's size, { width, height }, in whole CSS pixels from 1 to 10000."
+    },
+    "atOnce": {
+      "description": "A number of walks at once from 1 to 16, or auto (as many as the machine holds).",
+      "anyOf": [
+        {
+          "const": "auto"
+        },
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        },
+        {
+          "type": "string",
+          "pattern": "^(?:[1-9]|1[0-6])$"
+        }
+      ]
+    }
+  }
+}
