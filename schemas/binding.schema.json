@@ -287,6 +287,25 @@
           "$ref": "#/$defs/graphId",
           "description": "The id of the flow it binds."
         },
+        "mask": {
+          "type": "array",
+          "description": "The sensitivities of the domain's fields (credential, personal, internal) whose nodes a recording, a video made from it and a replay's screenshots blur: [credential] when left out, [credential, personal] for an app whose data is real, [] for nothing (a tutorial filmed with a password made up for it).",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "credential",
+              "personal",
+              "internal"
+            ]
+          },
+          "examples": [
+            [
+              "credential",
+              "personal"
+            ],
+            []
+          ]
+        },
         "pageErrors": {
           "enum": [
             "fail",
