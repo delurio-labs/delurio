@@ -261,14 +261,15 @@ pub fn check_ui(g: &Graph, warn: &mut dyn FnMut(&str)) -> Vec<UiProblem> {
             words(v);
         }
     }
-    // a control with no role: a screen reader, a replay and kit check find a field or an action by its WAI-ARIA role
+    // a control with no role: a screen reader, a replay and kit check find a field or an action by its WAI-ARIA role,
+    // unless it says it is a native control WAI-ARIA gives no role (`native`), found by its name among its kind
     for (id, n) in ui.nodes() {
         let what = match n.kind() {
             Some("field") => "a field",
             Some("action") => "an action",
             _ => continue,
         };
-        if n.get("role").is_some() {
+        if n.get("role").is_some() || n.get("native").is_some() {
             continue;
         }
         push(
@@ -276,7 +277,7 @@ pub fn check_ui(g: &Graph, warn: &mut dyn FnMut(&str)) -> Vec<UiProblem> {
             vec!["nodes".to_string(), id.to_string()],
             format!("nodes/{id}"),
             format!(
-                "{id} is {what} with no role: a screen reader, a replay and kit check find a control by its WAI-ARIA role (textbox, combobox, button, link, ...), and kit check holds only its name and state (SPEC.md §4)"
+                "{id} is {what} with no role: a screen reader, a replay and kit check find a control by its WAI-ARIA role (textbox, combobox, button, link, ...), and kit check holds only its name and state; a native control WAI-ARIA gives no role (a date, time or file input, a summary) says so with `native` (SPEC.md §4)"
             ),
         );
     }

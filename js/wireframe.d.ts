@@ -10,6 +10,8 @@ export interface Expectation {
     role: string;
     /** False when ui.yaml gives a control (a field or an action) no role: `role` is then its type, which no element is. */
     roleGiven: boolean;
+    /** The native control a field or an action with no role says it is (`native: date`): found by its name among controls of that kind. */
+    native?: string;
     name: string | undefined;
     disabled: boolean;
 }

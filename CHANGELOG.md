@@ -2,6 +2,12 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
+## Unreleased
+
+- A variant of a flow's binding written beside it, `binding.<variant>.yaml` (`binding.noSessions.yaml`, `binding.common.yaml`), is a binding (SPEC.md §7): `check` holds it to the binding schema, as it holds `binding.yaml` and a shared `<name>.binding.yaml`. Before, it was read as no graph file at all, and a value the schema refuses passed unseen; Medaris had 271 such files.
+- A locator's `nth` may be negative, counting from the end: -1 is the last of what the rest finds, such as the row a step has just added (SPEC.md §7). The schema refused it, though a replay hands `nth` to the browser's locator as it is.
+- A field or an action that is an HTML control WAI-ARIA gives no role, an `<input>` of type `date`, `time`, `datetime-local`, `month`, `week`, `file` or `color`, or a `<summary>`, says which with `native` instead of a `role` (SPEC.md §4). `role-missing` does not apply to it; a `role` beside it, or `native` on a node that is no field or action, is refused by the `schema` rule. `kit check`'s expectations carry it (`native`), so a replay can find the control by its name among controls of that kind.
+
 ## 0.12.0 (2026-11-21)
 
 - A node of a flow's screens may say which field of the flow's domain it holds: `holds: <Entity>.<field>`, the value a text shows or a field takes (SPEC.md §4). New rule of `check`, which fails `--strict`: `holds-unknown`, at a `holds` that names an entity the domain does not have, a field the entity does not have, or a domain that is not found beside the flow; an entity that gives no `fields` yet is not held to them. A `holds` that is not `<Entity>.<field>` is the `schema` rule's. Graphs without `holds` are judged as before.
