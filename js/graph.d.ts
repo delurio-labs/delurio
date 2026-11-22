@@ -39,6 +39,7 @@ export interface ContextVar {
     say?: Record<string, string>;
 }
 export interface Effect {
+    /** Values the variables are given; `row.<field>` is a field of the row pressed, which the checker lets be any value of the variable. */
     set?: Record<string, Scalar>;
     havoc?: string[];
 }
@@ -96,10 +97,12 @@ export interface UiNode {
     disabledWhen?: string;
     emits?: string;
     initialFocus?: string;
+    /** Drawn once per item of this data: once per row the samples give it, else once. */
     repeat?: string;
     frame?: string;
     value?: Label;
     holds?: string;
+    /** Whether it is checked: an expression over the context (on a repeat node, also over its row, `row.<field>`), or true or false. */
     checked?: boolean | string;
     script?: 'optional' | 'actions';
     source?: string;
@@ -108,6 +111,8 @@ export interface UiNode {
 }
 /** The tones a node may take (SPEC.md §4). */
 export type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+/** One item of a repeat's data in the samples: its fields and their values (SPEC.md §4). */
+export type SampleRow = Record<string, Scalar>;
 export interface UiEdge {
     labelledBy?: [string, string];
     triggers?: [string, string];
@@ -121,7 +126,8 @@ export interface Ui {
     id: string;
     catalog: string;
     kit?: string;
-    samples: Record<string, string>;
+    /** A sample value for each catalog parameter, or, under a repeat's data (`question.options`), its rows: each a map of the fields its nodes read as `row.<field>`. */
+    samples: Record<string, string | SampleRow[]>;
     nodes: Record<string, UiNode>;
     locales?: string[];
     changes?: {

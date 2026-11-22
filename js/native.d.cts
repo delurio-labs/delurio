@@ -265,7 +265,10 @@ export declare function renderCheckScreens(g: NativeGraph, kit: NativeKit | unde
 /** `renderScreens(g, warn, kit)` */
 export declare function renderScreens(g: NativeGraph, warn: (arg: string) => void, kit?: NativeKit | undefined | null): string
 
-/** `renderStageScreen(g, state, reveal, warn, kit, ctx)`: `ctx` as JSON, or undefined */
+/**
+ * `renderStageScreen(g, state, reveal, warn, kit, ctx)`: `ctx`, the situation's context as JSON (a map of the flow's
+ * variables to their values), or undefined
+ */
 export declare function renderStageScreen(g: NativeGraph, state: string, reveal: Array<string>, warn: (arg: string) => void, kit?: NativeKit | undefined | null, ctx?: string | undefined | null): string
 
 /** `resolveKit(graphDir, uiKit, flagValue)` */
