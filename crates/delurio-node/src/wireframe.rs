@@ -15,7 +15,8 @@ pub fn render_screens_of(g: &NativeGraph, warn: Function<String, ()>, kit: Optio
     render_screens(&g.g, &mut warn, kit.map(|k| &k.kit))
 }
 
-/// `renderStageScreen(g, state, reveal, warn, kit, ctx)`: `ctx` as JSON, or undefined
+/// `renderStageScreen(g, state, reveal, warn, kit, ctx)`: `ctx`, the situation's context as JSON (a map of the flow's
+/// variables to their values), or undefined
 #[napi(js_name = "renderStageScreen")]
 pub fn render_stage_screen_of(
     g: &NativeGraph,
