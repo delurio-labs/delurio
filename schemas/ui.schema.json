@@ -32,9 +32,18 @@
     "kit": { "type": "string", "description": "The kit the screens are drawn with (SPEC.md §8), relative to the graph; `--kit` wins.", "examples": ["../kit"] },
     "samples": {
       "type": "object",
-      "description": "Values for catalog parameters, on the page and in videos: `{client}` in a message is filled with `samples.client`.",
-      "additionalProperties": { "type": "string", "description": "The sample value." },
-      "examples": [{ "client": "Acme Notes" }]
+      "description": "Values for catalog parameters, on the page and in videos: `{client}` in a message is filled with `samples.client`. A key that is a repeat's data (`question.options`) may give its rows instead: a list of maps, one per item, with the fields its nodes' params read as `row.<field>`; each such node is then drawn once per row (SPEC.md §4).",
+      "additionalProperties": {
+        "type": ["string", "array"],
+        "description": "The sample value, or the rows of a repeat's data.",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "description": "One item of the data: its fields and their values.",
+          "additionalProperties": { "type": ["string", "number", "boolean"] }
+        }
+      },
+      "examples": [{ "client": "Acme Notes" }, { "question.options": [{ "id": "a", "text": "Four" }, { "id": "b", "text": "Three" }] }]
     },
     "task": {
       "type": "object",
@@ -273,7 +282,7 @@
           "pattern": "^[A-Z][A-Z0-9_]*$"
         },
         "initialFocus": { "$ref": "#/$defs/nodeRef", "description": "On a page: the node that has focus when it opens, at the flow's start or when a transition shows it." },
-        "repeat": { "type": "string", "description": "The node is drawn once per item of this data.", "examples": ["request.scopes"] },
+        "repeat": { "type": "string", "description": "The node is drawn once per item of this data: once per row when the samples give its rows (`samples.<data>`), else once. Its params may read the item's fields as `row.<field>`, and so may its `checked`. Adjacent nodes with the same repeat are drawn side by side, one row per item.", "examples": ["request.scopes"] },
         "frame": {
           "description": "For a page: whether it may be framed; `never` (served with CSP frame-ancestors 'none').",
           "const": "never"
@@ -288,8 +297,8 @@
         "checked": {
           "type": ["boolean", "string"],
           "minLength": 1,
-          "description": "On a checkbox, menuitemcheckbox, menuitemradio, option, radio or switch: whether it is checked (or selected) when it is shown, as an expression over the flow's context (SPEC.md §3), or true or false. A replay reads its checked state and compares it.",
-          "examples": [true, "pinned", "plan == 'yearly'"]
+          "description": "On a checkbox, menuitemcheckbox, menuitemradio, option, radio or switch: whether it is checked (or selected) when it is shown, as an expression over the flow's context (SPEC.md §3), or true or false. On a repeat node it may read the item it is drawn for, `row.<field>`. A replay reads its checked state and compares it.",
+          "examples": [true, "pinned", "plan == 'yearly'", "row.id == answer"]
         },
         "script": {
           "description": "On a page: how much of it works without JavaScript. `optional`: the page and its actions (plain forms and links). `actions`: the page is drawn and read without it (rendered on the server), and only its actions need it. Without it, the page needs JavaScript. A replay's second walk with JavaScript off checks an `optional` page and takes its actions, and checks an `actions` page but its actions, and ends there.",

@@ -13,10 +13,10 @@ use regex::Regex;
 use serde::Serialize;
 
 use crate::graph::{Graph, Label, OPENER, alternatives, is_dialog, shown_in};
-use crate::js::{self, Value};
+use crate::js::{self, Object, Value};
 use crate::model::{Exploration, Model, PathResult, path_to};
 use crate::nodepath;
-use crate::wireframe::inherited_sample;
+use crate::wireframe::placeholder_value;
 
 /// a problem in ui.yaml: its rule (`focus-not-shown`, `returns-focus-not-dialog`, `task-locale` or `role-missing`), where in ui.yaml
 /// it is, and the words that say it; the fields in the order the TypeScript checker built them
@@ -234,7 +234,7 @@ pub fn check_ui(g: &Graph, warn: &mut dyn FnMut(&str)) -> Vec<UiProblem> {
         }
     }
     // a field's value in words of the catalog, held as every other node's words are
-    let mut words = |v: Label<'_>| {
+    let mut words = |v: Label<'_>, row: Option<&Object>| {
         // `[...(v.key === undefined ? [] : [v.key]), ...(v.oneOf ?? [])]`, each key as `g.catalog[key]` looks it up: a
         // list's items or a string's characters; any other value (which the TypeScript checker could not spread) is
         // passed over
@@ -252,7 +252,7 @@ pub fn check_ui(g: &Graph, warn: &mut dyn FnMut(&str)) -> Vec<UiProblem> {
             };
             for m in PLACEHOLDER.captures_iter(message) {
                 let p = &m[1];
-                if ui.sample(p).is_none() && inherited_sample(p).is_none() {
+                if placeholder_value(g, p, v.params(), row).is_none() {
                     warn(&format!("no sample value for {{{p}}} in {key}"));
                 }
             }
@@ -260,7 +260,11 @@ pub fn check_ui(g: &Graph, warn: &mut dyn FnMut(&str)) -> Vec<UiProblem> {
     };
     for (_, n) in ui.nodes() {
         if let Some(v) = n.value_label() {
-            words(v);
+            // a repeat node's words for each of its sample rows, which its params may read (SPEC.md §4)
+            match n.repeat().and_then(|r| ui.rows(r)) {
+                Some(rows) => rows.iter().for_each(|row| words(v, row.as_object())),
+                None => words(v, None),
+            }
         }
     }
     // a control with no role: a screen reader, a replay and kit check find a field or an action by its WAI-ARIA role,

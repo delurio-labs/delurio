@@ -4,7 +4,9 @@ use delurio_core::wireframe::{node_texts, render_check_screens, render_screens, 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::conv::{json, warner};
+use delurio_core::js::Value;
+
+use crate::conv::{json, parse_opt, warner};
 use crate::graph::NativeGraph;
 use crate::kit::NativeKit;
 
@@ -15,7 +17,8 @@ pub fn render_screens_of(g: &NativeGraph, warn: Function<String, ()>, kit: Optio
     render_screens(&g.g, &mut warn, kit.map(|k| &k.kit))
 }
 
-/// `renderStageScreen(g, state, reveal, warn, kit)`
+/// `renderStageScreen(g, state, reveal, warn, kit, ctx)`: `ctx`, the situation's context as JSON (a map of the flow's
+/// variables to their values), or undefined
 #[napi(js_name = "renderStageScreen")]
 pub fn render_stage_screen_of(
     g: &NativeGraph,
@@ -23,10 +26,19 @@ pub fn render_stage_screen_of(
     reveal: Vec<String>,
     warn: Function<String, ()>,
     kit: Option<&NativeKit>,
-) -> String {
+    ctx: Option<String>,
+) -> Result<String> {
+    let ctx = parse_opt(ctx)?;
     let mut warn = warner(&warn);
     let reveal: Vec<&str> = reveal.iter().map(String::as_str).collect();
-    render_stage_screen(&g.g, &state, &reveal, &mut warn, kit.map(|k| &k.kit))
+    Ok(render_stage_screen(
+        &g.g,
+        &state,
+        &reveal,
+        &mut warn,
+        kit.map(|k| &k.kit),
+        ctx.as_ref().and_then(Value::as_object),
+    ))
 }
 
 /// `renderCheckScreens(g, kit, warn)`, as JSON
