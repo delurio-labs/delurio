@@ -375,3 +375,27 @@ test('the bin is a JavaScript file node runs, under the permission model with --
     }
   }
 });
+
+test('renderStageScreen reads checked over the context it is given, for each sample row of a repeat', () => {
+  const dir = copy('examples/notes/edit');
+  edit(join(dir, 'ui.yaml'), 'samples: { body: "Milk, eggs, bread" }', 'samples: { body: "Milk, eggs, bread", note.colours: [ { id: yellow, text: Yellow }, { id: blue, text: Blue } ] }');
+  edit(
+    join(dir, 'ui.yaml'),
+    '  save:\n',
+    '  colour:\n    type: field\n    component: Radio\n    role: radio\n    repeat: note.colours\n    text: { key: Edit.colour, params: { colour: row.text } }\n    checked: "pinned and row.id == \'blue\'"\n    in: [editing, saving]\n  save:\n',
+  );
+  const words = JSON.parse(readFileSync(join(dir, 'catalog/en.json'), 'utf8'));
+  writeFileSync(join(dir, 'catalog/en.json'), JSON.stringify({ ...words, 'Edit.colour': '{colour}' }));
+  const g = graph.load(dir);
+  const drawn = (ctx) => wireframe.renderStageScreen(g, 'editing', [], () => {}, null, ctx);
+  const radio = (text, checked) => `<input type="radio" tabindex="-1"${checked ? ' checked' : ''}><span>${text}</span>`;
+  for (const ctx of [undefined, null, { pinned: false }]) {
+    const html = drawn(ctx);
+    assert.ok(html.includes(radio('Yellow', false)) && html.includes(radio('Blue', false)), html);
+  }
+  const pinned = drawn({ pinned: true });
+  assert.ok(pinned.includes(radio('Yellow', false)) && pinned.includes(radio('Blue', true)), pinned);
+  // the expectations of kit check: one for each row, counted by index
+  const { expected } = wireframe.renderCheckScreens(g, null, () => {});
+  assert.deepEqual(expected.filter((e) => e.id === 'colour' && e.state === 'editing').map((e) => [e.index, e.name]), [[0, 'Yellow'], [1, 'Blue']]);
+});
