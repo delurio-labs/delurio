@@ -317,6 +317,10 @@
             }
           ],
           "examples": ["danger", { "danger": "clock == 'lastFive'", "warning": "clock == 'lastQuarter'" }]
+        },
+        "duringStep": {
+          "type": "boolean",
+          "description": "`true`: in a state that runs a step (`invoke`), the node stays usable while the step runs, and its event is handled once the step ends, by the state the step's outcome (DONE, FAIL.<class>) leads to, such as a link to sign out beside a form that is being saved. `check` then holds that state, not the step's, to the event (event-unhandled). A replay does not press a node while a step runs (SPEC.md §4)."
         }
       },
       "allOf": [
@@ -344,6 +348,11 @@
           "$comment": "a node that names its native control gives no role: WAI-ARIA gives that control none",
           "if": { "required": ["native"] },
           "then": { "properties": { "role": false } }
+        },
+        {
+          "$comment": "duringStep is only on a node that sends an event: it says where that event is handled",
+          "if": { "required": ["duringStep"], "properties": { "duringStep": { "const": true } } },
+          "then": { "required": ["emits"] }
         }
       ]
     },

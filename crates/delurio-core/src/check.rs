@@ -148,6 +148,7 @@ const RULES: &[Rule] = &[
     rule("focus-not-shown", "A focus or a returnsFocus gives the focus to a node that is not shown there (SPEC.md §4)", E),
     rule("returns-focus-not-dialog", "A returnsFocus does not start at a dialog (SPEC.md §4)", E),
     rule("event-unhandled", "A node sends an event that a state showing it enabled does not handle (SPEC.md §4)", E),
+    rule("during-step-unused", "A node is marked duringStep where no state that runs a step shows it enabled, or it sends NAVIGATE (SPEC.md §4)", W),
     rule("role-missing", "A field or an action gives no role, by which a screen reader finds it (SPEC.md §4)", W),
     rule("state-no-way-out", "A state that is not an exit has no way out (SPEC.md §2)", E),
     rule("state-unreachable", "No situation the flow starts in reaches the state (SPEC.md §2)", E),
@@ -569,8 +570,9 @@ fn check_flow(dir: &str, domains: &mut DomainsSeen, kits: &mut IndexSet<String>)
         // a node's event is handled in every situation the exploration reached that shows the node enabled (SPEC.md §4)
         for u in check_events(&g, &model, &ex) {
             let at = key_at(&text, &u.path);
-            let notes =
-                u.reached.as_ref().map_or_else(Vec::new, |p| path_notes(&ui, at, &p.start, &p.events, &u.state));
+            // the state the way reaches: for a node marked duringStep, the one its step's outcome leads to
+            let reached = u.lands.as_deref().unwrap_or(&u.state);
+            let notes = u.reached.as_ref().map_or_else(Vec::new, |p| path_notes(&ui, at, &p.start, &p.events, reached));
             out.push(result_with(EVENT_UNHANDLED, &ui, at, u.message, &id, u.element, notes));
         }
     }

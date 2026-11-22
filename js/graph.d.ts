@@ -108,6 +108,7 @@ export interface UiNode {
     source?: string;
     /** How the node looks, never all it says (SPEC.md §4): a fixed tone, or each tone with the expression over the context under which the node takes it; the first that holds wins. */
     tone?: Tone | Partial<Record<Tone, string>>;
+    duringStep?: boolean;
 }
 /** The tones a node may take (SPEC.md §4). */
 export type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
