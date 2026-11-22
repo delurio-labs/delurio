@@ -21,7 +21,7 @@ use crate::graph::{Graph, alternatives, load, read_error};
 use crate::holds::{HOLDS_UNKNOWN, check_holds};
 use crate::invokes::check_invokes;
 use crate::js::{self, Object, Value};
-use crate::kit::resolve_kit;
+use crate::kit::{Kit, resolve_kit};
 use crate::model::{Model, check_assertions, explore};
 use crate::nav::{LoadedNav, check_goals, findings, load_nav, view_of};
 use crate::needs::{check_needs, planned, read_needs};
@@ -135,7 +135,7 @@ const RULES: &[Rule] = &[
     rule("catalog-key-missing", "A catalog key the screens use is missing from a locale's catalog", E),
     rule("sample-missing", "A catalog message has a placeholder with no sample value", E),
     rule("no-renderer", "A component has no renderer", E),
-    rule("kit-uncovered", "The kit does not cover a component or an intent", E),
+    rule("kit-uncovered", "The kit does not cover a component, an intent or a tone", E),
     rule("list-item-outside-list", "A list item is drawn outside a list", E),
     rule("hand-over", "A started flow cannot begin with what it is given", E),
     rule("changes-note-missing", "A flow whose steps write has no changes note (SPEC.md §4)", E),
@@ -168,6 +168,8 @@ const RULES: &[Rule] = &[
     rule("graph-warning", "Another warning of the graph", E),
     rule("nav-problem", "A problem of the navigation graph", E),
     rule("nav-note", "A note on the navigation graph", W),
+    rule("kit-font", "A font file the kit lists cannot be embedded: it is not in the kit's folder, not a font, or too large (SPEC.md §8)", E),
+    rule("kit-font-unembedded", "The kit's CSS draws in a font the kit does not carry (SPEC.md §8)", W),
 ];
 
 /// `LEVEL.get(rule) ?? 'error'`
@@ -462,7 +464,24 @@ fn targeted(g: &Graph) -> HashSet<&str> {
     out
 }
 
-fn check_flow(dir: &str, domains: &mut DomainsSeen) -> Result<Vec<CheckResult>> {
+/// What loading a kit found, its fonts' files and the families its CSS draws in that it does not carry (SPEC.md §8),
+/// at the place in its files, as findings of the kit's folder.
+fn kit_findings(kit: &Kit) -> Vec<CheckResult> {
+    let graph = rel(&dirname(&kit.file));
+    kit.findings
+        .iter()
+        .map(|f| {
+            let at = if f.path.is_empty() {
+                place_of(&f.file, f.needle.as_deref())
+            } else {
+                key_at(&read_text(&f.file).unwrap_or_default(), &f.path)
+            };
+            result(f.rule, &f.file, at, f.message.as_str(), &graph, f.element.as_str())
+        })
+        .collect()
+}
+
+fn check_flow(dir: &str, domains: &mut DomainsSeen, kits: &mut IndexSet<String>) -> Result<Vec<CheckResult>> {
     let file = join2(dir, "flow.yaml");
     let mut g = load(dir)?;
     let kit = match resolve_kit(dir, g.ui().kit(), None) {
@@ -472,6 +491,12 @@ fn check_flow(dir: &str, domains: &mut DomainsSeen) -> Result<Vec<CheckResult>> 
     let model = Model::new(g.flow.clone());
     let ex = explore(&model, None, None)?;
     let mut out = Vec::new();
+    // a kit's own findings once, however many flows draw with it
+    if let Some(k) = &kit
+        && kits.insert(k.file.clone())
+    {
+        out.extend(kit_findings(k));
+    }
     let flow_text = read_text(&file).unwrap_or_default();
     let id = g.flow().id_text();
     // a state the flow stops in for good though it is no exit, and a state no situation reaches (SPEC.md §2)
@@ -1117,12 +1142,13 @@ fn check_run(args: &[String]) -> i32 {
 
     let mut results: Vec<CheckResult> = Vec::new();
     let mut domains: DomainsSeen = IndexMap::new(); // the domains found, for every flow that names one
+    let mut kits: IndexSet<String> = IndexSet::new(); // the kits whose own findings are given
     let mut broken = false;
     for d in &dirs_of_graphs {
         let file = if exists(&join2(d, "flow.yaml")) { join2(d, "flow.yaml") } else { join2(d, "nav.yaml") };
         let checked = newer_format(&file).and_then(|newer| match newer {
             Some(newer) => Ok(Err(newer)),
-            None if file.ends_with("flow.yaml") => check_flow(d, &mut domains).map(Ok),
+            None if file.ends_with("flow.yaml") => check_flow(d, &mut domains, &mut kits).map(Ok),
             None => check_nav(d).map(Ok),
         });
         match checked {

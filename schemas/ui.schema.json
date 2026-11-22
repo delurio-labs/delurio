@@ -295,7 +295,20 @@
           "description": "On a page: how much of it works without JavaScript. `optional`: the page and its actions (plain forms and links). `actions`: the page is drawn and read without it (rendered on the server), and only its actions need it. Without it, the page needs JavaScript. A replay's second walk with JavaScript off checks an `optional` page and takes its actions, and checks an `actions` page but its actions, and ends there.",
           "enum": ["optional", "actions"]
         },
-        "source": { "$ref": "#/$defs/sourceAnchor" }
+        "source": { "$ref": "#/$defs/sourceAnchor" },
+        "tone": {
+          "description": "How the node looks, never all it says (WCAG 2.2, 1.4.1 Use of Color): its words and its role say the same (SPEC.md §4). One tone in every state that shows it, or each tone with the expression over the flow's context (SPEC.md §3) under which the node takes it, in order: the first whose expression holds wins, and none, no tone. A kit draws it with its {tone} slot and its `tones` (SPEC.md §8).",
+          "oneOf": [
+            { "$ref": "#/$defs/tone" },
+            {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": { "$ref": "#/$defs/tone" },
+              "additionalProperties": { "$ref": "#/$defs/expression" }
+            }
+          ],
+          "examples": ["danger", { "danger": "clock == 'lastFive'", "warning": "clock == 'lastQuarter'" }]
+        }
       },
       "allOf": [
         {
@@ -362,6 +375,10 @@
           "maxItems": 2
         }
       }
+    },
+    "tone": {
+      "description": "A tone a node takes (SPEC.md §4): neutral, info, success, warning or danger.",
+      "enum": ["neutral", "info", "success", "warning", "danger"]
     }
   }
 }
