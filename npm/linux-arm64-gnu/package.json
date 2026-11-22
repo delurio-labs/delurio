@@ -1,6 +1,6 @@
 {
   "name": "@delurio/cli-linux-arm64-gnu",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "The native addon of @delurio/cli for linux-arm64-gnu: install @delurio/cli, which depends on this package for this platform",
   "license": "Apache-2.0",
   "repository": {
