@@ -439,6 +439,31 @@ impl<'a> UiNode<'a> {
     pub fn get(&self, key: &str) -> Option<&'a Value> {
         self.0.get(key)
     }
+    /// `tone`: one of the words, or the words each with the expression over the context under which the node takes it,
+    /// in their order; a word that is none of them, or an expression that is no string, is passed over (the schema's to
+    /// report)
+    pub fn tone(&self) -> Option<Tone<'a>> {
+        match self.0.get("tone")? {
+            Value::String(w) => TONES.contains(&w.as_str()).then_some(Tone::Fixed(w.as_str())),
+            Value::Object(o) => Some(Tone::When(
+                o.iter()
+                    .filter_map(|(w, e)| Some((w.as_str(), e.as_str()?)))
+                    .filter(|(w, _)| TONES.contains(w))
+                    .collect(),
+            )),
+            _ => None,
+        }
+    }
+}
+
+/// the words a node's `tone` takes (SPEC.md §4): how it looks, never all it says (WCAG 2.2, 1.4.1 Use of Color)
+pub const TONES: [&str; 5] = ["neutral", "info", "success", "warning", "danger"];
+
+/// a node's `tone`: one word in every state that shows it, or the first word whose expression holds there
+#[derive(Debug, Clone, PartialEq)]
+pub enum Tone<'a> {
+    Fixed(&'a str),
+    When(Vec<(&'a str, &'a str)>),
 }
 
 /// a node's words: a catalog key and its params, the node that labels it, a literal, or one of several keys
@@ -878,7 +903,35 @@ pub fn load_with(dir: &str, read: &dyn Fn(&str) -> Result<String>, exists: &dyn 
         }
     }
     disabled_when_reads(fl, ui_view)?;
+    tone_reads(fl, ui_view)?;
     Ok(Graph { dir: dir.to_string(), flow, ui, catalog })
+}
+
+/// each expression of a node's `tone` map is one over the context (SPEC.md §3, §4), read where the node is shown: one
+/// that does not parse, or names what is not a variable, a guard or `state`, keeps the graph from loading, as `checked`
+/// and `disabledWhen` do
+fn tone_reads(flow: Flow<'_>, ui: Ui<'_>) -> Result<()> {
+    for (id, node) in ui.nodes() {
+        let Some(Value::Object(tones)) = node.get("tone") else { continue };
+        for (word, expr) in tones.iter() {
+            let Value::String(expr) = expr else { continue };
+            let place = Some(ErrorPlace::at("ui.yaml", &["nodes", id, "tone", word]));
+            match names_outside(flow, expr) {
+                Err(message) => return Err(Error::graph(format!("ui node {id}: tone {word}: {message}"), place)),
+                Ok(outside) => {
+                    if let Some(n) = outside.first() {
+                        return Err(Error::graph(
+                            format!(
+                                "ui node {id}: tone {word}: {expr} names {n}, which is not a variable or a guard of the flow"
+                            ),
+                            place,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// a node's `disabledWhen` is an expression over the context (SPEC.md §3, §4), read where the node is shown: one that

@@ -14,6 +14,7 @@ use delurio_core::kit::{CssTarget, Kit, kit_css};
 use delurio_core::model::{AssertionResult, Exploration, FinalPath, Model};
 use delurio_core::starts::HandOver;
 use delurio_core::story::{Story, narrate, steps_to};
+use delurio_core::wireframe::{TONE_CSS, uses_tone};
 
 use crate::pan::{PAN_CSS, PAN_SCRIPT};
 
@@ -290,9 +291,10 @@ pub fn render_page(p: &PageInput<'_>) -> Result<String> {
     let mut out: Vec<String> = Vec::new();
     out.push("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">".into());
     out.push(format!(
-        "<title>{}</title><style>{CSS}{PAN_CSS}{}</style></head><body><main>",
+        "<title>{}</title><style>{CSS}{PAN_CSS}{}{}</style></head><body><main>",
         esc(&heading),
-        kit.map_or_else(String::new, |k| kit_css(k, CssTarget::Page))
+        kit.map_or_else(String::new, |k| kit_css(k, CssTarget::Page)),
+        if uses_tone(g) { TONE_CSS } else { "" }
     ));
     let status =
         g.flow.get("status").map_or_else(String::new, |s| format!("<span class=\"tag\">{}</span> ", esc(&text(s))));

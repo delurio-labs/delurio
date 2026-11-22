@@ -3,8 +3,8 @@
 
 use delurio_core::js::{self, Object, Value};
 use delurio_core::kit::{
-    CssTarget, Ctx, Fill, Flag, Kit, KitComponent, Part, Slot, Template, draw_with, kit_css, kit_stage_script,
-    load_kit, mark, resolve_kit,
+    CssTarget, Ctx, Fill, Flag, Kit, KitComponent, KitFont, Part, Slot, Template, draw_with, kit_css, kit_families,
+    kit_stage_script, load_kit, mark, resolve_kit,
 };
 use indexmap::IndexMap;
 use napi::bindgen_prelude::*;
@@ -32,6 +32,7 @@ fn part(v: &Value) -> Option<Part> {
             "id" => Slot::Id,
             "intent" => Slot::Intent,
             "children" => Slot::Children,
+            "tone" => Slot::Tone,
             _ => return None,
         };
         let ctx = match v.get_str("ctx") {
@@ -72,18 +73,35 @@ fn pairs(v: Option<&Value>) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
+/// a map of words (`intents`, `tones`) read back, each as a string
+fn words(v: Option<&Value>) -> Option<IndexMap<String, String>> {
+    v.and_then(Value::as_object).map(|o| o.iter().map(|(k, w)| (k.clone(), js::to_js_string(w))).collect())
+}
+
+/// a font of a kit object read back; `kitCss` embeds its `src` only when it is a font's data: URL
+fn font_of(v: &Value) -> KitFont {
+    let opt = |k: &str| v.get(k).filter(|x| !x.is_null()).map(js::to_js_string);
+    KitFont {
+        family: text(v.get("family")),
+        file: text(v.get("file")),
+        weight: opt("weight"),
+        style: opt("style"),
+        unicode_range: opt("unicodeRange"),
+        src: opt("src"),
+    }
+}
+
 /// a kit object as `loadKit` gives it, read back
 fn kit_of(v: &Value) -> Kit {
     let mut components: IndexMap<String, KitComponent> = IndexMap::new();
     for (name, c) in v.get_object("components").into_iter().flat_map(Object::iter) {
         let roles =
             c.get_object("roles").into_iter().flat_map(Object::iter).map(|(r, t)| (r.clone(), template(Some(t))));
-        let intents = c
-            .get_object("intents")
-            .map(|o| o.iter().map(|(k, w)| (k.clone(), js::to_js_string(w))).collect::<IndexMap<String, String>>());
+        let intents = words(c.get("intents"));
+        let tones = words(c.get("tones"));
         components.insert(
             name.clone(),
-            KitComponent { template: template(c.get("template")), roles: roles.collect(), intents },
+            KitComponent { template: template(c.get("template")), roles: roles.collect(), intents, tones },
         );
     }
     Kit {
@@ -95,6 +113,9 @@ fn kit_of(v: &Value) -> Kit {
         dark: pairs(v.get("dark")),
         css: text(v.get("css")),
         zoom: v.get("zoom").and_then(Value::as_f64).unwrap_or(f64::NAN),
+        tones: words(v.get("tones")),
+        fonts: v.get_array("fonts").map(|a| a.iter().map(font_of).collect()).unwrap_or_default(),
+        findings: Vec::new(),
     }
 }
 
@@ -141,6 +162,12 @@ pub fn kit_stage_script_of(kit: &NativeKit) -> String {
     kit_stage_script(&kit.kit)
 }
 
+/// `kitFamilies(kit)`
+#[napi(js_name = "kitFamilies")]
+pub fn kit_families_of(kit: &NativeKit) -> Vec<String> {
+    kit_families(&kit.kit)
+}
+
 /// the fill a caller gives: its keys as the template reads them (a key set to undefined is not in the JSON)
 fn fill_of(v: &Value) -> Fill {
     let s = |k: &str| v.get(k).map_or_else(|| "undefined".to_string(), js::to_js_string);
@@ -157,6 +184,7 @@ fn fill_of(v: &Value) -> Fill {
         named: flag("named"),
         conditional: flag("conditional"),
         checked: flag("checked"),
+        tone: opt("tone"),
     }
 }
 
