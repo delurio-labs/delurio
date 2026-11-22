@@ -1,6 +1,9 @@
 // A flow's screens as wireframes, drawn with the fixed components or with a kit. The checker is the Rust one
 // (crates/delurio-core/src/wireframe.rs).
-import { Trap, call, native, nativeGraph, nativeKit } from './internal.js';
+import { Trap, call, json, native, nativeGraph, nativeKit } from './internal.js';
+
+// The styles of a tone drawn by the fixed components (`wf-tone-<word>`), for the page and the video stage.
+export const TONE_CSS = native.toneCss();
 
 export function renderScreens(g, warn, kit = null) {
   const t = new Trap();
@@ -8,9 +11,11 @@ export function renderScreens(g, warn, kit = null) {
 }
 
 // One state's screen for the tutorial stage. Nodes that depend on a flag (`when`) appear only when named in `reveal`.
-export function renderStageScreen(g, state, reveal, warn, kit = null) {
+// `ctx`, the context the screen is drawn in, picks each node's tone from its map; without it only a fixed tone is drawn.
+export function renderStageScreen(g, state, reveal, warn, kit = null, ctx = null) {
   const t = new Trap();
-  return call(t, () => native.renderStageScreen(nativeGraph(g), String(state), [...(reveal ?? [])].map(String), t.warner(warn), nativeKit(kit)));
+  const c = ctx === null || ctx === undefined ? undefined : json(ctx);
+  return call(t, () => native.renderStageScreen(nativeGraph(g), String(state), [...(reveal ?? [])].map(String), t.warner(warn), nativeKit(kit), c));
 }
 
 // For `kit check`: every screen with all its nodes (flags revealed, no annotations), and what each node must expose.
