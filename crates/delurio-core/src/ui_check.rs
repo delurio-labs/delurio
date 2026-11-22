@@ -316,6 +316,9 @@ pub fn check_ui(g: &Graph, warn: &mut dyn FnMut(&str)) -> Vec<UiProblem> {
 /// the rule of a node whose event a state that shows it enabled does not handle (SPEC.md §4)
 pub const EVENT_UNHANDLED: &str = "event-unhandled";
 
+/// the person leaving the page (SPEC.md §2, Events), which is possible in every state
+const NAVIGATE: &str = "NAVIGATE";
+
 /// A node that sends an event (`emits`) in a state that shows it and does not disable it, and that has no transition on
 /// that event: where in ui.yaml, what it is about, its words, and, when the node's `when` or `disabledWhen` decided it,
 /// the way to the first situation that shows it enabled.
@@ -338,7 +341,6 @@ struct Pending<'a> {
     node: &'a str,
     state: &'a str,
     event: &'a str,
-    exit: bool,
     when: Option<&'a str>,
     disabled_when: Option<&'a str>,
 }
@@ -366,30 +368,31 @@ fn holds<F: Fn(&str, &[u16]) -> crate::error::Result<bool>>(
 /// order of the nodes and then of the states (SPEC.md §4). A node is shown enabled in a situation (a state and a
 /// context) the exploration reached when the state is in its `in` and not in its `unless`, its `when` holds in that
 /// context, the state is not in its `disabledIn`, and its `disabledWhen` does not hold there. The state handles the
-/// event when it has a transition on it, as the model takes transitions: from its `on`, and none from an exit. A state
-/// with `always` is passed at once and nothing is pressed there (SPEC.md §2, and §4 Focus: "a state with `always` is
-/// passed at once"), so it is not held to its nodes' events. Flows have no nested states and no transitions outside
-/// their states (SPEC.md §2, Several flows), so a state's `on` is all it handles. The exploration is `check`'s own: a
-/// flow whose exploration fails does not load, and none of its rules is read; one that has no situation (no start)
-/// reaches no state, and, as for its assertions, nothing is found. A `when` or a `disabledWhen` that cannot be read in
-/// a situation decides nothing, and the pair is passed over.
+/// event when it has a transition on it in its `on`. Flows have no nested states and no transitions outside their
+/// states (SPEC.md §2, Several flows), so a state's `on` is all it handles. Three are not held (SPEC.md §2):
+/// - `NAVIGATE`, the person leaving the page, which is always possible: a node that sends it is never one;
+/// - an exit (`type: final`), which has no transitions: what a node on its page does is outside the flow (a new run, or
+///   another flow);
+/// - a state with `always`, which is passed at once (and §4 Focus: "a state with `always` is passed at once"), so
+///   nothing is pressed there.
+///
+/// The exploration is `check`'s own: a flow whose exploration fails does not load, and none of its rules is read; one
+/// that has no situation (no start) reaches no state, and, as for its assertions, nothing is found. A `when` or a
+/// `disabledWhen` that cannot be read in a situation decides nothing, and the pair is passed over.
 pub fn check_events(g: &Graph, m: &Model, ex: &Exploration) -> Vec<Unhandled> {
     let mut pending: Vec<Pending<'_>> = Vec::new();
     for (node, n) in g.ui().nodes() {
-        let Some(event) = n.emits() else { continue };
+        let Some(event) = n.emits().filter(|&e| e != NAVIGATE) else { continue };
         let (Some(when), Some(disabled_when)) = (expression(n, "when"), expression(n, "disabledWhen")) else {
             continue;
         };
         let disabled_in = n.disabled_in();
         for (state, st) in g.flow().states() {
-            if !shown_in(n, state) || disabled_in.contains(&state) || st.0.get_array("always").is_some() {
+            let passed = st.is_final() || st.0.get_array("always").is_some();
+            if passed || !shown_in(n, state) || disabled_in.contains(&state) || st.on_event(event).is_some() {
                 continue;
             }
-            let exit = st.is_final();
-            if !exit && st.on_event(event).is_some() {
-                continue;
-            }
-            pending.push(Pending { node, state, event, exit, when, disabled_when });
+            pending.push(Pending { node, state, event, when, disabled_when });
         }
     }
     if pending.is_empty() {
@@ -447,16 +450,15 @@ pub fn check_events(g: &Graph, m: &Model, ex: &Exploration) -> Vec<Unhandled> {
     let mut out = Vec::new();
     for (p, h) in pending.iter().zip(hit) {
         let Some(h) = h else { continue };
-        let Pending { node, state, event, exit, when, disabled_when } = *p;
+        let Pending { node, state, event, when, disabled_when } = *p;
         let cond = match (when, disabled_when) {
             (None, None) => String::new(),
             (Some(w), None) => format!(" (where its when, {w}, holds)"),
             (None, Some(d)) => format!(" (where its disabledWhen, {d}, does not hold)"),
             (Some(w), Some(d)) => format!(" (where its when, {w}, holds and its disabledWhen, {d}, does not)"),
         };
-        let why = if exit { "is an exit, which handles no event".to_string() } else { format!("has no on.{event}") };
         let message = format!(
-            "node {node} sends {event}, and {state} shows it enabled{cond} but {why}: a node shown and not disabled can be pressed, so the state handles its event, or the node is disabled there (disabledIn, disabledWhen) or not shown (SPEC.md §4)"
+            "node {node} sends {event}, and {state} shows it enabled{cond} but has no on.{event}: a node shown and not disabled can be pressed, so the state handles its event, or the node is disabled there (disabledIn, disabledWhen) or not shown (SPEC.md §4)"
         );
         let reached = (when.is_some() || disabled_when.is_some()).then(|| path_to(m, ex, h));
         out.push(Unhandled {
@@ -479,8 +481,9 @@ mod tests {
     use crate::graph::load_with;
     use crate::model::explore;
 
-    // A flow whose editing page sends SAVE and TOGGLE: SAVE leads to saving, where the step runs and busy is true, and
-    // past checking (an `always`) to the exit saved. ready starts from either value; lost is reached by nothing.
+    // A flow whose editing page sends SAVE, TOGGLE and BACK_TO_LIST: SAVE leads to saving, where the step runs and busy
+    // is true, and past checking (an `always`) to the exit saved, or to failed, where the person may retry; BACK_TO_LIST
+    // leaves for the exit left. ready starts from either value; lost is reached by nothing.
     const FLOW: &str = "schema: delurio-graph/0
 kind: flow
 id: t
@@ -495,13 +498,20 @@ states:
     on:
       SAVE: { target: saving, effect: [start] }
       TOGGLE: editing
+      BACK_TO_LIST: left
   saving:
     invoke: { action: save }
     on:
       DONE: checking
+      FAIL: failed
+  failed:
+    by: human
+    on:
+      RETRY: saving
   checking:
     always: [saved]
   saved: { type: final }
+  left: { type: final }
   lost:
     on:
       SAVE: saving
@@ -591,13 +601,30 @@ states:
         // editing handles TOGGLE, saving does not
         assert!(states_for("emits: TOGGLE, in: [editing]").is_empty());
         assert_eq!(states_for("emits: TOGGLE, in: [editing, saving]"), ["saving"]);
-        // an exit handles no event
-        let found = found_for("emits: SAVE, in: [saved]");
-        assert_eq!(found.iter().map(|u| u.state.as_str()).collect::<Vec<_>>(), ["saved"]);
-        assert!(found[0].message.contains("saved shows it enabled but is an exit, which handles no event"));
         // a state with `always` is passed at once, and one no situation reaches is never shown
         assert!(states_for("emits: TOGGLE, in: [checking, lost]").is_empty());
         // one finding per node and state, in the order of the states
-        assert_eq!(states_for("emits: TOGGLE, in: [saved, saving, editing]"), ["saving", "saved"]);
+        assert_eq!(states_for("emits: TOGGLE, in: [failed, saving, editing]"), ["saving", "failed"]);
+    }
+
+    #[test]
+    fn a_link_back_shown_in_states_that_do_not_handle_it() {
+        // the link back to the list on every screen, which only editing handles: the step's failure, where the person
+        // is (by: human), does not
+        assert_eq!(states_for("emits: BACK_TO_LIST, in: [editing, saving, failed, saved]"), ["saving", "failed"]);
+        assert!(states_for("emits: BACK_TO_LIST, in: [editing]").is_empty());
+    }
+
+    #[test]
+    fn leaving_the_page_is_always_possible() {
+        // NAVIGATE is the person leaving the page (SPEC.md §2): no state is held to it
+        assert!(states_for("emits: NAVIGATE, in: [editing, saving, failed]").is_empty());
+    }
+
+    #[test]
+    fn what_a_node_on_an_exit_does_is_outside_the_flow() {
+        // an exit has no transitions (SPEC.md §2): a node its page shows starts a new run or another flow
+        assert!(states_for("emits: SAVE, in: [saved, left]").is_empty());
+        assert_eq!(states_for("emits: SAVE, in: [failed, saved, left]"), ["failed"]);
     }
 }

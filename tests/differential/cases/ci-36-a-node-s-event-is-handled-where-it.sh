@@ -1,7 +1,7 @@
 # A node's event is handled where the node is shown and enabled (event-unhandled, SPEC.md §4): in every situation the
 # checker reaches, a state that shows a node with `emits`, by `in`, `unless` and `when`, and does not disable it, by
-# `disabledIn` and `disabledWhen`, has a transition on the event; an exit handles none, and a state with `always` is
-# passed at once
+# `disabledIn` and `disabledWhen`, has a transition on the event. Not held: NAVIGATE, the person leaving the page,
+# which is always possible; an exit, whose page is outside the flow; and a state with `always`, passed at once
 cp -r examples/notes "$TMPDIR_CASE/events"
 ui="$TMPDIR_CASE/events/edit/ui.yaml"
 # the line of a node in ui.yaml, as it is now
@@ -75,7 +75,7 @@ sed -i 's/^    when: pinned$/    when: "not pinned"\n    unless: [saving]/' "$ui
 "$DELURIO" check "$TMPDIR_CASE/events" --strict --no-app > "$TMPDIR_CASE/events.txt" 2>&1
 if grep -F '[event-unhandled]' "$TMPDIR_CASE/events.txt"; then exit 1; fi
 
-# Keep it, shown on the exit too: an exit handles no event
+# Keep it, shown on the exit too: an exit has no transitions, so what a node on its page does is outside the flow
 python3 - "$ui" <<'EOF'
 import sys
 p = sys.argv[1]
@@ -83,15 +83,24 @@ s = open(p).read()
 s = s.replace("    in: [discarding]\n    emits: KEEP\n", "    in: [discarding, saved]\n    emits: KEEP\n")
 open(p, "w").write(s)
 EOF
+"$DELURIO" check "$TMPDIR_CASE/events" --strict --no-app > "$TMPDIR_CASE/events.txt" 2>&1
+if grep -F '[event-unhandled]' "$TMPDIR_CASE/events.txt"; then exit 1; fi
+
+# saved made a state the owner stays in, which does not handle KEEP: found; once it does, nothing
+sed -i 's/^  saved: { type: final, title: Saved }$/  saved: { title: Saved, on: { EDIT: editing } }/' "$TMPDIR_CASE/events/edit/flow.yaml"
 code=0
 "$DELURIO" check "$TMPDIR_CASE/events" --strict --no-app > "$TMPDIR_CASE/events.txt" 2>&1 || code=$?
 cat "$TMPDIR_CASE/events.txt"
 test "$code" -eq 2
 test "$(grep -c '\[event-unhandled\]' "$TMPDIR_CASE/events.txt")" -eq 1
-grep -F "edit/ui.yaml:$(at keep):3: error: node keep sends KEEP, and saved shows it enabled but is an exit, which handles no event" "$TMPDIR_CASE/events.txt"
+grep -F "edit/ui.yaml:$(at keep):3: error: node keep sends KEEP, and saved shows it enabled but has no on.KEEP" "$TMPDIR_CASE/events.txt"
+sed -i 's/on: { EDIT: editing }/on: { EDIT: editing, KEEP: editing }/' "$TMPDIR_CASE/events/edit/flow.yaml"
+"$DELURIO" check "$TMPDIR_CASE/events" --strict --no-app > "$TMPDIR_CASE/events.txt" 2>&1
+if grep -F '[event-unhandled]' "$TMPDIR_CASE/events.txt"; then exit 1; fi
 
-# a state that handles the event: saved is no exit, and goes back to editing on KEEP
-sed -i 's/^  saved: { type: final, title: Saved }$/  saved: { title: Saved, on: { KEEP: editing } }/' "$TMPDIR_CASE/events/edit/flow.yaml"
-"$DELURIO" check "$TMPDIR_CASE/events" --strict --no-app > "$TMPDIR_CASE/events.txt" 2>&1 || true
+# a node that leaves the page (NAVIGATE) may be shown in any state: leaving is always possible (SPEC.md §2)
+sed -i 's/on: { EDIT: editing, KEEP: editing }/on: { EDIT: editing }/' "$TMPDIR_CASE/events/edit/flow.yaml"
+sed -i 's/^    emits: KEEP$/    emits: NAVIGATE/' "$ui"
+"$DELURIO" check "$TMPDIR_CASE/events" --strict --no-app > "$TMPDIR_CASE/events.txt" 2>&1
 cat "$TMPDIR_CASE/events.txt"
 if grep -F '[event-unhandled]' "$TMPDIR_CASE/events.txt"; then exit 1; fi
