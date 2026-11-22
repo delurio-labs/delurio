@@ -178,7 +178,7 @@ rules: [ { id, rule } ]
 | `disabledWhen` | an expression over the context (§3): where it holds, the node is shown but disabled, in any state that shows it |
 | `emits` | the event the node sends when pressed |
 | `initialFocus` | on a page: the node that has focus when it opens (Focus, below) |
-| `repeat` | the node is drawn once per item of this data (`request.scopes`) |
+| `repeat` | the node is drawn once per item of this data (`request.scopes`): once per row the samples give it (Rows of a repeat, below) |
 | `frame` | for a page: whether it may be framed (`never`) |
 | `value` | on a field: what it holds when it is shown, until someone types in it: `{ key, params }`, `{ literal }` or `{ oneOf }`; `{ literal: "" }` is an empty field |
 | `holds` | the field of the flow's domain whose value the node shows, or a control takes: `<Entity>.<field>`. A node that holds a field whose `sensitivity` the binding's `mask` names, `credential` unless it says, is masked wherever the flow's screens are recorded (§7) |
@@ -216,7 +216,7 @@ A state that `focus` names that is not a state of the flow keeps the graph from 
 
 ### What a control holds, and pages without JavaScript
 
-`value` is what a field holds when it is shown, until someone types in it. It takes the forms of a node's words except `labelledBy`: `{ key, params }` from the catalog, `{ literal }`, or `{ oneOf }`, and `{ literal: "" }` is an empty field. A replay compares it in each state that shows the field, up to the step at which its walk types in that field. `checked` says whether a control is checked, or for an `option` selected, in each state that shows it: an expression over the context there (§3), or `true` or `false`. A control someone checks during the flow is checked by an event, and the expression reads what that event's effect sets; one that the flow finds already checked is said over the context, such as the radio of the role a member already has (`checked: "role == 'admin'"`). A replay compares it in each state that shows the node. On a node drawn more than once (`repeat`, or words given as `oneOf`), `value` and `checked` hold for each control it draws; controls that differ are written as separate nodes.
+`value` is what a field holds when it is shown, until someone types in it. It takes the forms of a node's words except `labelledBy`: `{ key, params }` from the catalog, `{ literal }`, or `{ oneOf }`, and `{ literal: "" }` is an empty field. A replay compares it in each state that shows the field, up to the step at which its walk types in that field. `checked` says whether a control is checked, or for an `option` selected, in each state that shows it: an expression over the context there (§3), or `true` or `false`. A control someone checks during the flow is checked by an event, and the expression reads what that event's effect sets; one that the flow finds already checked is said over the context, such as the radio of the role a member already has (`checked: "role == 'admin'"`). A replay compares it in each state that shows the node. On a node drawn more than once (`repeat`, or words given as `oneOf`), `value` and `checked` hold for each control it draws; controls that differ are written as separate nodes, except the items of a repeat whose `checked` reads its row (`row.<field>`, below), such as the options of a radio group, one of which is chosen.
 
 `disabledIn` lists the states in which a node is shown but disabled. `disabledWhen` disables it by what the context holds, in every state that shows it: a Continue button disabled until a VAT number is typed (`disabledWhen: "not vatGiven"`, where typing it is an event whose effect sets `vatGiven`), or until a box is ticked (`disabledWhen: "not accepted"`, beside the box's `checked: accepted`). A node is disabled where either says so. A replay compares it in each situation it stops in, from the context it has walked to there. A `disabledWhen` that does not parse, or names anything but a variable, a guard or `state`, keeps the graph from loading, as `checked` does.
 
@@ -227,6 +227,34 @@ While scripts do not run, an action of a page marked `actions` is not there, or 
 `holds` says which field of the flow's domain (§5) a node holds: the value a text shows, such as a client's name in a heading, or the value a field takes, such as a password or an API key typed into it. It names an entity of the domain and one of its fields, `<Entity>.<field>`, as `references` names an entity. So the screens say where a value the domain marks with `sensitivity` is shown or typed, and a tool that records them knows what to keep out: a recording masks every node that holds a field whose `sensitivity` the binding's `mask` names, `credential` unless it says (§7). `check` holds each `holds` to the domain the flow names, found as for `invoke` (§5): an entity the domain does not have, a field the entity does not have, or a domain that is not found beside the flow, is an error (`holds-unknown`) at the `holds`; an entity none of whose files gives `fields` yet is not held to them. `maskedNodes(g, mask)` in `@delurio/cli/graph` names the nodes of a graph that a recording masks, in the order of `nodes`, for the binding's `mask` (`[credential]` when it is left out).
 
 The `schema` rule refuses `value` on a node that is not a field, `checked` on a node of another role, `script` on a node that is not a page, and a node called `opener`. A `checked` or a `disabledWhen` expression that names neither a variable, a guard nor `state` keeps the graph from loading. A `value` from the catalog is held as a node's text is (`catalog-key-missing`, `sample-missing`).
+
+### Rows of a repeat
+
+A node with `repeat` stands for each item of its data. `samples` may give those items as rows, under the data's name: a list of maps, one per item, each holding the item's fields as strings, numbers or booleans.
+
+```yaml
+samples:
+  question.options: [ { id: a, text: "Four" }, { id: b, text: "Three" } ]
+nodes:
+  options: { type: list, component: List, role: radiogroup, name: { labelledBy: question }, in: [answering] }
+  option:
+    type: field
+    component: ListItem
+    role: radio
+    repeat: question.options
+    text: { key: Exam.option, params: { option: row.text } }
+    checked: "row.id == answer"
+    in: [answering]
+    emits: CHOOSE
+```
+
+Such a node is drawn once per row, in their order: on the page, on the tutorial stage, and in the screens `kit check` draws, which expect each element it draws (`index` counts them, as it counts a ListItem's texts). A param that reads `row.<field>` (`params: { option: row.text }`) fills its placeholder with that field of each row; where the row has no such field, the placeholder takes the sample of its name, as it does on every other node. Only a repeat node reads rows: a node drawn once has no row of its own, so its placeholders take the samples by their names even when its params name a field of some data. Without rows the node is drawn once, as before.
+
+A repeat node's `checked` may read its row as well, `checked: "row.id == answer"`: which option of a radio group is chosen, by what the context holds. A page draws each state's screen once, for all the situations that show it, so it draws only `checked: true`. A screen drawn for one situation, as the tutorial stage draws each step, reads `checked` over that situation's context and each row (`renderStageScreen`'s `ctx` in `@delurio/cli/wireframe`). `row.<field>` in the `checked` of a node without `repeat` keeps the graph from loading, as any other name that is not a variable or a guard does.
+
+A transition whose event a repeat node sends may set a variable from the row that was pressed: `effects: { choose: { set: { answer: row.id } } }`, the effect of the transition on `CHOOSE`. The flow alone does not say which row is pressed, and the sample rows illustrate the screens: they are not the app's data and never decide what the flow can reach. So the checker lets such a variable take any of its values, as `havoc` does (§2), whether the samples give rows or not, and every row the app may draw is among the situations it explores. A tutorial says which row it presses (`row`, §7), and takes the case that row gives.
+
+Adjacent nodes, in the order of `nodes`, that share the same `repeat` are drawn as one row per item, side by side: the number of an entry in a list of questions beside its state, or the cells of a table's row. A List holds, besides the ListItems after it, the rows of the nodes after it that share a repeat: each row is one item of the list, and a ListItem that begins a row is that item, with the other nodes beside its words. A List whose role is `table` or `grid` draws its items row by row: the header cells after it (role `columnheader`) form its header row, and the rows of the repeat nodes after them are the table's rows. The first node that is none of these ends the list, as before. A lone repeat node outside a list is drawn once per row, as it was drawn once. With a kit each node keeps its own template, and the rows are drawn around them; a table's row is an element of role `row`, so a kit draws a table with elements of roles `table` and `cell` (`<div role="table">`), not with `<table>`, out of which the HTML parser moves the rows. The expected accessibility tree gives the same rows. Decided on 22 Nov 2026, with rows in the samples and `checked` and effects that read the row.
 
 ### Catalog
 
@@ -406,6 +434,8 @@ Replay over HTTP, with no browser, is an open issue; screenshots of every state 
 A **tutorial** is written against a flow: `title`, `audience`, `locale`, `appName`, `voice`, `stage`, the `scenario` (the starting context), and `steps`. A step is `intro`, `chapter`, `show <state>`, `cut <state>` (jump, through a scenario the binding names), `reveal`/`focus` (nodes), `press <node>`, `after`, `then`, `card { title, body }`, `end <state>` (the exit the flow ends at, or the screen the video closes on), and `say`. Every step is replayed on the flow, so a tutorial that no longer matches the graph stops at that step. `{word}` in `say` is a sample value or a node's visible text.
 
 `then { <variable>: <value> }` says how a step comes out where an effect leaves it to chance (`havoc`, §2): what the host answered, what a folder held. Of the cases the step's transitions can take, the step takes the one in which these variables have these values. A step without `then` takes the model's first case, and a `then` that no case of the step matches stops the tutorial at that step. So a tutorial can go the way a person meets most, such as a host that lists their repositories, when the graph also allows every other answer.
+
+`row: <n>` on a step that presses a repeat node (§4) says which of the node's sample rows it presses, counted from 1: `{ press: option, row: 2 }` presses the second option. Of the cases the press can take, the step takes the one in which each variable that the transition's effects set from the row (`row.<field>`) has that row's value. `check` stops the tutorial at that step (`tutorial-mismatch`) when `row` is not a whole number from 1, the step presses no node, the node has no `repeat`, the samples give it no rows or fewer than `n`, the row lacks a field the effects read, or no case of the press has the row's value, such as a value its variable does not have. A press on a repeat node without `row` takes the model's first case, as a step without `then` does.
 
 `stage` says what the video shows: the flow's screens (`screen`, the default), or its diagram (`diagram`), for a flow with no screens, such as two programs talking or a job in the background. On the diagram the camera goes from state to state, and the tutorial's own way is drawn as the story, whether or not it is the flow's `main` story; the diagram holds every transition, failures included. No state is passed on its own there: `show <state>` and `end <state>` walk the flow to their state along its normal way (a transition with no event, then `DONE`) and stop the tutorial when that way does not reach it, and every other event is given with `after`. `press`, `reveal` and `focus` point at nodes a diagram does not have, and stop it too. An `end` on the diagram needs no `card`; one it has is shown after the ending.
 
