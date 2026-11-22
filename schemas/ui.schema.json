@@ -295,7 +295,11 @@
           "description": "On a page: how much of it works without JavaScript. `optional`: the page and its actions (plain forms and links). `actions`: the page is drawn and read without it (rendered on the server), and only its actions need it. Without it, the page needs JavaScript. A replay's second walk with JavaScript off checks an `optional` page and takes its actions, and checks an `actions` page but its actions, and ends there.",
           "enum": ["optional", "actions"]
         },
-        "source": { "$ref": "#/$defs/sourceAnchor" }
+        "source": { "$ref": "#/$defs/sourceAnchor" },
+        "duringStep": {
+          "type": "boolean",
+          "description": "`true`: in a state that runs a step (`invoke`), the node stays usable while the step runs, and its event is handled once the step ends, by the state the step's outcome (DONE, FAIL.<class>) leads to, such as a link to sign out beside a form that is being saved. `check` then holds that state, not the step's, to the event (event-unhandled). A replay does not press a node while a step runs (SPEC.md §4)."
+        }
       },
       "allOf": [
         {
@@ -322,6 +326,11 @@
           "$comment": "a node that names its native control gives no role: WAI-ARIA gives that control none",
           "if": { "required": ["native"] },
           "then": { "properties": { "role": false } }
+        },
+        {
+          "$comment": "duringStep is only on a node that sends an event: it says where that event is handled",
+          "if": { "required": ["duringStep"], "properties": { "duringStep": { "const": true } } },
+          "then": { "required": ["emits"] }
         }
       ]
     },

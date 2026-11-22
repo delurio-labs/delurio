@@ -22,7 +22,7 @@ code=0
 cat "$TMPDIR_CASE/events.txt"
 test "$code" -eq 2
 test "$(grep -c '\[event-unhandled\]' "$TMPDIR_CASE/events.txt")" -eq 1
-grep -F "edit/ui.yaml:$(at save):3: error: node save sends SAVE, and saving shows it enabled but has no on.SAVE: a node shown and not disabled can be pressed, so the state handles its event, or the node is disabled there (disabledIn, disabledWhen) or not shown (SPEC.md §4) [event-unhandled]" "$TMPDIR_CASE/events.txt"
+grep -F "edit/ui.yaml:$(at save):3: error: node save sends SAVE, and saving shows it enabled but has no on.SAVE: a node shown and not disabled can be pressed, so the state handles its event, or the node is disabled there (disabledIn, disabledWhen) or not shown, or, as the state runs a step, marked duringStep, so that its event is handled where the step's outcome leads (SPEC.md §4) [event-unhandled]" "$TMPDIR_CASE/events.txt"
 grep -Fx 'delurio check: 3 graphs, 1 error, 0 warnings, 1 gap of 4 needs; exit 2' "$TMPDIR_CASE/events.txt"
 
 # disabled by the context instead: where pinned is false only, so the situation that shows it enabled is given

@@ -5,14 +5,15 @@
 //! that `checked` reads the context is the loader's. The port of ui-check.ts; `check_events`, which reads the
 //! exploration, is the Rust checker's own.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
+use std::rc::Rc;
 use std::sync::LazyLock;
 
 use indexmap::IndexSet;
 use regex::Regex;
 use serde::Serialize;
 
-use crate::graph::{Graph, Label, OPENER, alternatives, is_dialog, shown_in};
+use crate::graph::{Graph, Label, OPENER, State, UiNode, alternatives, is_dialog, shown_in};
 use crate::js::{self, Value};
 use crate::model::{Exploration, Model, PathResult, path_to};
 use crate::nodepath;
@@ -310,7 +311,55 @@ pub fn check_ui(g: &Graph, warn: &mut dyn FnMut(&str)) -> Vec<UiProblem> {
             );
         }
     }
+    // a node marked to stay usable while a step runs, where no step shows it enabled, or whose event no state is held to
+    for (id, n) in ui.nodes() {
+        if !during_step(n) {
+            continue;
+        }
+        let why = if n.emits() == Some(NAVIGATE) {
+            "it sends NAVIGATE, the person leaving the page, which is possible in every state (SPEC.md §2)".to_string()
+        } else if !g.flow().states().any(|(s, st)| step_shows_enabled(n, s, st)) {
+            "no state that runs a step (invoke) shows it enabled, by its in, unless and disabledIn".to_string()
+        } else {
+            continue;
+        };
+        push(
+            DURING_STEP_UNUSED,
+            vec!["nodes".to_string(), id.to_string(), DURING_STEP.to_string()],
+            format!("nodes/{id}/{DURING_STEP}"),
+            format!(
+                "{id} is marked {DURING_STEP}, but {why}: the marker keeps a node usable while its state's step runs, and holds its event where the step's outcome leads, so here it changes nothing (SPEC.md §4)"
+            ),
+        );
+    }
     out
+}
+
+/// the node key that keeps a node usable while its state's step runs, its event handled once the step ends, by the
+/// state the step's outcome enters (SPEC.md §4)
+pub const DURING_STEP: &str = "duringStep";
+
+/// the rule of a node marked `duringStep` where the marker can change nothing (SPEC.md §4)
+pub const DURING_STEP_UNUSED: &str = "during-step-unused";
+
+/// whether a node is marked to stay usable while a step runs: `duringStep: true`
+pub fn during_step(n: UiNode<'_>) -> bool {
+    matches!(n.get(DURING_STEP), Some(Value::Bool(true)))
+}
+
+/// whether a state runs a step: it has `invoke`, and ends with DONE or FAIL.<class> (SPEC.md §2, Events)
+fn runs_step(st: State<'_>) -> bool {
+    st.invoke().is_some()
+}
+
+/// whether a state that runs a step shows a node, by its `in` and `unless`, and does not disable it by `disabledIn`
+fn step_shows_enabled(n: UiNode<'_>, state: &str, st: State<'_>) -> bool {
+    runs_step(st) && !st.is_final() && shown_in(n, state) && !n.disabled_in().contains(&state)
+}
+
+/// whether an event ends a step: DONE, or FAIL.<class> (SPEC.md §2, Events)
+fn is_outcome(event: &str) -> bool {
+    event == "DONE" || event == "FAIL" || event.starts_with("FAIL.")
 }
 
 /// the rule of a node whose event a state that shows it enabled does not handle (SPEC.md §4)
@@ -321,7 +370,9 @@ const NAVIGATE: &str = "NAVIGATE";
 
 /// A node that sends an event (`emits`) in a state that shows it and does not disable it, and that has no transition on
 /// that event: where in ui.yaml, what it is about, its words, and, when the node's `when` or `disabledWhen` decided it,
-/// the way to the first situation that shows it enabled.
+/// the way to the first situation that shows it enabled. For a node marked `duringStep` in a state that runs a step, it
+/// is the state the step's outcome leads to that does not handle the event (`lands`), and the way is always given: to
+/// that state, through the situation of the step that shows the node enabled.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Unhandled {
     pub node: String,
@@ -333,21 +384,28 @@ pub struct Unhandled {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reached: Option<PathResult>,
+    /// for a node marked `duringStep`: the state the step's outcome stops in, which shows the node enabled and does not
+    /// handle its event; `reached` is the way there
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lands: Option<String>,
 }
 
-/// a (node, state) pair that may be one, until a situation of the state shows the node enabled
+/// a (node, state) pair that may be one, until a situation of the state shows the node enabled; `marked` when the
+/// node is marked `duringStep` and the state runs a step, so that its event is held where the step's outcome leads
 #[derive(Debug, Clone, Copy)]
 struct Pending<'a> {
     node: &'a str,
+    n: UiNode<'a>,
     state: &'a str,
     event: &'a str,
     when: Option<&'a str>,
     disabled_when: Option<&'a str>,
+    marked: bool,
 }
 
 /// An expression a node gives under `key`: Some(None) when it gives none, None when it is no string (the schema's to
 /// report, and not read here)
-fn expression<'a>(n: crate::graph::UiNode<'a>, key: &str) -> Option<Option<&'a str>> {
+fn expression<'a>(n: UiNode<'a>, key: &str) -> Option<Option<&'a str>> {
     match n.get(key) {
         None => Some(None),
         Some(Value::String(s)) => Some(Some(s.as_str())),
@@ -364,6 +422,126 @@ fn holds<F: Fn(&str, &[u16]) -> crate::error::Result<bool>>(
     t.as_ref().ok().and_then(|test| test(state, ctx).ok())
 }
 
+/// whether a node that its state shows and does not disable, by its `in`, `unless` and `disabledIn`, is shown enabled
+/// in a situation of that state: its `when` holds there and its `disabledWhen` does not; None when either throws there
+fn enabled_in<F: Fn(&str, &[u16]) -> crate::error::Result<bool>>(
+    (when, disabled_when): &(Option<crate::error::Result<F>>, Option<crate::error::Result<F>>),
+    state: &str,
+    ctx: &[u16],
+) -> Option<bool> {
+    let shown = when.as_ref().map_or(Some(true), |t| holds(t, state, ctx))?;
+    let disabled = disabled_when.as_ref().map_or(Some(false), |t| holds(t, state, ctx))?;
+    Some(shown && !disabled)
+}
+
+/// a situation, as a walk of a press made while a step runs keeps it: its state and its context
+type Situation = (Rc<str>, Box<[u16]>);
+
+/// a situation the flow stops in once a step ends: its state and context, and the outcomes (DONE, FAIL.<class>) taken
+/// to it from the step the press was made in
+#[derive(Debug, Clone)]
+struct Stop {
+    state: Rc<str>,
+    ctx: Box<[u16]>,
+    events: Vec<Rc<str>>,
+}
+
+/// The situations a step's outcomes (DONE, FAIL.<class>) lead to from one of its situations, past states with
+/// `always`, which are passed at once, and but the exits, whose page is outside the flow: the same for every node, so
+/// made once for each situation of a step. The steps are the ones the exploration took, so none throws.
+fn outcome_stops(g: &Graph, m: &Model, state: &str, ctx: &[u16]) -> Vec<Stop> {
+    let mut out = Vec::new();
+    let mut seen: HashSet<Situation> = HashSet::new();
+    // the step's situation, and those past states with `always`, each with the outcomes taken to it
+    let mut todo: VecDeque<Stop> = VecDeque::new();
+    todo.push_back(Stop { state: Rc::from(state), ctx: Box::from(ctx), events: Vec::new() });
+    while let Some(Stop { state: s, ctx: c, events }) = todo.pop_front() {
+        let passing = g.flow().state(&s).is_some_and(|st| st.0.get("always").is_some());
+        for step in m.steps(&s, &c).unwrap_or_default() {
+            // a state with `always` is passed at once; a step's other events leave it before it ends
+            let follows = match step.event.as_deref() {
+                None => passing,
+                Some(e) => !passing && is_outcome(e),
+            };
+            let Some(next) = g.flow().state(&step.target).filter(|_| follows) else { continue };
+            if next.is_final() {
+                continue;
+            }
+            let mut way = events.clone();
+            way.extend(step.event);
+            if next.0.get("always").is_some() {
+                if seen.insert((step.target.clone(), step.ctx.clone())) {
+                    todo.push_back(Stop { state: step.target, ctx: step.ctx, events: way });
+                }
+                continue;
+            }
+            out.push(Stop { state: step.target, ctx: step.ctx, events: way });
+        }
+    }
+    out
+}
+
+/// what a stop does with a press made while a step ran: handles it (a transition on its event in its `on`), or shows
+/// the node disabled or not at all (`Done`), runs a step of its own that shows the node enabled, where the press waits
+/// again (`Waits`), or shows it enabled and does not handle it (`Left`). A `when` or a `disabledWhen` that throws there
+/// decides nothing.
+enum Judged {
+    Done,
+    Waits,
+    Left,
+}
+
+fn judge(g: &Graph, event: &str, enabled: &dyn Fn(&str, &[u16]) -> Option<bool>, stop: &Stop) -> Judged {
+    let Some(st) = g.flow().state(&stop.state) else { return Judged::Done };
+    if st.on_event(event).is_some() || enabled(&stop.state, &stop.ctx) != Some(true) {
+        Judged::Done
+    } else if runs_step(st) {
+        Judged::Waits
+    } else {
+        Judged::Left
+    }
+}
+
+/// Where a press of a node marked `duringStep`, made in a situation of a state that runs a step and shows it enabled,
+/// is handled (SPEC.md §4): once the step ends, in the situations its outcomes lead to (`stops`, from
+/// `outcome_stops`). Each is done with it, or runs a step of its own and shows the node enabled, and then the press
+/// waits again, for that step's outcomes, onward. The first situation that leaves it unhandled, and the outcomes taken
+/// to it; None when there is none. `waited` holds the situations of steps the press waited in again on the walks for
+/// this node and state: each is walked once, so that a cycle of steps ends, and a walk that found nothing leaves those
+/// it passed walked to their end.
+fn lands_unhandled(
+    g: &Graph,
+    m: &Model,
+    event: &str,
+    enabled: &dyn Fn(&str, &[u16]) -> Option<bool>,
+    stops: &[Stop],
+    waited: &mut HashSet<Situation>,
+) -> Option<(String, Vec<String>)> {
+    let left = |s: &Stop| Some((s.state.to_string(), s.events.iter().map(|e| e.to_string()).collect()));
+    let mut todo: VecDeque<Stop> = VecDeque::new();
+    for stop in stops {
+        match judge(g, event, enabled, stop) {
+            Judged::Done => {}
+            Judged::Waits => todo.push_back(stop.clone()),
+            Judged::Left => return left(stop),
+        }
+    }
+    while let Some(stop) = todo.pop_front() {
+        if !waited.insert((stop.state.clone(), stop.ctx.clone())) {
+            continue;
+        }
+        for next in outcome_stops(g, m, &stop.state, &stop.ctx) {
+            let next = Stop { events: stop.events.iter().cloned().chain(next.events).collect(), ..next };
+            match judge(g, event, enabled, &next) {
+                Judged::Done => {}
+                Judged::Waits => todo.push_back(next),
+                Judged::Left => return left(&next),
+            }
+        }
+    }
+    None
+}
+
 /// Every node whose event (`emits`) a state that shows it enabled does not handle, once per node and state, in the
 /// order of the nodes and then of the states (SPEC.md §4). A node is shown enabled in a situation (a state and a
 /// context) the exploration reached when the state is in its `in` and not in its `unless`, its `when` holds in that
@@ -375,6 +553,10 @@ fn holds<F: Fn(&str, &[u16]) -> crate::error::Result<bool>>(
 ///   another flow);
 /// - a state with `always`, which is passed at once (and §4 Focus: "a state with `always` is passed at once"), so
 ///   nothing is pressed there.
+///
+/// A node marked `duringStep` stays usable while a step runs, and its event is handled once the step ends: in a state
+/// that runs a step (`invoke`), the state need not handle it, and the situations the step's outcomes lead to are held
+/// instead (`lands_unhandled`), from each situation of the step that shows the node enabled.
 ///
 /// The exploration is `check`'s own: a flow whose exploration fails does not load, and none of its rules is read; one
 /// that has no situation (no start) reaches no state, and, as for its assertions, nothing is found. A `when` or a
@@ -388,12 +570,13 @@ pub fn check_events(g: &Graph, m: &Model, ex: &Exploration) -> Vec<Unhandled> {
             continue;
         };
         let disabled_in = n.disabled_in();
+        let marked = during_step(n);
         for (state, st) in g.flow().states() {
             let passed = st.is_final() || st.0.get_array("always").is_some();
             if passed || !shown_in(n, state) || disabled_in.contains(&state) || st.on_event(event).is_some() {
                 continue;
             }
-            pending.push(Pending { node, state, event, when, disabled_when });
+            pending.push(Pending { node, n, state, event, when, disabled_when, marked: marked && runs_step(st) });
         }
     }
     if pending.is_empty() {
@@ -408,6 +591,9 @@ pub fn check_events(g: &Graph, m: &Model, ex: &Exploration) -> Vec<Unhandled> {
         .collect();
     let mut left = open.iter().filter(|&&o| o).count();
     let mut hit: Vec<Option<usize>> = vec![None; pending.len()];
+    // for a marked pair: where the press lands unhandled, and the outcomes taken there; and the steps it waited in
+    let mut lands: Vec<Option<(String, Vec<String>)>> = vec![None; pending.len()];
+    let mut waited: Vec<HashSet<Situation>> = vec![HashSet::new(); pending.len()];
     // the pairs pending in each state, by the state's place in the exploration, found the first time it is reached
     let mut at_state: Vec<Option<Vec<usize>>> = Vec::new();
     let mut ctx = Vec::new();
@@ -425,22 +611,36 @@ pub fn check_events(g: &Graph, m: &Model, ex: &Exploration) -> Vec<Unhandled> {
             ex.ctx_into(i, &mut ctx);
         }
         let state = ex.state(i);
+        // where the step's outcomes lead from here, for the nodes marked duringStep; made once for them all
+        let mut stops: Option<Vec<Stop>> = None;
         for &k in here.iter() {
             if !open[k] {
                 continue;
             }
-            let (when, disabled_when) = &testers[k];
-            let shown = when.as_ref().map_or(Some(true), |t| holds(t, state, &ctx));
-            let disabled = disabled_when.as_ref().map_or(Some(false), |t| holds(t, state, &ctx));
-            match (shown, disabled) {
-                (Some(true), Some(false)) => {
+            let p = &pending[k];
+            match enabled_in(&testers[k], state, &ctx) {
+                // a press while the step runs waits for its outcome: held where that leads, from every situation
+                Some(true) if p.marked => {
+                    let enabled = |s: &str, c: &[u16]| {
+                        let shown = shown_in(p.n, s) && !p.n.disabled_in().contains(&s);
+                        if shown { enabled_in(&testers[k], s, c) } else { Some(false) }
+                    };
+                    let stops = stops.get_or_insert_with(|| outcome_stops(g, m, state, &ctx));
+                    if let Some(l) = lands_unhandled(g, m, p.event, &enabled, stops, &mut waited[k]) {
+                        hit[k] = Some(i);
+                        lands[k] = Some(l);
+                        open[k] = false;
+                        left -= 1;
+                    }
+                }
+                Some(true) => {
                     hit[k] = Some(i);
                     open[k] = false;
                     left -= 1;
                 }
-                (Some(_), Some(_)) => {}
+                Some(false) => {}
                 // an expression that throws here decides nothing for the pair
-                _ => {
+                None => {
                     open[k] = false;
                     left -= 1;
                 }
@@ -449,19 +649,41 @@ pub fn check_events(g: &Graph, m: &Model, ex: &Exploration) -> Vec<Unhandled> {
         i += 1;
     }
     let mut out = Vec::new();
-    for (p, h) in pending.iter().zip(hit) {
+    for ((p, h), l) in pending.iter().zip(hit).zip(lands) {
         let Some(h) = h else { continue };
-        let Pending { node, state, event, when, disabled_when } = *p;
+        let Pending { node, state, event, when, disabled_when, .. } = *p;
         let cond = match (when, disabled_when) {
             (None, None) => String::new(),
             (Some(w), None) => format!(" (where its when, {w}, holds)"),
             (None, Some(d)) => format!(" (where its disabledWhen, {d}, does not hold)"),
             (Some(w), Some(d)) => format!(" (where its when, {w}, holds and its disabledWhen, {d}, does not)"),
         };
-        let message = format!(
-            "node {node} sends {event}, and {state} shows it enabled{cond} but has no on.{event}: a node shown and not disabled can be pressed, so the state handles its event, or the node is disabled there (disabledIn, disabledWhen) or not shown (SPEC.md §4)"
-        );
-        let reached = (when.is_some() || disabled_when.is_some()).then(|| path_to(m, ex, h));
+        let in_step = g.flow().state(state).is_some_and(runs_step);
+        let (message, reached, lands) = match l {
+            Some((lands, after)) => {
+                let message = format!(
+                    "node {node} sends {event}, and {state} shows it enabled{cond} while its step runs; it is marked {DURING_STEP}, so a press there is handled once the step ends, but after {} the flow stops in {lands}, which shows it enabled and has no on.{event}: where a step's outcome leads, a node marked {DURING_STEP} has its event handled, or is disabled (disabledIn, disabledWhen) or not shown (SPEC.md §4)",
+                    after.join(", then ")
+                );
+                let mut way = path_to(m, ex, h);
+                way.events.extend(after);
+                (message, Some(way), Some(lands))
+            }
+            None => {
+                let marker = if in_step {
+                    format!(
+                        ", or, as the state runs a step, marked {DURING_STEP}, so that its event is handled where the step's outcome leads"
+                    )
+                } else {
+                    String::new()
+                };
+                let message = format!(
+                    "node {node} sends {event}, and {state} shows it enabled{cond} but has no on.{event}: a node shown and not disabled can be pressed, so the state handles its event, or the node is disabled there (disabledIn, disabledWhen) or not shown{marker} (SPEC.md §4)"
+                );
+                let reached = (when.is_some() || disabled_when.is_some()).then(|| path_to(m, ex, h));
+                (message, reached, None)
+            }
+        };
         out.push(Unhandled {
             node: node.to_string(),
             state: state.to_string(),
@@ -470,6 +692,7 @@ pub fn check_events(g: &Graph, m: &Model, ex: &Exploration) -> Vec<Unhandled> {
             element: format!("nodes/{node}/emits/{event}/{state}"),
             message,
             reached,
+            lands,
         });
     }
     out
@@ -518,24 +741,32 @@ states:
       SAVE: saving
 ";
 
-    /// the pairs found for one node, given as the keys of its map in ui.yaml, each as (node, state, event)
-    fn found_for(node: &str) -> Vec<Unhandled> {
+    /// a graph of a flow and one node, `button`, given as the keys of its map in ui.yaml
+    fn load_for(flow: &str, node: &str) -> Result<Graph> {
         let ui = format!(
             "schema: delurio-graph/0\nkind: ui\nid: t\nflow: t\ncatalog: catalog/en.json\nnodes:\n  button: {{ type: action, role: button, {node} }}\n"
         );
         let read = |file: &str| -> Result<String> {
             match file {
-                "flow.yaml" => Ok(FLOW.to_string()),
+                "flow.yaml" => Ok(flow.to_string()),
                 "ui.yaml" => Ok(ui.clone()),
                 "catalog/en.json" => Ok("{}".to_string()),
                 _ => Err(Error::graph(format!("no {file}"), None)),
             }
         };
-        let g = load_with("t", &read, &|file| matches!(file, "flow.yaml" | "ui.yaml" | "catalog/en.json"))
-            .expect("the graph loads");
+        load_with("t", &read, &|file| matches!(file, "flow.yaml" | "ui.yaml" | "catalog/en.json"))
+    }
+
+    /// the pairs found for one node of a flow, each as (node, state, event)
+    fn found_in(flow: &str, node: &str) -> Vec<Unhandled> {
+        let g = load_for(flow, node).expect("the graph loads");
         let m = Model::new(g.flow.clone());
         let ex = explore(&m, None, None).expect("the flow explores");
         check_events(&g, &m, &ex)
+    }
+
+    fn found_for(node: &str) -> Vec<Unhandled> {
+        found_in(FLOW, node)
     }
 
     fn states_for(node: &str) -> Vec<String> {
@@ -552,9 +783,10 @@ states:
         assert_eq!(u.element, "nodes/button/emits/SAVE/saving");
         assert_eq!(
             u.message,
-            "node button sends SAVE, and saving shows it enabled but has no on.SAVE: a node shown and not disabled can be pressed, so the state handles its event, or the node is disabled there (disabledIn, disabledWhen) or not shown (SPEC.md §4)"
+            "node button sends SAVE, and saving shows it enabled but has no on.SAVE: a node shown and not disabled can be pressed, so the state handles its event, or the node is disabled there (disabledIn, disabledWhen) or not shown, or, as the state runs a step, marked duringStep, so that its event is handled where the step's outcome leads (SPEC.md §4)"
         );
         assert_eq!(u.reached, None);
+        assert_eq!(u.lands, None);
         // shown only where SAVE is handled
         assert!(states_for("emits: SAVE, in: [editing]").is_empty());
         // `unless` takes saving out of `in`
@@ -625,5 +857,166 @@ states:
         // an exit has no transitions (SPEC.md §2): a node its page shows starts a new run or another flow
         assert!(states_for("emits: SAVE, in: [saved, left]").is_empty());
         assert_eq!(states_for("emits: SAVE, in: [failed, saved, left]"), ["failed"]);
+    }
+
+    // A page that saves (saving) and pays in two steps (paying, then confirming), each a server step. saving's failure
+    // leads to failed, where the person may retry; paying's success to confirming, whose success passes checking (an
+    // `always`) to done once paid, and whose failure goes back to paying: a cycle of steps. viewing and failed handle
+    // SIGN_OUT, viewing handles NOTE, and done is left by CLOSE.
+    const STEPS: &str = "schema: delurio-graph/0
+kind: flow
+id: t
+initial: viewing
+context:
+  paid: { values: [false, true], initial: false }
+guards:
+  isPaid: paid
+effects:
+  pay: { set: { paid: true } }
+states:
+  viewing:
+    on:
+      SAVE: saving
+      UPGRADE: paying
+      NOTE: viewing
+      SIGN_OUT: out
+  saving:
+    invoke: { action: save }
+    on:
+      DONE: viewing
+      FAIL: failed
+  failed:
+    by: human
+    on:
+      RETRY: saving
+      SIGN_OUT: out
+  paying:
+    invoke: { action: pay }
+    on:
+      DONE: { target: confirming, effect: [pay] }
+      FAIL: viewing
+  confirming:
+    invoke: { action: confirm }
+    on:
+      DONE: checking
+      FAIL: paying
+  checking:
+    always:
+      - { guard: isPaid, target: done }
+      - viewing
+  done:
+    by: human
+    on:
+      CLOSE: viewing
+  out: { type: final }
+";
+
+    fn steps_for(node: &str) -> Vec<String> {
+        found_in(STEPS, node).into_iter().map(|u| u.state).collect()
+    }
+
+    #[test]
+    fn a_press_while_a_step_runs_is_handled_where_its_outcome_leads() {
+        // a link to sign out beside a form being saved: saving does not handle SIGN_OUT
+        assert_eq!(steps_for("emits: SIGN_OUT, in: [viewing, saving, failed]"), ["saving"]);
+        // marked, it is handled once the step ends: in viewing (DONE) and failed (FAIL), which both handle it
+        assert!(steps_for("emits: SIGN_OUT, in: [viewing, saving, failed], duringStep: true").is_empty());
+        assert_eq!(steps_for("emits: SIGN_OUT, in: [viewing, saving, failed], duringStep: false"), ["saving"]);
+        // the marker is for a step: in a state the person is in, the state handles the event as before
+        assert_eq!(steps_for("emits: SAVE, in: [viewing, failed], duringStep: true"), ["failed"]);
+    }
+
+    #[test]
+    fn an_outcome_that_does_not_handle_the_event() {
+        // NOTE is handled in viewing (DONE), not in failed (FAIL), which shows the node: the step is held to it there,
+        // and failed, which the person is in, as before
+        let found = found_in(STEPS, "emits: NOTE, in: [viewing, saving, failed], duringStep: true");
+        assert_eq!(found.iter().map(|u| u.state.as_str()).collect::<Vec<_>>(), ["saving", "failed"]);
+        let u = &found[0];
+        assert_eq!(u.element, "nodes/button/emits/NOTE/saving");
+        assert_eq!(u.lands.as_deref(), Some("failed"));
+        assert_eq!(
+            u.message,
+            "node button sends NOTE, and saving shows it enabled while its step runs; it is marked duringStep, so a press there is handled once the step ends, but after FAIL the flow stops in failed, which shows it enabled and has no on.NOTE: where a step's outcome leads, a node marked duringStep has its event handled, or is disabled (disabledIn, disabledWhen) or not shown (SPEC.md §4)"
+        );
+        // the way is always given: to the step, and on through its outcome
+        let reached = u.reached.as_ref().expect("the way there is given");
+        assert_eq!(reached.events, ["SAVE", "FAIL"]);
+        assert_eq!(found[1].lands, None);
+        // disabled there, not shown there, or shown only when its when holds, which it does not there: nothing
+        assert!(
+            steps_for("emits: NOTE, in: [viewing, saving, failed], disabledIn: [failed], duringStep: true").is_empty()
+        );
+        assert!(steps_for("emits: NOTE, in: [viewing, saving], duringStep: true").is_empty());
+        assert!(
+            steps_for("emits: NOTE, in: [viewing, saving, failed], when: \"state != 'failed'\", duringStep: true")
+                .is_empty()
+        );
+        assert!(
+            steps_for(
+                "emits: NOTE, in: [viewing, saving, failed], disabledWhen: \"state == 'failed'\", duringStep: true"
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_press_waits_through_steps_that_follow_and_a_cycle_of_them() {
+        assert_eq!(steps_for("emits: SIGN_OUT, in: [viewing, paying, confirming]"), ["paying", "confirming"]);
+        // paying leads to confirming, which runs a step and shows the node: the press waits again, through
+        // confirming's failure back to paying (a cycle, walked once) and on to viewing, which handles it; confirming's
+        // success passes checking to done, which does not show the node
+        assert!(steps_for("emits: SIGN_OUT, in: [viewing, paying, confirming], duringStep: true").is_empty());
+        // done shows NOTE and does not handle it: both steps lead there, past checking
+        let found = found_in(STEPS, "emits: NOTE, in: [viewing, paying, confirming, done], duringStep: true");
+        assert_eq!(found.iter().map(|u| u.state.as_str()).collect::<Vec<_>>(), ["paying", "confirming", "done"]);
+        assert_eq!(found[0].lands.as_deref(), Some("done"));
+        assert!(found[0].message.contains("but after DONE, then DONE the flow stops in done, which shows it enabled"));
+        assert_eq!(
+            found[0].reached.as_ref().map(|r| r.events.clone()),
+            Some(vec!["UPGRADE".into(), "DONE".into(), "DONE".into()])
+        );
+        assert_eq!(found[1].lands.as_deref(), Some("done"));
+        assert!(found[1].message.contains("but after DONE the flow stops in done"));
+        assert_eq!(
+            found[1].reached.as_ref().map(|r| r.events.clone()),
+            Some(vec!["UPGRADE".into(), "DONE".into(), "DONE".into()])
+        );
+        assert_eq!(found[2].lands, None);
+        assert!(
+            steps_for("emits: NOTE, in: [viewing, paying, confirming, done], disabledIn: [done], duringStep: true")
+                .is_empty()
+        );
+    }
+
+    /// the problems check_ui gives for one node of STEPS
+    fn problems_for(node: &str) -> Vec<UiProblem> {
+        let g = load_for(STEPS, node).expect("the graph loads");
+        check_ui(&g, &mut |_| {})
+    }
+
+    #[test]
+    fn the_marker_where_it_changes_nothing_is_a_warning() {
+        let unused = |node: &str| -> Vec<String> {
+            problems_for(node).into_iter().filter(|p| p.rule == DURING_STEP_UNUSED).map(|p| p.message).collect()
+        };
+        assert!(unused("emits: SIGN_OUT, in: [viewing, saving], duringStep: true").is_empty());
+        assert!(unused("emits: NOTE, in: [viewing, failed]").is_empty());
+        let found = problems_for("emits: NOTE, in: [viewing, failed], duringStep: true");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].rule, "during-step-unused");
+        assert_eq!(found[0].path, ["nodes", "button", "duringStep"]);
+        assert_eq!(found[0].element, "nodes/button/duringStep");
+        assert_eq!(
+            found[0].message,
+            "button is marked duringStep, but no state that runs a step (invoke) shows it enabled, by its in, unless and disabledIn: the marker keeps a node usable while its state's step runs, and holds its event where the step's outcome leads, so here it changes nothing (SPEC.md §4)"
+        );
+        // shown in a step, but disabled there
+        assert_eq!(unused("emits: NOTE, in: [viewing, saving], disabledIn: [saving], duringStep: true").len(), 1);
+        assert_eq!(unused("emits: NOTE, in: [viewing, saving], unless: [saving], duringStep: true").len(), 1);
+        // leaving the page is possible in every state
+        let navigate = unused("emits: NAVIGATE, in: [viewing, saving], duringStep: true");
+        assert_eq!(navigate.len(), 1);
+        assert!(navigate[0].contains("but it sends NAVIGATE, the person leaving the page"));
     }
 }

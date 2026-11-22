@@ -103,6 +103,7 @@ export interface UiNode {
     checked?: boolean | string;
     script?: 'optional' | 'actions';
     source?: string;
+    duringStep?: boolean;
 }
 export interface UiEdge {
     labelledBy?: [string, string];
