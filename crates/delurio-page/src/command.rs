@@ -18,7 +18,7 @@ use delurio_core::diff::DIFF_USAGE;
 use delurio_core::error::Error;
 use delurio_core::graph::{given, humanize, load, read_error};
 use delurio_core::js;
-use delurio_core::kit::resolve_kit;
+use delurio_core::kit::{KIT_FONT, resolve_kit};
 use delurio_core::model::{Model, check_assertions, explore, final_paths};
 use delurio_core::nav::{Level, check_goals, findings, load_nav, menu_rows, view_of};
 use delurio_core::nodepath::{basename, join2, relative, resolve1};
@@ -170,6 +170,10 @@ fn flow_page(dir: &str, out: &str, args: &[String], said: &mut Said) -> Result<P
     let spine_main = render_spine(&g, &ex, View::Main, main_steps.as_deref())?;
     let spine_full = render_spine(&g, &ex, View::Full, main_steps.as_deref())?;
     let screens = render_screens(&g, &mut |m| warn(m), kit.as_ref());
+    // a font file the kit lists that cannot be embedded: the page is drawn without it (SPEC.md §8)
+    for f in kit.iter().flat_map(|k| &k.findings).filter(|f| f.rule == KIT_FONT) {
+        warn(&f.message);
+    }
     let hand_overs = check_starts(&g, &model, &ex)?;
     for h in &hand_overs {
         for p in &h.problems {

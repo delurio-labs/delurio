@@ -10,7 +10,7 @@ use indexmap::{IndexMap, IndexSet};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
-use crate::graph::read_error;
+use crate::graph::{TONES, read_error};
 use crate::js::{self, Object, Value};
 use crate::nodepath;
 use crate::yaml::read_yaml;
@@ -42,14 +42,16 @@ pub enum Slot {
     Id,
     Intent,
     Children,
+    Tone,
 }
 
-const SLOTS: [(&str, Slot); 5] = [
+const SLOTS: [(&str, Slot); 6] = [
     ("text", Slot::Text),
     ("name", Slot::Name),
     ("id", Slot::Id),
     ("intent", Slot::Intent),
     ("children", Slot::Children),
+    ("tone", Slot::Tone),
 ];
 
 /// a flag a section of a template is drawn on
@@ -97,6 +99,20 @@ pub enum Part {
 pub struct Template {
     pub source: String,
     pub parts: Vec<Part>,
+}
+
+impl Template {
+    /// whether the template fills the slot anywhere, inside a section too
+    pub fn uses(&self, slot: Slot) -> bool {
+        fn any(parts: &[Part], slot: Slot) -> bool {
+            parts.iter().any(|p| match p {
+                Part::Slot { slot: s, .. } => *s == slot,
+                Part::Section { parts, .. } => any(parts, slot),
+                Part::Lit { .. } => false,
+            })
+        }
+        any(&self.parts, slot)
+    }
 }
 
 /// a map written as an object, its keys in their order
@@ -177,6 +193,58 @@ pub struct KitComponent {
         deserialize_with = "read_optional_map"
     )]
     pub intents: Option<IndexMap<String, String>>,
+    /// node tone -> the word {tone} gives, read before the kit's own `tones`; `default` for a node without one
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_map",
+        deserialize_with = "read_optional_map"
+    )]
+    pub tones: Option<IndexMap<String, String>>,
+}
+
+/// A font the kit carries (`fonts:` in kit.yaml): a file of the kit's folder, embedded in the page and the video stage
+/// as a data: URL, so that nothing is fetched.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KitFont {
+    pub family: String,
+    /// as kit.yaml gives it, relative to the kit's folder
+    pub file: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<String>,
+    #[serde(default, rename = "unicodeRange", skip_serializing_if = "Option::is_none")]
+    pub unicode_range: Option<String>,
+    /// the file as a data: URL; none when it cannot be embedded, which the kit's findings say why
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub src: Option<String>,
+}
+
+/// the rule of a font file a kit lists that cannot be embedded (SPEC.md §8)
+pub const KIT_FONT: &str = "kit-font";
+/// the rule of a family the kit's CSS draws in first that the kit does not carry (SPEC.md §8)
+pub const KIT_FONT_UNEMBEDDED: &str = "kit-font-unembedded";
+
+/// the most bytes one font file of a kit may have
+pub const FONT_FILE_MAX: u64 = 2 * 1024 * 1024;
+/// the most bytes a kit's font files may have together: four variable fonts of about 1.5 MB fit
+pub const FONTS_MAX: u64 = 8 * 1024 * 1024;
+
+/// What loading a kit found that does not keep it from loading: a font file that cannot be embedded (`kit-font`), and
+/// a family its CSS draws in that it does not carry (`kit-font-unembedded`). `check` gives each once per kit.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KitFinding {
+    pub rule: &'static str,
+    /// the file it is in
+    pub file: String,
+    /// where in kit.yaml, for an entry of `fonts`
+    pub path: Vec<String>,
+    /// the words to find in `file` otherwise
+    pub needle: Option<String>,
+    /// what it is about, for the fingerprint
+    pub element: String,
+    pub message: String,
 }
 
 /// A kit as `loadKit` gives it; the Node bindings hand it to JavaScript and read it back, as the same object.
@@ -195,6 +263,20 @@ pub struct Kit {
     pub css: String,
     /// at most how much larger the screens are drawn on the video stage
     pub zoom: f64,
+    /// node tone -> the word {tone} gives, for a component that gives none of its own; `default` for a node without one
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "optional_map",
+        deserialize_with = "read_optional_map"
+    )]
+    pub tones: Option<IndexMap<String, String>>,
+    /// the fonts it carries, in the order of kit.yaml
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fonts: Vec<KitFont>,
+    /// what loading it found that does not keep it from loading
+    #[serde(skip)]
+    pub findings: Vec<KitFinding>,
 }
 
 /// What a template is filled with, for one node in one state. Read from JavaScript (the Node bindings' `drawWith`), a
@@ -221,6 +303,10 @@ pub struct Fill {
     pub conditional: bool,
     /// the node is drawn checked: its `checked` is true
     pub checked: bool,
+    /// the tone the node is drawn in (SPEC.md §4): its fixed `tone`, or the first of its map that holds where the
+    /// context is known
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tone: Option<String>,
 }
 
 impl Fill {
@@ -717,7 +803,7 @@ fn parse_template(source: &str, loc: &str, component: &str) -> Result<Template> 
     Ok(Template { source: src.to_string(), parts: p.root })
 }
 
-fn fill_parts(parts: &[Part], f: &Fill, intent: &str) -> String {
+fn fill_parts(parts: &[Part], f: &Fill, intent: &str, tone: &str) -> String {
     let mut out = String::new();
     for p in parts {
         match p {
@@ -726,6 +812,7 @@ fn fill_parts(parts: &[Part], f: &Fill, intent: &str) -> String {
             Part::Slot { slot, ctx } => {
                 let v = match slot {
                     Slot::Intent => intent,
+                    Slot::Tone => tone,
                     Slot::Text => &f.text,
                     Slot::Name => &f.name,
                     Slot::Id | Slot::Children => &f.id,
@@ -738,12 +825,69 @@ fn fill_parts(parts: &[Part], f: &Fill, intent: &str) -> String {
             }
             Part::Section { flag, negate, parts } => {
                 if f.flag(*flag) != *negate {
-                    out.push_str(&fill_parts(parts, f, intent));
+                    out.push_str(&fill_parts(parts, f, intent, tone));
                 }
             }
         }
     }
     out
+}
+
+/// the template a node is drawn with: its role's, else the component's
+fn template_for<'k>(c: &'k KitComponent, f: &Fill) -> &'k Template {
+    f.role.as_ref().and_then(|r| c.roles.get(r.as_str())).unwrap_or(&c.template)
+}
+
+/// the maps a component's {tone} reads, its own first and then the kit's
+fn tone_maps<'k>(kit: &'k Kit, c: &'k KitComponent) -> Vec<&'k IndexMap<String, String>> {
+    c.tones.iter().chain(kit.tones.iter()).collect()
+}
+
+/// the word the maps give, the first that has an entry for it
+fn tone_entry<'k>(maps: &[&'k IndexMap<String, String>], word: &str) -> Option<&'k String> {
+    maps.iter().find_map(|m| m.get(word))
+}
+
+/// the warning for a tone a template that fills {tone} draws and neither `tones` maps, or None when it is covered
+fn tone_uncovered(kit: &Kit, component: &str, c: &KitComponent, f: &Fill, word: &str) -> Option<String> {
+    let maps = tone_maps(kit, c);
+    if maps.is_empty() || !template_for(c, f).uses(Slot::Tone) || tone_entry(&maps, word).is_some() {
+        return None;
+    }
+    let default = match tone_entry(&maps, "default") {
+        Some(d) if !d.is_empty() => d.as_str(),
+        _ => "no tone",
+    };
+    Some(format!("kit {}: {component} has no entry for tone {word} (node {}); drawn as {default}", kit.id, f.id))
+}
+
+/// What {tone} gives a node: with no `tones` (the component's or the kit's), its tone itself, or nothing; with them,
+/// the word they give its tone, or `default` for a node without one. A tone they do not give, in a template that
+/// fills {tone}, is warned of and drawn as `default`.
+fn tone_value(kit: &Kit, component: &str, c: &KitComponent, f: &Fill, warn: &mut dyn FnMut(&str)) -> String {
+    let maps = tone_maps(kit, c);
+    if maps.is_empty() {
+        return f.tone.clone().unwrap_or_default();
+    }
+    if let Some(word) = &f.tone {
+        if let Some(v) = tone_entry(&maps, word) {
+            return v.clone();
+        }
+        if let Some(w) = tone_uncovered(kit, component, c, f, word) {
+            warn(&w);
+        }
+    }
+    tone_entry(&maps, "default").cloned().unwrap_or_default()
+}
+
+/// Warns, as drawing it would, when the node would take `word` in a template that fills {tone} and the kit gives no
+/// entry for it: a tone of a node's map that the screen being drawn does not show (SPEC.md §8).
+pub fn check_tone(kit: &Kit, component: &str, f: &Fill, word: &str, warn: &mut dyn FnMut(&str)) {
+    if let Some(c) = kit.components.get(component)
+        && let Some(w) = tone_uncovered(kit, component, c, f, word)
+    {
+        warn(&w);
+    }
 }
 
 /// The node drawn with the kit, or None when the kit has no template for the component.
@@ -768,8 +912,9 @@ pub fn draw_with(kit: &Kit, component: &str, f: &Fill, warn: &mut dyn FnMut(&str
         }
         intent = mapped.or(default).cloned().unwrap_or_default();
     }
-    let t = f.role.as_ref().and_then(|r| c.roles.get(r.as_str())).unwrap_or(&c.template);
-    Some(fill_parts(&t.parts, f, &intent))
+    let tone = tone_value(kit, component, c, f, warn);
+    let t = template_for(c, f);
+    Some(fill_parts(&t.parts, f, &intent, &tone))
 }
 
 /// `s.slice(start, end)` on UTF-16 code units, negative offsets counted from the end
@@ -1436,7 +1581,11 @@ pub fn load_kit(path: &str) -> Result<Kit> {
     if raw.get_str("kind") != Some("kit") {
         return Err(Error::kit(format!("{file} is not a kit (kind: kit is missing)")));
     }
-    only(&raw, &["schema", "kind", "id", "title", "source", "tokens", "dark", "css", "stage", "components"], &file)?;
+    only(
+        &raw,
+        &["schema", "kind", "id", "title", "source", "tokens", "dark", "css", "stage", "components", "tones", "fonts"],
+        &file,
+    )?;
     let Some(id) = raw.get_str("id").filter(|id| kit_id(id)) else {
         return Err(Error::kit(format!("{file}: id must be lowercase letters, digits and dashes")));
     };
@@ -1446,12 +1595,15 @@ pub fn load_kit(path: &str) -> Result<Kit> {
 
     let mut components: IndexMap<String, KitComponent> = IndexMap::new();
     let mut css: Vec<String> = Vec::new();
+    // each file the kit's CSS is read from, for where a family it names is written
+    let mut css_files: Vec<String> = Vec::new();
     for f in list(raw.get("css"), &format!("{file}: css"))? {
         let at = nodepath::join2(&dir, &f);
         // a CSS file that cannot be read is a kit error here; the TypeScript checker threw Node's error
         let text = read_text(&at).map_err(Error::kit)?;
         check_css(&text, &at)?;
         css.push(js::trim(&text).to_string());
+        css_files.push(at);
     }
     for (name, spec) in js_entries(comps) {
         let loc = format!("{file}: {name}");
@@ -1463,7 +1615,7 @@ pub fn load_kit(path: &str) -> Result<Kit> {
         if !spec.is_collection() {
             return Err(Error::kit(format!("{loc}: needs a template")));
         }
-        only(&spec, &["template", "roles", "intents", "css"], &loc)?;
+        only(&spec, &["template", "roles", "intents", "css", "tones"], &loc)?;
         let Some(template) = spec.get_str("template") else {
             return Err(Error::kit(format!("{loc}: needs a template")));
         };
@@ -1488,8 +1640,9 @@ pub fn load_kit(path: &str) -> Result<Kit> {
             check_css(c, &format!("{loc}: css"))?;
             css.push(js::trim(c).to_string());
         }
+        let tones = read_tones(spec.get("tones"), &loc)?;
         let template = parse_template(template, &format!("{loc}: template"), &name)?;
-        components.insert(name, KitComponent { template, roles, intents });
+        components.insert(name, KitComponent { template, roles, intents, tones });
     }
 
     let light =
@@ -1509,7 +1662,488 @@ pub fn load_kit(path: &str) -> Result<Kit> {
     };
     let Some(zoom) = zoom else { return Err(Error::kit(format!("{file}: stage.zoom must be a number from 0.5 to 4"))) };
     let title = raw.get_str("title").unwrap_or(id).to_string();
-    Ok(Kit { id: id.to_string(), title, file: file.clone(), components, light, dark, css: css.join("\n\n"), zoom })
+    let tones = read_tones(raw.get("tones"), &file)?;
+    let (fonts, mut findings) = read_fonts(raw.get("fonts"), &dir, &file, id)?;
+    let css = css.join("\n\n");
+    // where a family's name is written: the CSS first, then the tokens, then kit.yaml (a component's css)
+    let mut files = css_files;
+    for key in ["tokens", "dark"] {
+        files.extend(list(raw.get(key), &file)?.iter().map(|f| nodepath::join2(&dir, f)));
+    }
+    files.push(file.clone());
+    findings.extend(unembedded(id, &css, &light, &dark, &fonts, &files));
+    Ok(Kit {
+        id: id.to_string(),
+        title,
+        file: file.clone(),
+        components,
+        light,
+        dark,
+        css,
+        zoom,
+        tones,
+        fonts,
+        findings,
+    })
+}
+
+/// `tones`: a map from a tone, or `default`, to the word {tone} gives (SPEC.md §8); null is absent
+fn read_tones(given: Option<&Value>, loc: &str) -> Result<Option<IndexMap<String, String>>> {
+    let Some(given) = given.filter(|v| !v.is_null()) else { return Ok(None) };
+    let Some(o) = given.as_object() else {
+        return Err(Error::kit(format!("{loc}: tones maps a tone to the word {{tone}} gives")));
+    };
+    let mut words = IndexMap::new();
+    for (k, v) in o.iter() {
+        if k != "default" && !TONES.contains(&k.as_str()) {
+            return Err(Error::kit(format!(
+                "{loc}: tones.{k} is not a tone; the tones are {}, and default is the word for a node with none",
+                TONES.join(", ")
+            )));
+        }
+        let Some(v) = v.as_str() else { return Err(Error::kit(format!("{loc}: tones.{k} must be a word"))) };
+        words.insert(k.clone(), v.to_string());
+    }
+    Ok(Some(words))
+}
+
+// ---- fonts
+
+/// a format a kit's font may be in: its extension, its media type (RFC 8081), its name in `format()`, and whether a
+/// file's first four bytes are that format's
+type Format = (&'static str, &'static str, &'static str, fn(&[u8]) -> bool);
+
+const FORMATS: [Format; 4] = [
+    ("woff2", "font/woff2", "woff2", |b| b == b"wOF2"),
+    ("woff", "font/woff", "woff", |b| b == b"wOFF"),
+    ("ttf", "font/ttf", "truetype", sfnt),
+    ("otf", "font/otf", "opentype", sfnt),
+];
+
+/// an OpenType or TrueType file: TrueType outlines, CFF outlines, or Apple's TrueType
+fn sfnt(b: &[u8]) -> bool {
+    b == [0, 1, 0, 0] || b == b"OTTO" || b == b"true"
+}
+
+/// `bytes` in base64 (RFC 4648, with padding)
+fn base64(bytes: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let at = |i: usize| u32::from(chunk.get(i).copied().unwrap_or(0));
+        let n = (at(0) << 16) | (at(1) << 8) | at(2);
+        let digit = |shift: u32| char::from(A[((n >> shift) & 63) as usize]);
+        out.push(digit(18));
+        out.push(digit(12));
+        out.push(if chunk.len() > 1 { digit(6) } else { '=' });
+        out.push(if chunk.len() > 2 { digit(0) } else { '=' });
+    }
+    out
+}
+
+/// a family's name as a CSS string can hold it, written in quotes: no quote, backslash, `<` or control character
+fn family_name(s: &str) -> bool {
+    !js::trim(s).is_empty()
+        && !s.chars().any(|c| c.is_control() || matches!(c, '"' | '\'' | '\\' | '<' | '>' | ';' | '{' | '}'))
+}
+
+/// `font-weight` of an @font-face: a number from 1 to 1000, a range of two, `normal` or `bold`
+fn weight_of(v: &Value) -> Option<String> {
+    let number = |s: &str| s.parse::<f64>().ok().filter(|n| (1.0..=1000.0).contains(n) && !s.starts_with('+'));
+    match v {
+        Value::Number(n) if (1.0..=1000.0).contains(n) => Some(js::number_to_string(*n)),
+        Value::String(s) => {
+            let words: Vec<&str> = s.split_whitespace().collect();
+            let ok = match words.as_slice() {
+                [w] => matches!(*w, "normal" | "bold") || number(w).is_some(),
+                [a, b] => number(a).is_some() && number(b).is_some(),
+                _ => false,
+            };
+            ok.then(|| words.join(" "))
+        }
+        _ => None,
+    }
+}
+
+/// `unicode-range`: code points and ranges, `U+0-7F`, `U+0400-04FF`, `U+4??`, separated by commas
+fn unicode_range(s: &str) -> bool {
+    s.split(',').all(|item| {
+        let item = js::trim(item);
+        let Some(body) = item.strip_prefix("U+").or_else(|| item.strip_prefix("u+")) else { return false };
+        let hex = |h: &str, wild: bool| {
+            !h.is_empty() && h.len() <= 6 && h.chars().all(|c| c.is_ascii_hexdigit() || (wild && c == '?'))
+        };
+        match body.split_once('-') {
+            Some((a, b)) => hex(a, false) && hex(b, false),
+            None => hex(body, true) && !body.trim_end_matches('?').contains('?'),
+        }
+    })
+}
+
+/// The font file a kit lists, as a data: URL: a woff2, woff, ttf or otf file inside the kit's folder (given relative
+/// to it, with no `..` and no link out of it), of that format by its bytes, and at most FONT_FILE_MAX bytes. Err says
+/// why it cannot be embedded.
+fn font_file(dir: &str, given: &str) -> std::result::Result<(usize, String), String> {
+    let absolute = given.starts_with(['/', '\\'])
+        || std::path::Path::new(given).is_absolute()
+        || given.as_bytes().get(1) == Some(&b':');
+    if given.is_empty() || absolute {
+        return Err("is not a path relative to the kit's folder: a kit's font is a file in the kit's folder".into());
+    }
+    if given.split(['/', '\\']).any(|seg| seg == "..") {
+        return Err("climbs out of the kit's folder (..): a kit's font is a file in the kit's folder".into());
+    }
+    let ext = given.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    let Some((ext, mime, _, is_format)) = FORMATS.iter().find(|(e, ..)| *e == ext) else {
+        return Err("is not a woff2, woff, ttf or otf file by its name".into());
+    };
+    let at = std::path::Path::new(dir).join(given);
+    let missing = || "does not exist in the kit's folder".to_string();
+    std::fs::symlink_metadata(&at).map_err(|_| missing())?;
+    let real = std::fs::canonicalize(&at).map_err(|_| missing())?;
+    let home = std::fs::canonicalize(dir).map_err(|_| missing())?;
+    if !real.starts_with(&home) {
+        return Err("is a link to a file outside the kit's folder: a kit's font is a file in the kit's folder".into());
+    }
+    let meta = std::fs::metadata(&real).map_err(|_| missing())?;
+    if !meta.is_file() {
+        return Err("is not a file".into());
+    }
+    let too_large =
+        |n: u64| format!("is {n} bytes, more than the {FONT_FILE_MAX} bytes (2 MiB) a kit's font file may be");
+    if meta.len() > FONT_FILE_MAX {
+        return Err(too_large(meta.len()));
+    }
+    let bytes = std::fs::read(&real).map_err(|e| read_error(&e, given))?;
+    if bytes.len() as u64 > FONT_FILE_MAX {
+        return Err(too_large(bytes.len() as u64));
+    }
+    if !bytes.get(..4).is_some_and(is_format) {
+        return Err(format!("is no {ext} file by its bytes"));
+    }
+    Ok((bytes.len(), format!("data:{mime};base64,{}", base64(&bytes))))
+}
+
+/// `fonts`: the fonts a kit carries, `{ family, file, weight?, style?, unicodeRange? }` each (SPEC.md §8). An entry
+/// that is not one keeps the kit from loading; a file that cannot be embedded is a finding (`kit-font`), and the font
+/// is listed without its `src`.
+fn read_fonts(given: Option<&Value>, dir: &str, file: &str, id: &str) -> Result<(Vec<KitFont>, Vec<KitFinding>)> {
+    let Some(given) = given.filter(|v| !v.is_null()) else { return Ok((Vec::new(), Vec::new())) };
+    let Some(entries) = given.as_array() else {
+        return Err(Error::kit(format!("{file}: fonts is a list of {{ family, file }}")));
+    };
+    let mut fonts = Vec::new();
+    let mut findings = Vec::new();
+    let mut total: u64 = 0;
+    for (i, e) in entries.iter().enumerate() {
+        let loc = format!("{file}: fonts[{i}]");
+        if !e.is_object() {
+            return Err(Error::kit(format!("{loc}: a font is {{ family, file }}")));
+        }
+        only(e, &["family", "file", "weight", "style", "unicodeRange"], &loc)?;
+        let Some(family) = e.get_str("family").filter(|f| family_name(f)) else {
+            return Err(Error::kit(format!(
+                "{loc}: family is the font's name, with no quote, backslash, <, >, ;, {{, }} or control character"
+            )));
+        };
+        let Some(path) = e.get_str("file") else {
+            return Err(Error::kit(format!("{loc}: file is the font's file, relative to the kit's folder")));
+        };
+        let weight = match e.get("weight").filter(|w| !w.is_null()) {
+            None => None,
+            Some(w) => Some(weight_of(w).ok_or_else(|| {
+                Error::kit(format!("{loc}: weight is a number from 1 to 1000, a range of two, normal or bold"))
+            })?),
+        };
+        let style = match e.get("style").filter(|s| !s.is_null()) {
+            None => None,
+            Some(s) => match s.as_str() {
+                Some(s @ ("normal" | "italic" | "oblique")) => Some(s.to_string()),
+                _ => return Err(Error::kit(format!("{loc}: style is normal, italic or oblique"))),
+            },
+        };
+        let range = match e.get("unicodeRange").filter(|s| !s.is_null()) {
+            None => None,
+            Some(r) => match r.as_str().filter(|r| unicode_range(r)) {
+                Some(r) => Some(js::trim(r).to_string()),
+                None => {
+                    return Err(Error::kit(format!(
+                        "{loc}: unicodeRange is code points and ranges, U+0-7F, U+0400-04FF, separated by commas"
+                    )));
+                }
+            },
+        };
+        let found = font_file(dir, path).and_then(|(size, src)| {
+            if total + size as u64 > FONTS_MAX {
+                return Err(format!(
+                    "would make the kit's fonts {} bytes together, more than the {FONTS_MAX} bytes (8 MiB) they may be",
+                    total + size as u64
+                ));
+            }
+            total += size as u64;
+            Ok(src)
+        });
+        let src = match found {
+            Ok(src) => Some(src),
+            Err(why) => {
+                findings.push(KitFinding {
+                    rule: KIT_FONT,
+                    file: file.to_string(),
+                    path: vec!["fonts".into(), i.to_string(), "file".into()],
+                    needle: None,
+                    element: format!("fonts/{path}"),
+                    message: format!(
+                        "kit {id}: the font file {path} {why}; {} is not embedded, and the screens are drawn in it only where the machine that draws them has it (SPEC.md §8)",
+                        js::trim(family)
+                    ),
+                });
+                None
+            }
+        };
+        fonts.push(KitFont {
+            family: js::trim(family).to_string(),
+            file: path.to_string(),
+            weight,
+            style,
+            unicode_range: range,
+            src,
+        });
+    }
+    Ok((fonts, findings))
+}
+
+/// The families of a kit's own fonts (`fonts:`), each once, in the order of kit.yaml: what a drawing of its screens
+/// should be drawn in, for a tool that asks the browser what it drew.
+pub fn kit_families(kit: &Kit) -> Vec<String> {
+    let mut out: IndexSet<String> = IndexSet::new();
+    for f in &kit.fonts {
+        out.insert(f.family.clone());
+    }
+    out.into_iter().collect()
+}
+
+/// a family's name as CSS compares it: ASCII letters in any case, white space collapsed
+fn family_key(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase()
+}
+
+/// the CSS-wide keywords and the system fonts of `font`, which name no family
+const NO_FAMILY: [&str; 11] = [
+    "inherit",
+    "initial",
+    "unset",
+    "revert",
+    "revert-layer",
+    "caption",
+    "icon",
+    "menu",
+    "message-box",
+    "small-caption",
+    "status-bar",
+];
+
+/// `s` split at `sep` where it stands outside quotes and parentheses (`sep` ' ' splits at any white space)
+fn split_top(s: &str, sep: char) -> Vec<&str> {
+    let mut out = Vec::new();
+    let (mut depth, mut quote, mut from) = (0i32, None::<char>, 0);
+    let mut chars = s.char_indices();
+    while let Some((i, c)) = chars.next() {
+        if let Some(q) = quote {
+            if c == '\\' {
+                chars.next();
+            } else if c == q {
+                quote = None;
+            }
+            continue;
+        }
+        match c {
+            '"' | '\'' => quote = Some(c),
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ if depth == 0 && (c == sep || (sep == ' ' && c.is_whitespace())) => {
+                out.push(&s[from..i]);
+                from = i + c.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    out.push(&s[from..]);
+    out.into_iter().filter(|p| !(sep == ' ' && p.is_empty())).collect()
+}
+
+/// `var(--name)` or `var(--name, fallback)`: the name and the fallback
+fn var_of(item: &str) -> Option<(&str, Option<&str>)> {
+    let inner = item.get(..4).filter(|p| p.eq_ignore_ascii_case("var("))?;
+    let body = item[inner.len()..].strip_suffix(')')?;
+    Some(match body.split_once(',') {
+        Some((name, fallback)) => (js::trim(name), Some(js::trim(fallback))),
+        None => (js::trim(body), None),
+    })
+}
+
+/// the custom properties a kit's CSS can read: its tokens, light and dark, and those its CSS declares
+type Vars<'a> = IndexMap<&'a str, Vec<&'a str>>;
+
+/// The family a `font-family` value draws in first, its stack's first: a custom property's (`var(--font-ui)`) read
+/// from the tokens or the CSS, each of its values. A generic family or a keyword names none.
+fn first_family(value: &str, vars: &Vars<'_>, depth: usize, out: &mut Vec<String>) {
+    let Some(first) = split_top(value, ',').first().copied().map(js::trim) else { return };
+    if depth > 10 {
+        return;
+    }
+    if let Some((name, fallback)) = var_of(first) {
+        match vars.get(name) {
+            Some(values) => values.iter().for_each(|v| first_family(v, vars, depth + 1, out)),
+            None => fallback.into_iter().for_each(|f| first_family(f, vars, depth + 1, out)),
+        }
+        return;
+    }
+    let name = match first.chars().next() {
+        Some(q @ ('"' | '\'')) => first[1..].strip_suffix(q).unwrap_or(&first[1..]).replace('\\', ""),
+        _ => first.split_whitespace().collect::<Vec<_>>().join(" "),
+    };
+    let key = family_key(&name);
+    if name.is_empty() || GENERIC_FAMILIES.contains(&key.as_str()) || NO_FAMILY.contains(&key.as_str()) {
+        return;
+    }
+    if !out.iter().any(|n| family_key(n) == key) {
+        out.push(name);
+    }
+}
+
+/// The family a `font` shorthand draws in first: the families follow its size (and its line height, after `/`).
+fn shorthand_family(value: &str, vars: &Vars<'_>, depth: usize, out: &mut Vec<String>) {
+    let v = js::trim(value);
+    if depth > 10 || NO_FAMILY.contains(&v.to_ascii_lowercase().as_str()) {
+        return;
+    }
+    if let Some((name, fallback)) = var_of(v).filter(|_| split_top(v, ' ').len() == 1) {
+        match vars.get(name) {
+            Some(values) => values.iter().for_each(|x| shorthand_family(x, vars, depth + 1, out)),
+            None => fallback.into_iter().for_each(|f| shorthand_family(f, vars, depth + 1, out)),
+        }
+        return;
+    }
+    let words = split_top(v, ' ');
+    const SIZES: [&str; 10] =
+        ["xx-small", "x-small", "small", "medium", "large", "x-large", "xx-large", "xxx-large", "larger", "smaller"];
+    // a size has a unit or is a percentage; a number alone is a weight
+    let size = |w: &str| {
+        let lower = w.to_ascii_lowercase();
+        let lead = lower.split('/').next().unwrap_or("");
+        SIZES.contains(&lead)
+            || (lead.starts_with(|c: char| c.is_ascii_digit() || c == '.')
+                && lead.contains(|c: char| c.is_ascii_alphabetic() || c == '%'))
+            || ["calc(", "clamp(", "min(", "max("].iter().any(|f| lead.starts_with(f))
+    };
+    let Some(at) = words.iter().position(|w| size(w)) else { return };
+    let mut rest = at + 1;
+    if words.get(rest).is_some_and(|w| w.starts_with('/')) {
+        rest += if words[rest] == "/" { 2 } else { 1 };
+    }
+    let families = words.get(rest..).unwrap_or_default().join(" ");
+    first_family(&families, vars, depth + 1, out);
+}
+
+/// a kit's CSS as declarations, `property: value`, each property in lowercase but a custom property's
+fn declarations(css: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut chunk = String::new();
+    fn take(chunk: &str, out: &mut Vec<(String, String)>) {
+        let Some((prop, value)) = chunk.split_once(':') else { return };
+        let prop = js::trim(prop);
+        if prop.is_empty() || !prop.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+            return;
+        }
+        let mut value = js::trim(value);
+        if value.len() >= 10 && value[value.len() - 10..].eq_ignore_ascii_case("!important") {
+            value = js::trim(&value[..value.len() - 10]);
+        }
+        let prop = if prop.starts_with("--") { prop.to_string() } else { prop.to_ascii_lowercase() };
+        out.push((prop, value.to_string()));
+    }
+    let mut i = 0;
+    while i < css.len() {
+        let rest = &css[i..];
+        let Some(c) = rest.chars().next() else { break };
+        if rest.starts_with("/*") {
+            match css[i + 2..].find("*/") {
+                Some(end) => i = i + 2 + end + 2,
+                None => break,
+            }
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            let mut j = i + 1;
+            while let Some(d) = css[j..].chars().next() {
+                j += d.len_utf8();
+                if d == c || d == '\n' {
+                    break;
+                }
+                if d == '\\' {
+                    j += css[j..].chars().next().map_or(0, char::len_utf8);
+                }
+            }
+            chunk.push_str(&css[i..j]);
+            i = j;
+            continue;
+        }
+        match c {
+            '{' => chunk.clear(),
+            ';' | '}' => {
+                take(&chunk, &mut out);
+                chunk.clear();
+            }
+            _ => chunk.push(c),
+        }
+        i += c.len_utf8();
+    }
+    take(&chunk, &mut out);
+    out
+}
+
+/// Each family the kit's CSS draws in first (a `font-family` or `font` declaration's stack, through the custom
+/// properties it reads) that is neither a font of the kit nor a generic family: a finding at warning level
+/// (`kit-font-unembedded`), once per family, in the first of `files` that writes its name.
+fn unembedded(
+    id: &str,
+    css: &str,
+    light: &[(String, String)],
+    dark: &[(String, String)],
+    fonts: &[KitFont],
+    files: &[String],
+) -> Vec<KitFinding> {
+    let decls = declarations(css);
+    let mut vars: Vars<'_> = IndexMap::new();
+    for (n, v) in light.iter().chain(dark).chain(decls.iter().filter(|(p, _)| p.starts_with("--"))) {
+        vars.entry(n.as_str()).or_default().push(v.as_str());
+    }
+    let mut named = Vec::new();
+    for (prop, value) in &decls {
+        match prop.as_str() {
+            "font-family" => first_family(value, &vars, 0, &mut named),
+            "font" => shorthand_family(value, &vars, 0, &mut named),
+            _ => {}
+        }
+    }
+    let carried: IndexSet<String> = fonts.iter().map(|f| family_key(&f.family)).collect();
+    named
+        .into_iter()
+        .filter(|n| !carried.contains(&family_key(n)))
+        .map(|n| {
+            let file = files.iter().find(|f| read_text(f).is_ok_and(|t| t.contains(n.as_str()))).or(files.first());
+            KitFinding {
+                rule: KIT_FONT_UNEMBEDDED,
+                file: file.cloned().unwrap_or_default(),
+                path: Vec::new(),
+                needle: Some(n.clone()),
+                element: format!("font-family/{n}"),
+                message: format!(
+                    "kit {id}: its CSS draws in {n}, which the kit does not carry in fonts: the screens are drawn in it only where the machine that draws them has it, and otherwise in the next family of the stack (SPEC.md §8)"
+                ),
+            }
+        })
+        .collect()
 }
 
 /// `--kit <path>` wins over `kit:` in ui.yaml (a path relative to the graph); `--kit none` draws the fixed components.
@@ -1539,6 +2173,8 @@ pub enum CssTarget {
 pub fn kit_css(kit: &Kit, target: CssTarget) -> String {
     let decls = |ds: &[(String, String)]| ds.iter().map(|(n, v)| format!("{n}: {v};")).collect::<Vec<_>>().join(" ");
     let mut out: Vec<String> = vec![format!("/* kit {} */", kit.id)];
+    // the kit's own fonts, once for the page or the stage, at the top: an @font-face cannot sit inside a rule
+    out.extend(kit.fonts.iter().filter_map(font_face));
     if !kit.light.is_empty() {
         out.push(format!(".wf.kit {{ {} }}", decls(&kit.light)));
     }
@@ -1573,6 +2209,30 @@ pub fn kit_css(kit: &Kit, target: CssTarget) -> String {
         out.push(".view .wf.kit .pressed { transform: scale(.95); }".into());
     }
     format!("\n{}\n", out.join("\n"))
+}
+
+/// The @font-face of a font the kit carries, its file as a data: URL; None for one that is not embedded, or whose
+/// `src` is no font's data: URL (a kit object a caller built)
+fn font_face(f: &KitFont) -> Option<String> {
+    let src = f.src.as_deref()?;
+    let (_, _, format, _) = FORMATS.iter().find(|(_, mime, ..)| src.starts_with(&format!("data:{mime};base64,")))?;
+    let data = &src[src.find(',')? + 1..];
+    if !family_name(&f.family) || !data.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=')) {
+        return None;
+    }
+    let mut rule = format!("@font-face {{ font-family: \"{}\"; src: url(\"{src}\") format(\"{format}\");", f.family);
+    let plain = |s: &Option<String>, ok: &dyn Fn(&str) -> bool| s.as_deref().filter(|v| ok(v)).map(str::to_string);
+    if let Some(w) = plain(&f.weight, &|w| weight_of(&Value::from(w)).is_some()) {
+        rule.push_str(&format!(" font-weight: {w};"));
+    }
+    if let Some(s) = plain(&f.style, &|s| matches!(s, "normal" | "italic" | "oblique")) {
+        rule.push_str(&format!(" font-style: {s};"));
+    }
+    if let Some(r) = plain(&f.unicode_range, &unicode_range) {
+        rule.push_str(&format!(" unicode-range: {r};"));
+    }
+    rule.push_str(" font-display: block; }");
+    Some(rule)
 }
 
 /// Runs once in the video stage, before the first frame: a kit draws at its own sizes, so its screens are drawn at the
@@ -1740,7 +2400,7 @@ pub(crate) mod tests {
     #[test]
     fn template_refusals() {
         let cases = [
-            ("<p>{nope}</p>", "unknown slot {nope}; the slots are {text} {name} {id} {intent} {children}"),
+            ("<p>{nope}</p>", "unknown slot {nope}; the slots are {text} {name} {id} {intent} {children} {tone}"),
             ("<p {text}>x</p>", "{text} must stand in text or inside a quoted attribute value"),
             ("<p>{?disabled}x{/named}</p>", "{/named} does not close the section that is open"),
             (
@@ -1925,5 +2585,353 @@ pub(crate) mod tests {
             Err("F: token name \"a.b\" may not be empty or contain {, } or .".into())
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // a Text that draws its tone, and the kit's `tones` (SPEC.md §8)
+    const TONED: &str = "    template: '<p class=\"k-text k-{tone}\">{text}</p>'";
+
+    fn text_fill(tone: Option<&str>) -> Fill {
+        Fill { id: "t".into(), text: "Hi".into(), name: "Hi".into(), tone: tone.map(str::to_string), ..Fill::default() }
+    }
+
+    fn drawn(kit: &Kit, tone: Option<&str>) -> (String, Vec<String>) {
+        let mut warnings = Vec::new();
+        let html = draw_with(kit, "Text", &text_fill(tone), &mut |m| warnings.push(m.to_string())).expect("drawn");
+        (html, warnings)
+    }
+
+    #[test]
+    fn the_tone_slot_gives_the_word_the_tones_give() {
+        // without tones, {tone} is the tone itself, and nothing for a node without one
+        let t = NotesCopy::new("tone-plain");
+        t.edit("kit/kit.yaml", TEXT, TONED);
+        let kit = load_kit(&format!("{}/kit", t.0)).expect("the kit loads");
+        assert_eq!(drawn(&kit, Some("danger")).0, "<p class=\"k-text k-danger\">Hi</p>");
+        assert_eq!(drawn(&kit, None).0, "<p class=\"k-text k-\">Hi</p>");
+        // the kit's tones, and default for a node without one; a tone they lack is warned of and drawn as default
+        let t = NotesCopy::new("tone-kit");
+        t.edit("kit/kit.yaml", TEXT, TONED);
+        t.edit("kit/kit.yaml", "components:\n", "tones: { danger: alarm, default: calm }\ncomponents:\n");
+        let kit = load_kit(&format!("{}/kit", t.0)).expect("the kit loads");
+        assert_eq!(drawn(&kit, Some("danger")), ("<p class=\"k-text k-alarm\">Hi</p>".into(), vec![]));
+        assert_eq!(drawn(&kit, None), ("<p class=\"k-text k-calm\">Hi</p>".into(), vec![]));
+        assert_eq!(
+            drawn(&kit, Some("success")),
+            (
+                "<p class=\"k-text k-calm\">Hi</p>".into(),
+                vec!["kit example: Text has no entry for tone success (node t); drawn as calm".to_string()]
+            )
+        );
+        let mut warned = Vec::new();
+        check_tone(&kit, "Text", &text_fill(None), "info", &mut |m| warned.push(m.to_string()));
+        assert_eq!(warned, ["kit example: Text has no entry for tone info (node t); drawn as calm"]);
+        // a template that does not draw its tone is held to nothing
+        let mut warned = Vec::new();
+        let heading = draw_with(&kit, "Heading", &text_fill(Some("success")), &mut |m| warned.push(m.to_string()));
+        assert_eq!((heading.as_deref(), warned.len()), (Some("<h2 class=\"k-heading\">Hi</h2>"), 0));
+        // a component's own tones are read first
+        let t = NotesCopy::new("tone-component");
+        t.edit("kit/kit.yaml", TEXT, &format!("{TONED}\n    tones: {{ danger: red }}"));
+        t.edit("kit/kit.yaml", "components:\n", "tones: { danger: alarm, success: fine }\ncomponents:\n");
+        let kit = load_kit(&format!("{}/kit", t.0)).expect("the kit loads");
+        assert_eq!(drawn(&kit, Some("danger")).0, "<p class=\"k-text k-red\">Hi</p>");
+        assert_eq!(drawn(&kit, Some("success")).0, "<p class=\"k-text k-fine\">Hi</p>");
+        assert_eq!(
+            drawn(&kit, Some("warning")).1,
+            ["kit example: Text has no entry for tone warning (node t); drawn as no tone"]
+        );
+        let kit_tones = kit.tones.as_ref().map(|t| t.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>());
+        assert_eq!(kit_tones, Some(vec!["danger=alarm".to_string(), "success=fine".to_string()]));
+    }
+
+    #[test]
+    fn tones_that_are_not_tones_are_refused() {
+        for (tones, why) in [
+            (
+                "{ error: x }",
+                "<T>/kit/kit.yaml: tones.error is not a tone; the tones are neutral, info, success, warning, danger, and default is the word for a node with none",
+            ),
+            ("{ danger: 1 }", "<T>/kit/kit.yaml: tones.danger must be a word"),
+            ("[danger]", "<T>/kit/kit.yaml: tones maps a tone to the word {tone} gives"),
+        ] {
+            let t = NotesCopy::new("tone-refused");
+            t.edit("kit/kit.yaml", "components:\n", &format!("tones: {tones}\ncomponents:\n"));
+            assert_eq!(t.error(), why, "{tones}");
+        }
+        let t = NotesCopy::new("tone-refused-component");
+        t.edit("kit/kit.yaml", TEXT, &format!("{TEXT}\n    tones: {{ critical: x }}"));
+        assert!(t.error().starts_with("<T>/kit/kit.yaml: Text: tones.critical is not a tone"), "{}", t.error());
+    }
+
+    /// a file of the copy's kit folder, written
+    fn put(t: &NotesCopy, file: &str, bytes: &[u8]) {
+        let at = std::path::Path::new(&t.0).join("kit").join(file);
+        std::fs::create_dir_all(at.parent().expect("a folder")).expect("its folder");
+        std::fs::write(at, bytes).expect("written");
+    }
+
+    /// bytes that start as a woff2 file does
+    fn woff2(len: usize) -> Vec<u8> {
+        let mut b = b"wOF2".to_vec();
+        b.resize(len, 7);
+        b
+    }
+
+    fn with_fonts(t: &NotesCopy, entries: &str) -> Kit {
+        t.edit("kit/kit.yaml", "components:\n", &format!("fonts:\n{entries}components:\n"));
+        load_kit(&format!("{}/kit", t.0)).expect("the kit loads")
+    }
+
+    #[test]
+    fn a_kit_carries_its_fonts_once_as_data() {
+        let t = NotesCopy::new("fonts");
+        put(&t, "fonts/test.woff2", &woff2(5));
+        put(&t, "fonts/Test-Italic.TTF", &[0, 1, 0, 0, 9]);
+        let kit = with_fonts(
+            &t,
+            "  - { family: Test Sans, file: fonts/test.woff2, weight: \"400 700\", unicodeRange: \"U+0000-00FF, U+0131\" }\n  - { family: Test Sans, file: fonts/Test-Italic.TTF, weight: 400, style: italic }\n",
+        );
+        assert_eq!(kit.findings, Vec::new());
+        assert_eq!(kit.fonts[0].src.as_deref(), Some("data:font/woff2;base64,d09GMgc="));
+        assert_eq!(kit_families(&kit), ["Test Sans"]);
+        for target in [CssTarget::Page, CssTarget::Stage] {
+            let css = kit_css(&kit, target);
+            assert!(css.starts_with(
+                "\n/* kit example */\n@font-face { font-family: \"Test Sans\"; src: url(\"data:font/woff2;base64,d09GMgc=\") format(\"woff2\"); font-weight: 400 700; unicode-range: U+0000-00FF, U+0131; font-display: block; }\n@font-face { font-family: \"Test Sans\"; src: url(\"data:font/ttf;base64,AAEAAAk=\") format(\"truetype\"); font-weight: 400; font-style: italic; font-display: block; }\n.wf.kit {"
+            ));
+            assert_eq!(css.matches("@font-face").count(), 2);
+        }
+        let f = &kit.fonts[0];
+        assert_eq!(
+            (f.file.as_str(), f.weight.as_deref(), f.style.as_deref(), f.unicode_range.as_deref()),
+            ("fonts/test.woff2", Some("400 700"), None, Some("U+0000-00FF, U+0131"))
+        );
+        // a kit without fonts says nothing of them
+        let example = load_kit(&format!("{}/kit", notes())).expect("the example kit loads");
+        assert!(!kit_css(&example, CssTarget::Page).contains("@font-face"));
+        assert!(example.fonts.is_empty() && example.tones.is_none());
+        assert_eq!(example.findings, Vec::new());
+    }
+
+    #[test]
+    fn a_font_file_that_cannot_be_embedded_is_a_finding() {
+        let t = NotesCopy::new("fonts-refused");
+        put(&t, "fonts/fake.woff2", b"<svg>");
+        put(&t, "fonts/big.woff2", &woff2(FONT_FILE_MAX as usize + 1));
+        put(&t, "fonts/notes.txt", b"wOF2");
+        put(&t, "fonts/folder.woff2/x", b"");
+        let outside = std::path::Path::new(&t.0).join("outside.woff2");
+        std::fs::write(&outside, woff2(8)).expect("written");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, std::path::Path::new(&t.0).join("kit/fonts/link.woff2")).expect("a link");
+        let kit = with_fonts(
+            &t,
+            "  - { family: A, file: fonts/missing.woff2 }\n  - { family: A, file: ../outside.woff2 }\n  - { family: A, file: /etc/a.woff2 }\n  - { family: A, file: fonts/notes.txt }\n  - { family: A, file: fonts/fake.woff2 }\n  - { family: A, file: fonts/big.woff2 }\n  - { family: A, file: fonts/folder.woff2 }\n  - { family: A, file: fonts/link.woff2 }\n",
+        );
+        let said: Vec<(String, String)> = kit
+            .findings
+            .iter()
+            .map(|f| {
+                assert_eq!((f.rule, f.path[0].as_str(), f.path[2].as_str()), (KIT_FONT, "fonts", "file"));
+                let why = f.message.split_once(": the font file ").map_or("", |(_, w)| w);
+                (f.path[1].clone(), why.split_once("; A is not embedded").map_or(why, |(w, _)| w).to_string())
+            })
+            .collect();
+        let at = |i: &str, why: &str| (i.to_string(), why.to_string());
+        let mut want = vec![
+            at("0", "fonts/missing.woff2 does not exist in the kit's folder"),
+            at("1", "../outside.woff2 climbs out of the kit's folder (..): a kit's font is a file in the kit's folder"),
+            at(
+                "2",
+                "/etc/a.woff2 is not a path relative to the kit's folder: a kit's font is a file in the kit's folder",
+            ),
+            at("3", "fonts/notes.txt is not a woff2, woff, ttf or otf file by its name"),
+            at("4", "fonts/fake.woff2 is no woff2 file by its bytes"),
+            at("5", "fonts/big.woff2 is 2097153 bytes, more than the 2097152 bytes (2 MiB) a kit's font file may be"),
+            at("6", "fonts/folder.woff2 is not a file"),
+        ];
+        if cfg!(unix) {
+            want.push(at(
+                "7",
+                "fonts/link.woff2 is a link to a file outside the kit's folder: a kit's font is a file in the kit's folder",
+            ));
+        }
+        assert_eq!(said, want);
+        assert_eq!(
+            kit.findings[0].message,
+            "kit example: the font file fonts/missing.woff2 does not exist in the kit's folder; A is not embedded, and the screens are drawn in it only where the machine that draws them has it (SPEC.md §8)"
+        );
+        assert!(kit.fonts.iter().all(|f| f.src.is_none()));
+        assert_eq!(kit_families(&kit), ["A"]);
+        assert!(!kit_css(&kit, CssTarget::Page).contains("@font-face"));
+        // together at most FONTS_MAX: the font past it is not embedded
+        let t = NotesCopy::new("fonts-total");
+        let mut entries = String::new();
+        for i in 0..5 {
+            put(&t, &format!("f{i}.woff2"), &woff2(1_900_000));
+            entries.push_str(&format!("  - {{ family: F{i}, file: f{i}.woff2 }}\n"));
+        }
+        let kit = with_fonts(&t, &entries);
+        assert_eq!(kit.fonts.iter().filter(|f| f.src.is_some()).count(), 4);
+        assert_eq!(kit.findings.len(), 1);
+        assert!(kit.findings[0].message.contains("the font file f4.woff2 would make the kit's fonts 9500000 bytes together, more than the 8388608 bytes (8 MiB) they may be; F4 is not embedded"));
+    }
+
+    #[test]
+    fn a_font_entry_that_is_not_one_keeps_the_kit_from_loading() {
+        for (entry, why) in [
+            (
+                "{ family: 'A\"B', file: a.woff2 }",
+                "fonts[0]: family is the font's name, with no quote, backslash, <, >, ;, {, }} or control character",
+            ),
+            ("{ family: A }", "fonts[0]: file is the font's file, relative to the kit's folder"),
+            (
+                "{ family: A, file: a.woff2, size: 3 }",
+                "fonts[0]: unknown key size (known: family, file, weight, style, unicodeRange)",
+            ),
+            (
+                "{ family: A, file: a.woff2, weight: heavy }",
+                "fonts[0]: weight is a number from 1 to 1000, a range of two, normal or bold",
+            ),
+            (
+                "{ family: A, file: a.woff2, weight: 0 }",
+                "fonts[0]: weight is a number from 1 to 1000, a range of two, normal or bold",
+            ),
+            ("{ family: A, file: a.woff2, style: slanted }", "fonts[0]: style is normal, italic or oblique"),
+            (
+                "{ family: A, file: a.woff2, unicodeRange: \"0-7F\" }",
+                "fonts[0]: unicodeRange is code points and ranges, U+0-7F, U+0400-04FF, separated by commas",
+            ),
+            ("x.woff2", "fonts[0]: a font is { family, file }"),
+        ] {
+            let t = NotesCopy::new("fonts-shape");
+            t.edit("kit/kit.yaml", "components:\n", &format!("fonts:\n  - {entry}\ncomponents:\n"));
+            assert_eq!(t.error(), format!("<T>/kit/kit.yaml: {}", why.replace("}}", "}")), "{entry}");
+        }
+        let t = NotesCopy::new("fonts-list");
+        t.edit("kit/kit.yaml", "components:\n", "fonts: { family: A }\ncomponents:\n");
+        assert_eq!(t.error(), "<T>/kit/kit.yaml: fonts is a list of { family, file }");
+    }
+
+    #[test]
+    fn the_families_a_kit_draws_in_first() {
+        let first = |css: &str, light: &[(&str, &str)]| {
+            let light: Vec<(String, String)> = light.iter().map(|(n, v)| (n.to_string(), v.to_string())).collect();
+            let fonts = [KitFont {
+                family: "instrument  sans".into(),
+                file: String::new(),
+                weight: None,
+                style: None,
+                unicode_range: None,
+                src: None,
+            }];
+            unembedded("k", css, &light, &[], &fonts, &[])
+                .into_iter()
+                .map(|f| f.needle.unwrap_or_default())
+                .collect::<Vec<_>>()
+        };
+        let none: Vec<String> = Vec::new();
+        // the first family of each stack, through custom properties; generic families and keywords name none
+        assert_eq!(
+            first(
+                ".a { font-family: \"Instrument Sans\", Roboto, sans-serif } .b { font: italic 600 14px/1.4 var(--reading) } .c { font-family: var(--mono, 'Fallback Mono') !important; }",
+                &[("--reading", "\"Literata\", Georgia, serif")]
+            ),
+            ["Literata", "Fallback Mono"]
+        );
+        assert_eq!(
+            first(
+                "& { --ui: Brand   Sans, system-ui; } .a { font-family: var(--ui) } .b { font: inherit } .c { font: 700 1rem / 1.5 'Bar Baz', serif } .d { font: menu }",
+                &[]
+            ),
+            ["Brand Sans", "Bar Baz"]
+        );
+        assert_eq!(
+            first(
+                ".a { font-family: system-ui, Roboto } .b { font-family: UI-Monospace } .c { font: var(--x) } .d { font: 700 serif }",
+                &[("--x", "12px cursive")]
+            ),
+            none
+        );
+        // a comment and a string hold no declaration; the same family is named once
+        assert_eq!(
+            first(
+                "/* font-family: Nope */ .a::after { content: 'font-family: Nope'; font-family: Same } .b { font-family: \"same\" }",
+                &[]
+            ),
+            ["Same"]
+        );
+    }
+
+    #[test]
+    fn the_example_kit_and_medaris_like_tokens() {
+        // the example kit leads with system-ui: nothing to warn of
+        let example = load_kit(&format!("{}/kit", notes())).expect("the example kit loads");
+        assert_eq!(example.findings, Vec::new());
+        // a stack written in the tokens, as a kit generated from an app's CSS has it, found in the file that writes it
+        let t = NotesCopy::new("fonts-tokens");
+        t.edit(
+            "kit/tokens.json",
+            "[\"system-ui\", \"Segoe UI\", \"Roboto\", \"sans-serif\"]",
+            "[\"Brand Sans\", \"Segoe UI\", \"sans-serif\"]",
+        );
+        let kit = load_kit(&format!("{}/kit", t.0)).expect("the kit loads");
+        assert_eq!(kit.findings.len(), 1);
+        let f = &kit.findings[0];
+        assert_eq!(
+            (f.rule, f.needle.as_deref(), f.element.as_str()),
+            (KIT_FONT_UNEMBEDDED, Some("Brand Sans"), "font-family/Brand Sans")
+        );
+        assert!(f.file.ends_with("/kit/tokens.json"), "{}", f.file);
+        assert_eq!(
+            f.message,
+            "kit example: its CSS draws in Brand Sans, which the kit does not carry in fonts: the screens are drawn in it only where the machine that draws them has it, and otherwise in the next family of the stack (SPEC.md §8)"
+        );
+        // carried, it is no finding
+        put(&t, "brand.woff", b"wOFFxyz");
+        let kit = with_fonts(&t, "  - { family: Brand Sans, file: brand.woff }\n");
+        assert_eq!(kit.findings, Vec::new());
+        assert!(
+            kit_css(&kit, CssTarget::Page)
+                .contains("src: url(\"data:font/woff;base64,d09GRnh5eg==\") format(\"woff\");")
+        );
+    }
+
+    #[test]
+    fn base64_and_font_values() {
+        for (plain, coded) in [("", ""), ("f", "Zg=="), ("fo", "Zm8="), ("foo", "Zm9v"), ("foobar", "Zm9vYmFy")] {
+            assert_eq!(base64(plain.as_bytes()), coded);
+        }
+        assert_eq!(base64(&[0xfb, 0xff]), "+/8=");
+        for ok in ["U+0-7F", "U+0400-04FF, u+0131", "U+4??", "U+10FFFF"] {
+            assert!(unicode_range(ok), "{ok}");
+        }
+        for no in ["0-7F", "U+", "U+1234567", "U+4?4", "U+?-7F", "U+0-7F;x"] {
+            assert!(!unicode_range(no), "{no}");
+        }
+        assert_eq!(weight_of(&Value::from("100  900")), Some("100 900".into()));
+        assert_eq!(weight_of(&Value::Number(400.0)), Some("400".into()));
+        assert_eq!(weight_of(&Value::from("bold")), Some("bold".into()));
+        for no in ["+400", "100 200 300", "1001", "inf", "x"] {
+            assert_eq!(weight_of(&Value::from(no)), None, "{no}");
+        }
+        assert!(!family_name("a\nb") && !family_name("  ") && family_name("Noto Naskh Arabic"));
+        // a kit object a caller built embeds only a font's data: URL
+        let f = |src: &str| KitFont {
+            family: "A".into(),
+            file: String::new(),
+            weight: Some("bold; color: red".into()),
+            style: None,
+            unicode_range: None,
+            src: Some(src.into()),
+        };
+        assert_eq!(
+            font_face(&f("data:font/woff2;base64,AAAA")).as_deref(),
+            Some(
+                "@font-face { font-family: \"A\"; src: url(\"data:font/woff2;base64,AAAA\") format(\"woff2\"); font-display: block; }"
+            )
+        );
+        assert_eq!(font_face(&f("https://x/a.woff2")), None);
+        assert_eq!(font_face(&f("data:font/woff2;base64,AA\")")), None);
     }
 }

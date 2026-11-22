@@ -7,9 +7,10 @@ use std::sync::LazyLock;
 use regex::{Captures, Regex};
 use serde::Serialize;
 
-use crate::graph::{self, Graph, Label, UiNode, shown_in, title_of};
-use crate::js::{self, Value};
-use crate::kit::{Fill, Kit, draw_with, esc, mark};
+use crate::expr::{evaluate, parse_expr};
+use crate::graph::{self, Graph, Label, Tone, UiNode, shown_in, title_of};
+use crate::js::{self, Object, Value};
+use crate::kit::{Fill, Kit, check_tone, draw_with, esc, mark};
 
 /// where a drawing reports what it could not draw as the graph says (a missing catalog key, a component no kit draws)
 type Warn<'w> = &'w mut dyn FnMut(&str);
@@ -163,7 +164,47 @@ fn chips(it: &Item<'_>) -> String {
     if it.focus {
         parts.push("first focus".into());
     }
+    // a fixed tone, and each of a map with the expression under which the node takes it, as `when` is shown
+    match n.tone() {
+        Some(Tone::Fixed(w)) => parts.push(format!("tone {w}")),
+        Some(Tone::When(entries)) => parts.extend(entries.iter().map(|(w, e)| format!("tone {w} when {e}"))),
+        None => {}
+    }
     format!("<span class=\"chip\">{}</span>", esc(&parts.join(" · ")))
+}
+
+/// a name of an expression over the context a stage is drawn in: the context's value, the state, or a guard's value
+/// there; null for any other
+fn context_value(g: &Graph, state: &str, ctx: &Object, name: &str, depth: usize) -> Value {
+    if let Some(v) = ctx.get(name) {
+        return v.clone();
+    }
+    if name == "state" {
+        return Value::from(state);
+    }
+    if depth < 8
+        && let Some(Value::String(src)) = g.flow().guard(name)
+        && let Ok(e) = parse_expr(src)
+    {
+        return evaluate(&e, &|n| context_value(g, state, ctx, n, depth + 1));
+    }
+    Value::Null
+}
+
+/// The styles of a tone drawn by the fixed components (`wf-tone-<word>`), on the page and the video stage: added only
+/// where a node of the flow has a tone, so a page without one is drawn as before. Each colour falls back to the
+/// page's own when the stage does not define it.
+pub const TONE_CSS: &str = "
+.wf-tone-neutral { --wf-tone: var(--muted, #6b6560); } .wf-tone-info { --wf-tone: var(--accent, #1d4ed8); } .wf-tone-success { --wf-tone: var(--ok, #15803d); } .wf-tone-warning { --wf-tone: #a16207; } .wf-tone-danger { --wf-tone: var(--bad, #b91c1c); }
+@media (prefers-color-scheme: dark) { .wf-tone-warning { --wf-tone: #fbbf24; } }
+:is(.wf-tone-neutral, .wf-tone-info, .wf-tone-success, .wf-tone-warning, .wf-tone-danger), :is(.wf-tone-neutral, .wf-tone-info, .wf-tone-success, .wf-tone-warning, .wf-tone-danger) :is(.wf-h, .wf-t, .wf-status, .wf-alert, .wf-btn, .wf-link, .wf-check, .wf-field > span) { color: var(--wf-tone); }
+:is(.wf-tone-neutral, .wf-tone-info, .wf-tone-success, .wf-tone-warning, .wf-tone-danger) :is(.wf-btn, .wf-alert, .wf-input, .wf-unmapped) { border-color: var(--wf-tone); }
+:is(.wf-tone-neutral, .wf-tone-info, .wf-tone-success, .wf-tone-warning, .wf-tone-danger) .wf-confirm { background: var(--wf-tone); color: var(--bg, #fafaf9); }
+";
+
+/// whether a node of the flow's screens has a `tone`, so that a page adds TONE_CSS
+pub fn uses_tone(g: &Graph) -> bool {
+    g.ui().nodes().any(|(_, n)| n.get("tone").is_some())
 }
 
 /// a List drawn with the kit, waiting for its items
@@ -177,6 +218,9 @@ struct Wireframe<'a, 'k> {
     g: &'a Graph,
     clean: bool,
     kit: Option<&'k Kit>,
+    /// the state drawn, and the context it is drawn in when the caller knows it, which picks a node's tone
+    state: &'k str,
+    ctx: Option<&'k Object>,
     out: Vec<String>,
     in_list: bool,
     in_row: bool,
@@ -184,8 +228,34 @@ struct Wireframe<'a, 'k> {
 }
 
 impl<'a> Wireframe<'a, '_> {
+    /// the tone a node is drawn in: its fixed one, or, where the context is known, the first of its map whose
+    /// expression holds there; none otherwise
+    fn tone_of(&self, n: UiNode<'a>) -> Option<&'a str> {
+        match n.tone()? {
+            Tone::Fixed(w) => Some(w),
+            Tone::When(entries) => {
+                let ctx = self.ctx?;
+                let holds = |e: &str| {
+                    parse_expr(e)
+                        .is_ok_and(|e| evaluate(&e, &|name| context_value(self.g, self.state, ctx, name, 0)).truthy())
+                };
+                entries.into_iter().find(|(_, e)| holds(e)).map(|(w, _)| w)
+            }
+        }
+    }
+
+    /// a node drawn with the fixed components, in its tone
+    fn item(&self, it: &Item<'a>, inner: &str) -> String {
+        self.item_in(it, inner, self.tone_of(it.node))
+    }
+
+    /// a node drawn with the kit, whose template draws its tone
+    fn kit_item(&self, it: &Item<'a>, inner: &str) -> String {
+        self.item_in(it, inner, None)
+    }
+
     // clean: no annotation chips and no dashed or focus outlines, for the tutorial stage
-    fn item(&self, it: &Item<'_>, inner: &str) -> String {
+    fn item_in(&self, it: &Item<'_>, inner: &str, tone: Option<&str>) -> String {
         let cls = if self.clean {
             "wf-item".to_string()
         } else {
@@ -197,6 +267,10 @@ impl<'a> Wireframe<'a, '_> {
                 c.push("wf-focus");
             }
             c.join(" ")
+        };
+        let cls = match tone {
+            Some(w) => format!("{cls} wf-tone-{}", esc(w)),
+            None => cls,
         };
         let chips = if self.clean { String::new() } else { chips(it) };
         format!("<div class=\"{cls}\" data-node=\"{}\">{inner}{chips}</div>", esc(it.id))
@@ -212,14 +286,14 @@ impl<'a> Wireframe<'a, '_> {
         self.in_list = false;
     }
 
-    fn fill(&self, it: &Item<'_>, text: &str, warn: Warn) -> Fill {
+    fn fill(&self, it: &Item<'a>, text: &str, warn: Warn) -> Fill {
         let n = it.node;
         let name = accessible_name(self.g, n, warn);
         // the role the expected tree gives the node, which picks a template from the component's `roles`:
         // `n.role ?? (n.type === 'text' ? undefined : n.type)`, as `c.roles[f.role]` looks it up
         let v = n.value();
         let role = graph::given(v, "role").or_else(|| v.get("type").filter(|t| t.as_str() != Some("text")));
-        Fill {
+        let f = Fill {
             id: it.id.to_string(),
             text: text.to_string(),
             named: name.as_deref().is_some_and(|nm| nm != text),
@@ -230,10 +304,18 @@ impl<'a> Wireframe<'a, '_> {
             disabled: it.disabled,
             conditional: n.get("when").is_some(),
             checked: n.checked() == Some(&Value::Bool(true)),
+            tone: self.tone_of(n).map(str::to_string),
+        };
+        // every tone of a node's map is one the kit draws, though this screen shows another
+        if let (Some(kit), Some(c), Some(Tone::When(entries))) = (self.kit, n.component(), n.tone()) {
+            for (w, _) in entries.iter().filter(|(w, _)| f.tone.as_deref() != Some(w)) {
+                check_tone(kit, c, &f, w, warn);
+            }
         }
+        f
     }
 
-    fn draw_kit_list(&self, it: &Item<'_>, drawn: &[String], warn: Warn) -> String {
+    fn draw_kit_list(&self, it: &Item<'a>, drawn: &[String], warn: Warn) -> String {
         let first = texts(self.g, it.node, warn).into_iter().next().unwrap_or_default();
         let mut f = self.fill(it, &first, warn);
         f.children = Some(drawn.iter().map(|d| format!("\n{d}")).collect::<String>() + "\n");
@@ -264,8 +346,9 @@ fn render_wireframe<'a>(
     warn: Warn,
     clean: bool,
     kit: Option<&Kit>,
+    ctx: Option<&Object>,
 ) -> String {
-    let mut w = Wireframe { g, clean, kit, out: Vec::new(), in_list: false, in_row: false, kit_list: None };
+    let mut w = Wireframe { g, clean, kit, state, ctx, out: Vec::new(), in_list: false, in_row: false, kit_list: None };
     for it in items {
         let n = it.node;
         let t = texts(g, n, warn);
@@ -306,7 +389,7 @@ fn render_wireframe<'a>(
                     }
                     let f = w.fill(it, t.first().map_or("", String::as_str), warn);
                     let drawn = draw_with(kit, c, &f, warn).unwrap_or_default();
-                    let html = w.item(it, &drawn);
+                    let html = w.kit_item(it, &drawn);
                     w.out.push(html);
                 }
                 continue;
@@ -373,16 +456,18 @@ fn render_wireframe<'a>(
                 w.out.push(html);
             }
             Some("List") => {
-                w.out.push(format!("<ul class=\"wf-list\" data-node=\"{}\">", esc(it.id)));
+                let tone = w.tone_of(n).map_or_else(String::new, |t| format!(" wf-tone-{}", esc(t)));
+                w.out.push(format!("<ul class=\"wf-list{tone}\" data-node=\"{}\">", esc(it.id)));
                 w.in_list = true;
             }
             Some("ListItem") => {
                 if !w.in_list {
                     warn(&format!("{}: ListItem outside a List in {state}", it.id));
                 }
+                let tone = w.tone_of(n).map_or_else(String::new, |t| format!(" class=\"wf-tone-{}\"", esc(t)));
                 for line in &t {
                     let chips = if clean { String::new() } else { chips(it) };
-                    w.push_item(format!("<li data-node=\"{}\">{}{chips}</li>", esc(it.id), esc(line)));
+                    w.push_item(format!("<li{tone} data-node=\"{}\">{}{chips}</li>", esc(it.id), esc(line)));
                 }
             }
             Some("Status") => {
@@ -495,7 +580,7 @@ pub fn render_screens(g: &Graph, warn: &mut dyn FnMut(&str), kit: Option<&Kit>) 
         }
         let kit_class = if kit.is_none() { "" } else { " kit" };
         out.push(format!("<div class=\"wf{kit_class}\" role=\"group\" aria-label=\"Wireframe of {title}\">"));
-        out.push(render_wireframe(g, state, &items, warn, false, kit));
+        out.push(render_wireframe(g, state, &items, warn, false, kit, None));
         out.push("</div>".into());
         out.push(format!(
             "<details class=\"ax-wrap\"><summary>Expected accessibility tree</summary><pre class=\"ax\">{}</pre></details>",
@@ -507,12 +592,15 @@ pub fn render_screens(g: &Graph, warn: &mut dyn FnMut(&str), kit: Option<&Kit>) 
 }
 
 /// One state's screen for the tutorial stage. Nodes that depend on a flag (`when`) appear only when named in `reveal`.
+/// `ctx`, the context the screen is drawn in when the caller knows it (a name and its value each), picks each node's
+/// tone from its map; without it a node is drawn only in a fixed tone.
 pub fn render_stage_screen(
     g: &Graph,
     state: &str,
     reveal: &[&str],
     warn: &mut dyn FnMut(&str),
     kit: Option<&Kit>,
+    ctx: Option<&Object>,
 ) -> String {
     let items: Vec<Item<'_>> = g
         .ui()
@@ -524,7 +612,7 @@ pub fn render_stage_screen(
     format!(
         "<div class=\"wf{kit_class}\" role=\"group\" aria-label=\"Screen: {}\">{}</div>",
         esc(&title_of(g.flow(), state)),
-        render_wireframe(g, state, &items, warn, true, kit)
+        render_wireframe(g, state, &items, warn, true, kit, ctx)
     )
 }
 
@@ -574,7 +662,7 @@ pub fn render_check_screens(g: &Graph, kit: Option<&Kit>, warn: &mut dyn FnMut(&
         html.push(format!(
             "<section class=\"screen\" data-state=\"{}\"><div class=\"wf{kit_class}\">{}</div></section>",
             esc(state),
-            render_wireframe(g, state, &items, warn, true, kit)
+            render_wireframe(g, state, &items, warn, true, kit, None)
         ));
         for it in &items {
             let n = it.node;
@@ -679,7 +767,136 @@ mod tests {
             (pin.index, pin.role.as_deref(), pin.name.as_deref(), pin.disabled),
             (0, Some("checkbox"), Some("Pin it to the top of my notes"), true)
         );
-        let stage = render_stage_screen(&g, "saved", &[], &mut |_| {}, None);
+        let stage = render_stage_screen(&g, "saved", &[], &mut |_| {}, None, None);
         assert!(stage.starts_with("<div class=\"wf\" role=\"group\" aria-label=\"Screen: Saved\">"));
+    }
+
+    /// the notes example with a tone on three nodes, and a map on its title
+    fn toned(name: &str) -> NotesCopy {
+        let t = NotesCopy::new(name);
+        let ui = "edit/ui.yaml";
+        t.edit(ui, "    text: { key: Edit.saved }\n", "    text: { key: Edit.saved }\n    tone: success\n");
+        t.edit(ui, "    text: { key: Discard.discard }\n", "    text: { key: Discard.discard }\n    tone: danger\n");
+        t.edit(ui, "    text: { key: Edit.pin }\n", "    text: { key: Edit.pin }\n    tone: info\n");
+        t.edit(
+            ui,
+            "    text: { key: Edit.title }\n",
+            "    text: { key: Edit.title }\n    tone: { warning: \"not pinned\", success: \"pinned and state == 'saved'\" }\n",
+        );
+        t
+    }
+
+    #[test]
+    fn a_tone_is_drawn_by_the_fixed_components() {
+        let t = toned("tones-fixed");
+        let g = graph::load(&format!("{}/edit", t.0)).expect("the graph loads");
+        assert!(uses_tone(&g));
+        let mut warnings = Vec::new();
+        let page = render_screens(&g, &mut |m| warnings.push(m.to_string()), None);
+        assert_eq!(warnings, Vec::<String>::new());
+        assert!(page.contains("<div class=\"wf-item wf-tone-success\" data-node=\"savedStatus\"><div class=\"wf-status\" role=\"status\">The note is saved</div><span class=\"chip\">status · tone success</span></div>"), "{page}");
+        assert!(page.contains("<div class=\"wf-item wf-tone-danger\" data-node=\"discard\"><button type=\"button\" class=\"wf-btn wf-confirm\">"));
+        assert!(page.contains("<li class=\"wf-tone-info\" data-node=\"pinBox\">"));
+        // a map is shown in the chips, as `when` is, and drawn in no tone where the context is not known
+        assert!(page.contains("<div class=\"wf-item wf-focus\" data-node=\"title\">"));
+        assert!(page.contains(
+            "<span class=\"chip\">heading · first focus · tone warning when not pinned · tone success when pinned and state == 'saved'</span>"
+        ));
+        // on the stage, the context picks the first entry that holds; without it, only a fixed tone
+        let ctx = |pinned: bool| {
+            let mut o = Object::new();
+            o.insert("pinned", Value::Bool(pinned));
+            o
+        };
+        let title = |state: &str, c: Option<&Object>| {
+            let html = render_stage_screen(&g, state, &[], &mut |_| {}, None, c);
+            let at = html.find("data-node=\"title\"").expect("the title");
+            html[..at].rsplit("<div class=\"").next().unwrap_or_default().to_string()
+        };
+        assert_eq!(title("editing", Some(&ctx(false))), "wf-item wf-tone-warning\" ");
+        assert_eq!(title("editing", Some(&ctx(true))), "wf-item\" ");
+        assert_eq!(title("saved", Some(&ctx(true))), "wf-item wf-tone-success\" ");
+        assert_eq!(title("saved", None), "wf-item\" ");
+        let stage = render_stage_screen(&g, "saved", &[], &mut |_| {}, None, None);
+        assert!(stage.contains("<div class=\"wf-item wf-tone-success\" data-node=\"savedStatus\">"));
+        // a node shown in a tone is the same to a screen reader
+        let check = render_check_screens(&g, None, &mut |_| {});
+        let plain = render_check_screens(&graph::load(&format!("{}/edit", notes())).expect("loads"), None, &mut |_| {});
+        assert_eq!(check.expected, plain.expected);
+    }
+
+    #[test]
+    fn a_kit_draws_a_tone_with_its_template() {
+        let t = toned("tones-kit");
+        t.edit(
+            "kit/kit.yaml",
+            "    template: '<p class=\"k-status\" role=\"status\">{text}</p>'",
+            "    template: '<p class=\"k-status k-{tone}\" role=\"status\">{text}</p>'",
+        );
+        t.edit(
+            "kit/kit.yaml",
+            "    template: '<h2 class=\"k-heading\">{text}</h2>'",
+            "    template: '<h2 class=\"k-heading k-{tone}\">{text}</h2>'",
+        );
+        t.edit("kit/kit.yaml", "components:\n", "tones: { success: ok, default: plain }\ncomponents:\n");
+        let g = graph::load(&format!("{}/edit", t.0)).expect("the graph loads");
+        let kit = resolve_kit(&g.dir, g.ui().kit(), None).expect("its kit loads");
+        let mut warnings: Vec<String> = Vec::new();
+        let page = render_screens(
+            &g,
+            &mut |m| {
+                if !warnings.iter().any(|w| w == m) {
+                    warnings.push(m.to_string());
+                }
+            },
+            kit.as_ref(),
+        );
+        assert!(page.contains("<div class=\"wf-item\" data-node=\"savedStatus\"><p class=\"k-status k-ok\" role=\"status\">The note is saved</p>"), "{page}");
+        assert!(page.contains("<p class=\"k-status k-plain\" role=\"status\">Saving"));
+        assert!(!page.contains("wf-tone-"));
+        // the title's map takes warning, which the kit's tones lack: found though the page draws it in none
+        assert_eq!(warnings, ["kit example: Heading has no entry for tone warning (node title); drawn as plain"]);
+        let mut stage_warnings = Vec::new();
+        let mut o = Object::new();
+        o.insert("pinned", Value::Bool(false));
+        let stage = render_stage_screen(
+            &g,
+            "editing",
+            &[],
+            &mut |m| stage_warnings.push(m.to_string()),
+            kit.as_ref(),
+            Some(&o),
+        );
+        assert!(stage.contains("<h2 class=\"k-heading k-plain\">"));
+        assert_eq!(stage_warnings, warnings);
+    }
+
+    #[test]
+    fn a_tone_that_cannot_be_read_keeps_the_graph_from_loading() {
+        let t = NotesCopy::new("tone-load");
+        t.edit(
+            "edit/ui.yaml",
+            "    text: { key: Edit.saved }\n",
+            "    text: { key: Edit.saved }\n    tone: { danger: \"late ==\" }\n",
+        );
+        let err = graph::load(&format!("{}/edit", t.0)).expect_err("refused");
+        assert_eq!(err.message, "ui node savedStatus: tone danger: unexpected end in: late ==");
+        assert_eq!(
+            err.place.and_then(|p| p.path),
+            Some(vec!["nodes".into(), "savedStatus".into(), "tone".into(), "danger".into()])
+        );
+        let t = NotesCopy::new("tone-names");
+        t.edit(
+            "edit/ui.yaml",
+            "    text: { key: Edit.saved }\n",
+            "    text: { key: Edit.saved }\n    tone: { danger: late }\n",
+        );
+        let err = graph::load(&format!("{}/edit", t.0)).expect_err("refused");
+        assert_eq!(
+            err.message,
+            "ui node savedStatus: tone danger: late names late, which is not a variable or a guard of the flow"
+        );
+        // the example has no tone: its page adds nothing for one
+        assert!(!uses_tone(&graph::load(&format!("{}/edit", notes())).expect("loads")));
     }
 }

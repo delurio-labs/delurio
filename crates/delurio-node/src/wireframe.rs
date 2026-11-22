@@ -1,10 +1,10 @@
 //! wireframe.js: a flow's screens as wireframes (wireframe.ts).
 
-use delurio_core::wireframe::{node_texts, render_check_screens, render_screens, render_stage_screen};
+use delurio_core::wireframe::{TONE_CSS, node_texts, render_check_screens, render_screens, render_stage_screen};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
-use crate::conv::{json, warner};
+use crate::conv::{json, parse_opt, warner};
 use crate::graph::NativeGraph;
 use crate::kit::NativeKit;
 
@@ -15,7 +15,7 @@ pub fn render_screens_of(g: &NativeGraph, warn: Function<String, ()>, kit: Optio
     render_screens(&g.g, &mut warn, kit.map(|k| &k.kit))
 }
 
-/// `renderStageScreen(g, state, reveal, warn, kit)`
+/// `renderStageScreen(g, state, reveal, warn, kit, ctx)`: `ctx` as JSON, or undefined
 #[napi(js_name = "renderStageScreen")]
 pub fn render_stage_screen_of(
     g: &NativeGraph,
@@ -23,10 +23,19 @@ pub fn render_stage_screen_of(
     reveal: Vec<String>,
     warn: Function<String, ()>,
     kit: Option<&NativeKit>,
-) -> String {
+    ctx: Option<String>,
+) -> Result<String> {
+    let ctx = parse_opt(ctx)?;
     let mut warn = warner(&warn);
     let reveal: Vec<&str> = reveal.iter().map(String::as_str).collect();
-    render_stage_screen(&g.g, &state, &reveal, &mut warn, kit.map(|k| &k.kit))
+    let ctx = ctx.as_ref().and_then(|c| c.as_object());
+    Ok(render_stage_screen(&g.g, &state, &reveal, &mut warn, kit.map(|k| &k.kit), ctx))
+}
+
+/// `TONE_CSS`: the styles of a tone the fixed components draw
+#[napi(js_name = "toneCss")]
+pub fn tone_css() -> &'static str {
+    TONE_CSS
 }
 
 /// `renderCheckScreens(g, kit, warn)`, as JSON
