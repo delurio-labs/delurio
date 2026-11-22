@@ -16,7 +16,7 @@ use serde::{Serialize, Serializer};
 
 use crate::error::{Error, ErrorKind, ErrorPlace, Result};
 use crate::expr::{Expr, Op, parse_expr};
-use crate::graph::{Flow, Transition, alternatives, transition_path};
+use crate::graph::{Flow, Transition, alternatives, row_field, transition_path};
 use crate::js::{self, Object, Value};
 
 /// `new ModelError(message, place)`: a flow that cannot be explored; `place` says where in flow.yaml, when it is known
@@ -501,19 +501,27 @@ impl Model {
             });
         }
         // every effect, made ready: a name that is not a variable sets nothing a context holds, and a havoc of one is
-        // left out (the TS crashed on it)
+        // left out (the TS crashed on it). A value that reads the pressed row (`row.<field>`, SPEC.md §4) is not known
+        // here: the flow alone does not say which row is pressed, and the sample rows only illustrate the screens, so
+        // the variable takes any value of its domain, as a havoc lets it
         let mut effects = HashMap::new();
         for (name, effect) in f.effects() {
             let mut set = Vec::new();
+            let mut from_row = Vec::new();
             for (k, v) in effect.set().into_iter().flat_map(|o| o.iter()) {
                 if let Some(&i) = at.get(k.as_str()) {
-                    set.push((i, intern(&mut tables, i, Scalar::of(v))));
+                    if v.as_str().and_then(row_field).is_some() {
+                        from_row.push(i);
+                    } else {
+                        set.push((i, intern(&mut tables, i, Scalar::of(v))));
+                    }
                 }
             }
             let havoc = effect
                 .havoc()
                 .into_iter()
                 .filter_map(|h| vars.iter().position(|v| v == h))
+                .chain(from_row)
                 .map(|i| (i, domain_codes[i].clone()))
                 .collect();
             effects.insert(name.to_string(), Rc::new(Ready { set, havoc }));
@@ -2245,6 +2253,23 @@ mod tests {
             ]
         );
         assert_eq!(cover_ids(&m), ["079b5e214cd613 a|GO|0"]);
+    }
+
+    #[test]
+    fn a_value_read_from_the_pressed_row_is_any_value_of_its_variable() {
+        // `row.id` is not known from the flow: the variable takes each of its values, as a havoc lets it, after the
+        // values the effect sets
+        let m = model(
+            r#"{"context":{"answer":{"values":["none","a","b"],"initial":"none"},"n":{"values":[1,2],"initial":1}},
+            "effects":{"choose":{"set":{"answer":"row.id","n":2}}},"initial":"q",
+            "states":{"q":{"on":{"CHOOSE":{"target":"q","effect":["choose"]}}}}}"#,
+        );
+        let steps = m.steps("q", &m.initials()[0]).expect("the steps");
+        let got: Vec<String> = steps
+            .iter()
+            .map(|s| js::stringify(&Value::Array(m.context(&s.ctx).iter().map(Scalar::to_value).collect())))
+            .collect();
+        assert_eq!(got, [r#"["none",2]"#, r#"["a",2]"#, r#"["b",2]"#]);
     }
 
     #[test]
