@@ -336,6 +336,11 @@ impl<'a> Ui<'a> {
     pub fn sample(&self, name: &str) -> Option<&'a Value> {
         self.samples().and_then(|o| o.get(name))
     }
+    /// the rows the samples give a repeat's data (`samples.<data path>`, a list of maps of fields, SPEC.md §4): None
+    /// when they give none, or an empty list, and the node is drawn once
+    pub fn rows(&self, data: &str) -> Option<&'a [Value]> {
+        self.sample(data).and_then(Value::as_array).filter(|rows| !rows.is_empty()).map(Vec::as_slice)
+    }
     pub fn nodes_object(&self) -> Option<&'a Object> {
         self.0.get_object("nodes")
     }
@@ -538,6 +543,11 @@ pub const OPENER: &str = "opener";
 
 /// the roles whose node may say whether it is `checked` (WAI-ARIA 1.2: the roles that support aria-checked)
 pub const CHECKABLE: [&str; 6] = ["checkbox", "menuitemcheckbox", "menuitemradio", "option", "radio", "switch"];
+
+/// the field a name reads of the row a repeat node is drawn for, or pressed with: `row.<field>` (SPEC.md §4)
+pub fn row_field(name: &str) -> Option<&str> {
+    name.strip_prefix("row.").filter(|f| !f.is_empty() && !f.contains('.'))
+}
 
 /// a page node drawn over another page, whose closing `returnsFocus` may give the focus back (SPEC.md §4)
 pub fn is_dialog(n: Option<UiNode<'_>>) -> bool {
@@ -876,16 +886,23 @@ pub fn load_with(dir: &str, read: &dyn Fn(&str) -> Result<String>, exists: &dyn 
                 }
             }
         }
-        // `checked` is an expression over the context (SPEC.md §3), read when the node is shown
+        // `checked` is an expression over the context (SPEC.md §3), read when the node is shown; a repeat node's may
+        // read the row it is drawn for (`row.<field>`)
         if let Some(Value::String(checked)) = node.checked() {
             let place = Some(ErrorPlace::at("ui.yaml", &["nodes", id, "checked"]));
+            let repeat = node.repeat().is_some();
             match names_outside(fl, checked) {
                 Err(message) => return Err(Error::graph(format!("ui node {id}: checked: {message}"), place)),
                 Ok(outside) => {
-                    if let Some(n) = outside.first() {
+                    if let Some(n) = outside.iter().find(|n| !repeat || row_field(n).is_none()) {
+                        let row = if row_field(n).is_some() {
+                            ": a node reads the row it is drawn for (row.<field>) only when it has repeat"
+                        } else {
+                            ""
+                        };
                         return Err(Error::graph(
                             format!(
-                                "ui node {id}: checked: {checked} names {n}, which is not a variable or a guard of the flow"
+                                "ui node {id}: checked: {checked} names {n}, which is not a variable or a guard of the flow{row}"
                             ),
                             place,
                         ));

@@ -798,17 +798,19 @@ pub fn flow_structure(b: &FlowSide, a: &FlowSide) -> Result<FlowStructure> {
     let ub = &b.g.ui;
     let ua = &a.g.ui;
     let (smb, sma) = (ub.get("samples"), ua.get("samples"));
+    // a sample is a value, or a repeat's rows (SPEC.md §4), compared and written as their JSON
+    let sample = |v: &Value| if v.is_collection() { js::stringify(v) } else { quote(&js::to_js_string(v)) };
     for k in union(smb, sma) {
         let p = member(smb, &k);
         let q = member(sma, &k);
-        if strict_eq(p, q) {
+        if strict_eq(p, q) || (p.is_some_and(Value::is_collection) && same(p, q)) {
             continue;
         }
         let say = match q {
             None => format!("The sample {k} is gone."),
             Some(q) => {
-                let was = p.map_or_else(String::new, |p| format!(" (was {})", quote(&js::to_js_string(p))));
-                format!("The sample {k} is now {}{was}.", quote(&js::to_js_string(q)))
+                let was = p.map_or_else(String::new, |p| format!(" (was {})", sample(p)));
+                format!("The sample {k} is now {}{was}.", sample(q))
             }
         };
         out.push(Change::new("screens", "ui samples", op_of(p, q), Some(say)).field(k).before(p).after(q));
@@ -1379,4 +1381,28 @@ pub fn flow_same_behaviour(r: &FlowRun<'_>) -> String {
     .collect();
     let lead = if parts.is_empty() { String::new() } else { format!("{}, ", join_words(&parts)) };
     format!("Nothing: {lead}in the same {} situations.", r.ex.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::wireframe::tests::exam;
+
+    // a repeat's sample rows are compared as their JSON, and said so (SPEC.md §4)
+    #[test]
+    fn sample_rows_are_compared_and_said_as_their_json() {
+        let side = |g: Graph| FlowSide { g, domain: None };
+        let said = |b: Graph, a: Graph| -> Vec<String> {
+            let s = flow_structure(&side(b), &side(a)).expect("compared");
+            s.changes.into_iter().filter(|c| c.key == "ui samples").filter_map(|c| c.say).collect()
+        };
+        assert_eq!(said(exam("ListItem", &|u| u), exam("ListItem", &|u| u)), Vec::<String>::new());
+        let six = |u: String| u.replace("text: Six", "text: Seven");
+        assert_eq!(
+            said(exam("ListItem", &|u| u), exam("ListItem", &six)),
+            [
+                r#"The sample question.options is now [{"id":"a","text":"Eight"},{"id":"b","text":"Seven"}] (was [{"id":"a","text":"Eight"},{"id":"b","text":"Six"}])."#
+            ]
+        );
+    }
 }
