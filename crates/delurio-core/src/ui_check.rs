@@ -382,7 +382,8 @@ fn holds<F: Fn(&str, &[u16]) -> crate::error::Result<bool>>(
 ///
 /// The exploration is `check`'s own: a flow whose exploration fails does not load, and none of its rules is read; one
 /// that has no situation (no start) reaches no state, and, as for its assertions, nothing is found. A `when` or a
-/// `disabledWhen` that cannot be read in a situation decides nothing, and the pair is passed over.
+/// `disabledWhen` that does not parse keeps the graph from loading; one that throws in a situation decides nothing, and
+/// the pair is passed over.
 pub fn check_events(g: &Graph, m: &Model, ex: &Exploration) -> Vec<Unhandled> {
     let mut pending: Vec<Pending<'_>> = Vec::new();
     for (node, n) in g.ui().nodes() {
@@ -596,8 +597,6 @@ states:
         assert_eq!(found[0].reached.as_ref().map(|r| r.events.clone()), Some(vec!["SAVE".to_string()]));
         // both: shown when ready, disabled when busy, which saving always is
         assert!(states_for("emits: SAVE, in: [editing, saving], when: ready, disabledWhen: busy").is_empty());
-        // a when that cannot be read decides nothing
-        assert!(states_for("emits: SAVE, in: [editing, saving], when: \"ready ==\"").is_empty());
     }
 
     #[test]
