@@ -910,6 +910,24 @@ pub fn load_with(dir: &str, read: &dyn Fn(&str) -> Result<String>, exists: &dyn 
                 }
             }
         }
+        // `when` is an expression over the context too (SPEC.md §3, §4), read where the node is shown: one that does not
+        // parse, or names what is not a variable, a guard or `state`, keeps the graph from loading, as `checked` does
+        if let Some(Value::String(when)) = node.get("when") {
+            let place = Some(ErrorPlace::at("ui.yaml", &["nodes", id, "when"]));
+            match names_outside(fl, when) {
+                Err(message) => return Err(Error::graph(format!("ui node {id}: when: {message}"), place)),
+                Ok(outside) => {
+                    if let Some(n) = outside.first() {
+                        return Err(Error::graph(
+                            format!(
+                                "ui node {id}: when: {when} names {n}, which is not a variable or a guard of the flow"
+                            ),
+                            place,
+                        ));
+                    }
+                }
+            }
+        }
     }
     for s in ui_view.focus().into_iter().flat_map(|o| o.keys()) {
         if !fl.has_state(s) {
@@ -981,6 +999,37 @@ pub fn is_load_error(e: &Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// a flow of two states, and one node, `button`, given as the keys of its map in ui.yaml
+    fn load_node(node: &str) -> Result<Graph> {
+        let flow = "schema: delurio-graph/0\nkind: flow\nid: t\ninitial: editing\ncontext:\n  ready: { values: [false, true], initial: any }\nguards:\n  canSave: ready\nstates:\n  editing: { on: { SAVE: saved } }\n  saved: { type: final }\n";
+        let ui = format!(
+            "schema: delurio-graph/0\nkind: ui\nid: t\nflow: t\ncatalog: catalog/en.json\nnodes:\n  button: {{ type: action, role: button, emits: SAVE, in: [editing], {node} }}\n"
+        );
+        let read = |file: &str| -> Result<String> {
+            match file {
+                "flow.yaml" => Ok(flow.to_string()),
+                "ui.yaml" => Ok(ui.clone()),
+                "catalog/en.json" => Ok("{}".to_string()),
+                _ => Err(Error::graph(format!("no {file}"), None)),
+            }
+        };
+        load_with("t", &read, &|file| matches!(file, "flow.yaml" | "ui.yaml" | "catalog/en.json"))
+    }
+
+    #[test]
+    fn a_when_that_cannot_be_read_keeps_the_graph_from_loading() {
+        // as a checked or a disabledWhen that cannot be read does (SPEC.md §4), at the node's when
+        let at = Some(vec!["nodes".to_string(), "button".to_string(), "when".to_string()]);
+        let e = load_node("when: \"ready ==\"").expect_err("it does not load");
+        assert!(e.message.starts_with("ui node button: when: "), "{}", e.message);
+        assert_eq!(e.place.as_ref().and_then(|p| p.path.clone()), at);
+        let e = load_node("when: redy").expect_err("it does not load");
+        assert_eq!(e.message, "ui node button: when: redy names redy, which is not a variable or a guard of the flow");
+        assert_eq!(e.place.as_ref().and_then(|p| p.path.clone()), at);
+        // a variable, a guard and `state` are read
+        assert!(load_node("when: \"ready and canSave and state == 'editing'\"").is_ok());
+    }
 
     #[test]
     fn humanized_names() {
