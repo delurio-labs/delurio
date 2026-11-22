@@ -250,6 +250,37 @@ test('drawWith takes a fill whose keys are set to undefined', () => {
   assert.match(kit.kitStageScript(k), /--kit-zoom/);
 });
 
+test('a tone is drawn by the context a stage is given, and a kit carries its fonts (SPEC.md §4, §8)', () => {
+  const dir = copy('examples/notes');
+  edit(join(dir, 'edit/ui.yaml'), '    text: { key: Edit.saved }\n', '    text: { key: Edit.saved }\n    tone: { danger: "not pinned", success: pinned }\n');
+  edit(join(dir, 'kit/kit.yaml'), "    template: '<p class=\"k-status\" role=\"status\">{text}</p>'", "    template: '<p class=\"k-status k-{tone}\" role=\"status\">{text}</p>'\n    tones: { danger: alarm, success: fine }");
+  writeFileSync(join(dir, 'kit/brand.woff2'), 'wOF2font');
+  edit(join(dir, 'kit/kit.yaml'), 'components:\n', 'fonts:\n  - { family: Brand Sans, file: brand.woff2, style: italic }\ncomponents:\n');
+  const g = graph.load(join(dir, 'edit'));
+  assert.deepEqual(g.ui.nodes.savedStatus.tone, { danger: 'not pinned', success: 'pinned' });
+  const k = kit.resolveKit(g.dir, g.ui.kit, undefined);
+  assert.deepEqual(k.components.Status.tones, { danger: 'alarm', success: 'fine' });
+  assert.equal(Object.hasOwn(k.components.Text, 'tones'), false, 'a component without tones has no key for them');
+  assert.deepEqual(k.fonts, [{ family: 'Brand Sans', file: 'brand.woff2', style: 'italic', src: 'data:font/woff2;base64,d09GMmZvbnQ=' }]);
+  assert.deepEqual(kit.kitFamilies(k), ['Brand Sans']);
+  assert.deepEqual(kit.kitFamilies({ ...k }), ['Brand Sans'], 'a copy of a kit carries its fonts');
+  assert.equal(kit.kitCss({ ...k }, 'stage').match(/@font-face/g).length, 1);
+  assert.equal(kit.kitCss({ ...k, fonts: [{ family: 'X', file: 'x', src: 'https://example.com/x.woff2' }] }, 'page').includes('@font-face'), false);
+  const status = (ctx) => /<p class="k-status k-(\w*)" role="status">The note is saved/.exec(wireframe.renderStageScreen(g, 'saved', [], () => undefined, k, ctx))?.[1];
+  assert.equal(status({ pinned: false }), 'alarm');
+  assert.equal(status({ pinned: true }), 'fine');
+  assert.equal(status(null), '');
+  assert.equal(status(), '');
+  // the fixed components, and the styles of a tone a stage adds
+  assert.match(wireframe.renderStageScreen(g, 'saved', [], () => undefined, null, { pinned: false }), /class="wf-item wf-tone-danger" data-node="savedStatus"/);
+  assert.match(wireframe.TONE_CSS, /\.wf-tone-danger \{ --wf-tone: var\(--bad, #b91c1c\); \}/);
+  const toned = kit.drawWith(k, 'Status', { id: 's', text: 'Hi', name: 'Hi', tone: 'success', disabled: false, named: false, conditional: false, checked: false }, () => undefined);
+  assert.equal(toned, '<p class="k-status k-fine" role="status">Hi</p>');
+  const said = [];
+  kit.drawWith(k, 'Status', { id: 's', text: 'Hi', name: 'Hi', tone: 'info', disabled: false, named: false, conditional: false, checked: false }, (m) => said.push(m));
+  assert.deepEqual(said, ['kit example: Status has no entry for tone info (node s); drawn as no tone']);
+});
+
 test('the navigation rules take the views and goal checks they gave back', () => {
   const { g, warnings } = nav.loadNav(shop);
   assert.ok(Array.isArray(warnings));
