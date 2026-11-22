@@ -98,7 +98,7 @@ A kit (SPEC.md §8) says how the components of `ui.yaml` look in one product, so
 3. Put your design tokens in `tokens.json`, in the W3C Design Tokens format (2025.10): groups nest, a token has `$value`, `$type` is inherited from its group, and `"{color.accent}"` is an alias. Each token becomes a CSS custom property named by its path: `color.accent` is `--color-accent`, `font.size-body` is `--font-size-body`. `dark.json` gives the same names other values for a dark page; a name that `tokens.json` lacks is refused.
 4. Write the CSS in `kit.css`, from the tokens. It is scoped to the drawn screen: `&` is the screen itself, a rule never reaches the rest of the page, `:root`, `html` and `body` are refused as they never match there, and only `@media`, `@supports` and `@container` may wrap rules. Nothing is fetched: `url()` takes only `data:` addresses.
 5. Give each component its screens use a `template`, one HTML element or a few, filled per node:
-   - slots: `{text}`, the node's visible text; `{name}`, its accessible name; `{id}`, the node's id; `{intent}`, the word `intents` gives its intent (`confirm`, `dismiss`, `secondary`, and `default` for a node with none); `{children}`, the items of a `List`;
+   - slots: `{text}`, the node's visible text; `{name}`, its accessible name; `{id}`, the node's id; `{intent}`, the word `intents` gives its intent (`confirm`, `dismiss`, `secondary`, and `default` for a node with none); `{children}`, the items of a `List`; `{tone}`, the word `tones` gives the node's tone (`neutral`, `info`, `success`, `warning`, `danger`, and `default` for a node with none), from the component's `tones` or else the kit's own, at the top of `kit.yaml`;
    - flags, each a section that opens and closes in the same place: `{?disabled}..{/disabled}` where the node is disabled, `{!disabled}..{/disabled}` where it is not, `{?named}` where the graph gives an accessible name other than the visible text (so `aria-label="{name}"` goes inside it), and `{?conditional}` where the node shows only when a flag holds;
    - `roles`: a template of its own for a node whose ARIA role differs, such as a `Button` drawn as a link or a `ListItem` that is a checkbox or a radio;
    - a `List`'s and a `ListItem`'s template is one element, which the page marks with the node it draws.
@@ -106,6 +106,16 @@ A kit (SPEC.md §8) says how the components of `ui.yaml` look in one product, so
    Templates take no `<script>`, `<style>`, `<iframe>`, `<form>` or event handler, and no address other than one inside the page (`#…`) or, for `src`, a `data:image`. Write the roles, names and disabled states the graph expects: a `<button>` for a button, a `<label>` around a field, `aria-label="{name}"` where it is named.
 
 `Page` has no template: it is the screen itself, styled with `&`, and a dialog is a page node whose role is `dialog`, drawn as its screen. A component a screen uses that the kit has no template for, or an intent with no word in `intents`, is drawn with the fixed component and reported (`kit-uncovered`), which fails `--strict`. A kit that cannot be read, such as a template that is not well-formed or a token that refers to one no file defines, keeps every graph that names it from loading.
+
+A kit fetches nothing, so the screens are drawn in the fonts its CSS names only where the machine that draws them has them installed, unless the kit carries them. List them in `fonts`, each a file in the kit's folder whose licence allows it to be embedded (the SIL Open Font License does), and the page and the video embed them:
+
+```yaml
+fonts:
+  - { family: Instrument Sans, file: fonts/InstrumentSans.woff2, weight: "400 700" }
+  - { family: Literata, file: fonts/Literata.woff2, weight: "200 900" }
+```
+
+A file is a woff2, woff, ttf or otf file of at most 2 MiB, and a kit's files are at most 8 MiB together. One that is not there, not in the kit's folder, or not a font is an error of `check` (`kit-font`); a family the kit's CSS draws in first that it does not carry is a warning (`kit-font-unembedded`), SPEC.md §8.
 
 ## Write a graph in an editor
 
