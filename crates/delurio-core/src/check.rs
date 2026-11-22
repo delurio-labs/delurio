@@ -30,7 +30,7 @@ use crate::schemas::{SchemaKind, schema_kind_of, validate_file};
 use crate::starts::check_starts;
 use crate::story::steps_by_events;
 use crate::tutorial_check::check_tutorial;
-use crate::ui_check::check_ui;
+use crate::ui_check::{EVENT_UNHANDLED, check_events, check_ui};
 use crate::wireframe::render_screens;
 use crate::yaml::{key_at, parsing_once, read_yaml};
 
@@ -147,6 +147,7 @@ const RULES: &[Rule] = &[
     rule("citation-unresolved", "Words that cite the code name a file that is not there, or a line past its end (SPEC.md §9)", W),
     rule("focus-not-shown", "A focus or a returnsFocus gives the focus to a node that is not shown there (SPEC.md §4)", E),
     rule("returns-focus-not-dialog", "A returnsFocus does not start at a dialog (SPEC.md §4)", E),
+    rule("event-unhandled", "A node sends an event that a state showing it enabled does not handle (SPEC.md §4)", E),
     rule("role-missing", "A field or an action gives no role, by which a screen reader finds it (SPEC.md §4)", W),
     rule("state-no-way-out", "A state that is not an exit has no way out (SPEC.md §2)", E),
     rule("state-unreachable", "No situation the flow starts in reaches the state (SPEC.md §2)", E),
@@ -436,6 +437,19 @@ fn check_locales(g: &mut Graph, dir: &str) -> Vec<CheckResult> {
     out
 }
 
+// the way to a situation as notes at a place: its start, each event sent, and the state it reaches
+fn path_notes(file: &str, at: At, start: &Object, events: &[String], state: &str) -> Vec<Note> {
+    let start = start.iter().map(|(k, x)| format!("{k} = {}", js::to_js_string(x))).collect::<Vec<_>>().join(", ");
+    let note = |message: String| Note { file: rel(file), line: at.line, column: at.column, message };
+    let start = if start.is_empty() { "the initial context".to_string() } else { start };
+    let mut notes = vec![note(format!("start: {start}"))];
+    for (i, e) in events.iter().enumerate() {
+        notes.push(note(format!("step {}: {e}", i + 1)));
+    }
+    notes.push(note(format!("reached: {state}")));
+    notes
+}
+
 // the states that some transition leads to, whatever its guard
 fn targeted(g: &Graph) -> HashSet<&str> {
     let mut out = HashSet::new();
@@ -503,15 +517,7 @@ fn check_flow(dir: &str, domains: &mut DomainsSeen) -> Result<Vec<CheckResult>> 
     for a in check_assertions(&model, &ex)? {
         let Some(v) = &a.violation else { continue };
         let at = place_of(&file, Some(&format!("id: {}", a.id)));
-        let start =
-            v.start.iter().map(|(k, x)| format!("{k} = {}", js::to_js_string(x))).collect::<Vec<_>>().join(", ");
-        let note = |message: String| Note { file: rel(&file), line: at.line, column: at.column, message };
-        let start = if start.is_empty() { "the initial context".to_string() } else { start };
-        let mut notes = vec![note(format!("start: {start}"))];
-        for (i, e) in v.events.iter().enumerate() {
-            notes.push(note(format!("step {}: {e}", i + 1)));
-        }
-        notes.push(note(format!("reached: {}", v.state)));
+        let notes = path_notes(&file, at, &v.start, &v.events, &v.state);
         let said = a.say.as_ref().unwrap_or(&a.never);
         out.push(result_with(
             "assertion-violated",
@@ -534,6 +540,13 @@ fn check_flow(dir: &str, domains: &mut DomainsSeen) -> Result<Vec<CheckResult>> 
         let text = read_text(&ui).unwrap_or_default();
         for p in check_ui(&g, &mut warn) {
             out.push(result(p.rule, &ui, key_at(&text, &p.path), p.message, &id, p.element));
+        }
+        // a node's event is handled in every situation the exploration reached that shows the node enabled (SPEC.md §4)
+        for u in check_events(&g, &model, &ex) {
+            let at = key_at(&text, &u.path);
+            let notes =
+                u.reached.as_ref().map_or_else(Vec::new, |p| path_notes(&ui, at, &p.start, &p.events, &u.state));
+            out.push(result_with(EVENT_UNHANDLED, &ui, at, u.message, &id, u.element, notes));
         }
     }
     out.extend(check_locales(&mut g, dir));
@@ -1015,7 +1028,7 @@ fn sarif(results: &[CheckResult], exit_code: i32, said: &[String]) -> Value {
                 ])]),
             );
             o.insert("fingerprints", obj([("delurio/v1", fingerprint(r).into())]));
-            if !r.notes.is_empty() && r.rule == "assertion-violated" {
+            if !r.notes.is_empty() && (r.rule == "assertion-violated" || r.rule == EVENT_UNHANDLED) {
                 let locations = r
                     .notes
                     .iter()
