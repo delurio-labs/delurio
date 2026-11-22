@@ -113,6 +113,23 @@ test('A field with no role is a warning, and the kit check\'s expectation says i
   assert.ok(expected.filter((e) => e.id !== 'bodyField').every((e) => e.roleGiven === true));
 });
 
+test('A native control\'s expectation says its kind, which a replay and kit check find it by (renderCheckScreens)', () => {
+  const root = mkdtempSync(join(tmpdir(), 'delurio-native-'));
+  cpSync('examples/notes', root, { recursive: true });
+  const ui = join(root, 'edit/ui.yaml');
+  // bodyField becomes a date input: `native: date` in place of its role
+  const lines = readFileSync(ui, 'utf8').split('\n');
+  const from = lines.indexOf('  bodyField:');
+  const at = lines.indexOf('    role: textbox', from);
+  assert.ok(from >= 0 && at > from);
+  lines.splice(at, 1, '    native: date');
+  writeFileSync(ui, lines.join('\n'));
+  const { expected } = renderCheckScreens(load(join(root, 'edit')), null, () => {});
+  const body = expected.filter((e) => e.id === 'bodyField');
+  assert.ok(body.length > 0 && body.every((e) => e.native === 'date' && e.roleGiven === false));
+  assert.ok(expected.filter((e) => e.id !== 'bodyField').every((e) => !('native' in e)));
+});
+
 test('A recording masks the nodes that hold what the binding\'s mask names: maskedNodes', async () => {
   const { maskedNodes } = await import('@delurio/cli/graph');
   const dir = mkdtempSync(join(tmpdir(), 'holds-'));
