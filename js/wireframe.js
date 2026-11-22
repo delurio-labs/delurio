@@ -8,9 +8,11 @@ export function renderScreens(g, warn, kit = null) {
 }
 
 // One state's screen for the tutorial stage. Nodes that depend on a flag (`when`) appear only when named in `reveal`.
-export function renderStageScreen(g, state, reveal, warn, kit = null) {
+// `ctx`, the situation's context (each variable of the flow and its value), draws `checked` as it reads there.
+export function renderStageScreen(g, state, reveal, warn, kit = null, ctx = null) {
   const t = new Trap();
-  return call(t, () => native.renderStageScreen(nativeGraph(g), String(state), [...(reveal ?? [])].map(String), t.warner(warn), nativeKit(kit)));
+  const c = ctx === null || ctx === undefined ? undefined : JSON.stringify(ctx);
+  return call(t, () => native.renderStageScreen(nativeGraph(g), String(state), [...(reveal ?? [])].map(String), t.warner(warn), nativeKit(kit), c));
 }
 
 // For `kit check`: every screen with all its nodes (flags revealed, no annotations), and what each node must expose.

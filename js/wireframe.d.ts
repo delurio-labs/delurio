@@ -1,8 +1,13 @@
-import type { Graph } from './graph.js';
+import type { Graph, Scalar } from './graph.js';
 import type { Kit } from './kit.js';
 type Warn = (message: string) => void;
 export declare function renderScreens(g: Graph, warn: Warn, kit?: Kit | null): string;
-export declare function renderStageScreen(g: Graph, state: string, reveal: string[], warn: Warn, kit?: Kit | null): string;
+/**
+ * One state's screen for the tutorial stage. `ctx`, the context of the situation it shows (each variable of the flow
+ * and its value), draws each node's `checked` as it reads there, for each row it is drawn for; without it only
+ * `checked: true` is drawn.
+ */
+export declare function renderStageScreen(g: Graph, state: string, reveal: string[], warn: Warn, kit?: Kit | null, ctx?: Record<string, Scalar | null> | null): string;
 export interface Expectation {
     state: string;
     id: string;
