@@ -11,7 +11,8 @@ export function renderScreens(g, warn, kit = null) {
 }
 
 // One state's screen for the tutorial stage. Nodes that depend on a flag (`when`) appear only when named in `reveal`.
-// `ctx`, the context the screen is drawn in, picks each node's tone from its map; without it only a fixed tone is drawn.
+// `ctx`, the situation's context (each variable of the flow and its value), picks each node's tone from its map and draws
+// `checked` as it reads there; without it only a fixed tone and `checked: true` are drawn.
 export function renderStageScreen(g, state, reveal, warn, kit = null, ctx = null) {
   const t = new Trap();
   const c = ctx === null || ctx === undefined ? undefined : json(ctx);
