@@ -181,7 +181,7 @@
       "properties": {
         "set": {
           "type": "object",
-          "description": "Variables and the values they are given.",
+          "description": "Variables and the values they are given. A value written `row.<field>` is the field of the row pressed, on a transition whose event a repeat node sends (SPEC.md §4): the checker lets the variable take any of its values, as `havoc` does.",
           "propertyNames": { "$ref": "#/$defs/identifier" },
           "additionalProperties": { "$ref": "#/$defs/scalar" }
         },
