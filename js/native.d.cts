@@ -162,6 +162,9 @@ export declare function kindOf(g: NativeGraph, name: string): string
 /** `kitCss(kit, target)` */
 export declare function kitCss(kit: NativeKit, target: string): string
 
+/** `kitFamilies(kit)` */
+export declare function kitFamilies(kit: NativeKit): Array<string>
+
 /** `kitStageScript(kit)` */
 export declare function kitStageScript(kit: NativeKit): string
 
@@ -262,8 +265,8 @@ export declare function renderCheckScreens(g: NativeGraph, kit: NativeKit | unde
 /** `renderScreens(g, warn, kit)` */
 export declare function renderScreens(g: NativeGraph, warn: (arg: string) => void, kit?: NativeKit | undefined | null): string
 
-/** `renderStageScreen(g, state, reveal, warn, kit)` */
-export declare function renderStageScreen(g: NativeGraph, state: string, reveal: Array<string>, warn: (arg: string) => void, kit?: NativeKit | undefined | null): string
+/** `renderStageScreen(g, state, reveal, warn, kit, ctx)`: `ctx` as JSON, or undefined */
+export declare function renderStageScreen(g: NativeGraph, state: string, reveal: Array<string>, warn: (arg: string) => void, kit?: NativeKit | undefined | null, ctx?: string | undefined | null): string
 
 /** `resolveKit(graphDir, uiKit, flagValue)` */
 export declare function resolveKit(graphDir: string, uiKit?: string | undefined | null, flagValue?: string | undefined | null): NativeKit | null
@@ -305,6 +308,9 @@ export declare function takeYamlWarnings(): string
 
 /** `titleOf(flow, state)` */
 export declare function titleOfState(flow: NativeValue, state: string): string
+
+/** `TONE_CSS`: the styles of a tone the fixed components draw */
+export declare function toneCss(): string
 
 /** `transitionPath(state, st, event, i)` */
 export declare function transitionPathOf(state: string, st: string, event: string | undefined | null, i: number): Array<string>

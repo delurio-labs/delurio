@@ -4,10 +4,13 @@ import { KitError, Trap, call, json, native, nativeKit, rememberKit, warnings } 
 
 export { KitError };
 
-// a kit as loadKit gave it: each component's `intents` is a key of its own, undefined when the kit gives none
+// a kit as loadKit gave it: each component's `intents` is a key of its own, undefined when the kit gives none, and
+// its `tones` one only when the kit gives them
 function kitOf(n) {
   const k = JSON.parse(n.json());
-  for (const [name, c] of Object.entries(k.components)) k.components[name] = { template: c.template, roles: c.roles, intents: c.intents };
+  for (const [name, c] of Object.entries(k.components)) {
+    k.components[name] = { template: c.template, roles: c.roles, intents: c.intents, ...(c.tones === undefined ? {} : { tones: c.tones }) };
+  }
   return rememberKit(k, n);
 }
 
@@ -51,4 +54,10 @@ export function kitCss(kit, target) {
 // Runs once in the video stage, before the first frame: the screens are drawn at the largest zoom at which every one fits.
 export function kitStageScript(kit) {
   return native.kitStageScript(nativeKit(kit));
+}
+
+// The families of the kit's own fonts (`fonts:`), each once, in the order of kit.yaml: what its screens should be
+// drawn in, so that a tool can ask the browser whether it drew them.
+export function kitFamilies(kit) {
+  return native.kitFamilies(nativeKit(kit));
 }
