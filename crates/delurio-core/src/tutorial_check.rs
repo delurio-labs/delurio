@@ -14,7 +14,7 @@ use serde::Serialize;
 
 use crate::edges::{NodeKind, kind_of};
 use crate::error::{Error, Result};
-use crate::graph::{Graph, given, shown_in};
+use crate::graph::{Graph, alternatives, given, row_field, shown_in};
 use crate::js::{self, Object, Value};
 use crate::model::{Ctx, Exploration, Model, Scalar, Step};
 use crate::yaml::read_yaml;
@@ -260,6 +260,11 @@ pub fn check_tutorial(g: &Graph, m: &Model, ex: &Exploration, text: &str) -> Res
                 }
             }
         }
+        if let Some(row) = s.get("row")
+            && let Some(message) = row_problem(g, s, row, diagram)
+        {
+            problem(&mut out, at(&["row"]), format!("{step}: {message}"));
+        }
         let listed = s.get("after").is_some_and(Value::is_array);
         for (j, e) in names(s.get("after")).into_iter().enumerate() {
             if !e.as_str().is_some_and(|e| events.contains(e)) {
@@ -290,6 +295,40 @@ pub fn check_tutorial(g: &Graph, m: &Model, ex: &Exploration, text: &str) -> Res
         Err(Fail::Stop(path, message)) => Ok(vec![TutorialProblem { path, line: None, column: None, message }]),
         Err(Fail::Error(e)) => Err(e),
     }
+}
+
+/// a step's `row`, the row of the pressed node's sample rows that the step presses (SPEC.md §7): what is wrong with it,
+/// when something is; the node itself is looked for with `press`
+fn row_problem(g: &Graph, s: &Value, row: &Value, diagram: bool) -> Option<String> {
+    let n = row.as_f64().filter(|n| n.fract() == 0.0 && *n >= 1.0);
+    let Some(n) = n else {
+        return Some(format!("row is the number of a row, from 1, not {}", shown(row)));
+    };
+    let Some(press) = s.get_str("press") else {
+        return Some("row says which row of the pressed node is pressed, and the step presses none".to_string());
+    };
+    let node = g.ui().node(press).filter(|_| !diagram)?;
+    let Some(repeat) = node.repeat() else {
+        return Some(format!("press {press} with row {n}, and {press} is not drawn once per item (repeat)"));
+    };
+    let Some(rows) = g.ui().rows(repeat) else {
+        return Some(format!(
+            "press {press} with row {n}, and the samples give no rows for its data, {repeat} (SPEC.md §4)"
+        ));
+    };
+    if n as usize > rows.len() {
+        let count = if rows.len() == 1 { "1 row".to_string() } else { format!("{} rows", rows.len()) };
+        return Some(format!("press {press} with row {n}, and the samples give {count} for {repeat}"));
+    }
+    None
+}
+
+/// a press with a row: the node pressed, the row's number from 1, the row's fields, and where the step gives it
+struct Pressed<'v> {
+    node: &'v str,
+    n: usize,
+    row: &'v Object,
+    at: Vec<String>,
 }
 
 struct Replay<'a> {
@@ -339,9 +378,43 @@ impl Replay<'_> {
     }
 
     fn take(&self, cur: &Cursor, event: &Value, path: &[String], step: &str) -> std::result::Result<Cursor, Fail> {
+        self.take_row(cur, event, None, path, step)
+    }
+
+    // a press with a row takes the case in which each variable its effects set from the row (`row.<field>`) has the
+    // row's value, as the row is what was pressed (SPEC.md §4, §7)
+    fn take_row(
+        &self,
+        cur: &Cursor,
+        event: &Value,
+        pressed: Option<&Pressed<'_>>,
+        path: &[String],
+        step: &str,
+    ) -> std::result::Result<Cursor, Fail> {
         let steps = self.m.steps(&cur.state, &cur.ctx)?;
-        let hit =
-            self.pick(steps.iter().filter(|x| x.event.as_deref().is_some_and(|e| Some(e) == event.as_str())).collect());
+        let mut cases: Vec<&Step> =
+            steps.iter().filter(|x| x.event.as_deref().is_some_and(|e| Some(e) == event.as_str())).collect();
+        if let (Some(p), Some(first)) = (pressed, cases.first()) {
+            for (var, value) in self.set_from_row(first, p, step)? {
+                cases.retain(|c| self.m.holds(&c.ctx, var, &value));
+                if cases.is_empty() {
+                    let name = &self.m.vars[var];
+                    let values = self.g.flow().context_var(name).map(|cv| cv.values()).unwrap_or_default();
+                    let not_one = !values.iter().any(|x| same_value_zero(x, &value));
+                    let why = if not_one {
+                        let all: Vec<String> = values.iter().map(|x| shown(x)).collect();
+                        format!("which is not a value of {name} ({})", all.join(", "))
+                    } else {
+                        "and no case of this press has it".to_string()
+                    };
+                    return stop(
+                        p.at.clone(),
+                        format!("{step}: row {} of {} gives {name} = {}, {why}", p.n, p.node, shown(&value)),
+                    );
+                }
+            }
+        }
+        let hit = self.pick(cases);
         let Some(hit) = hit else {
             return stop(
                 path.to_vec(),
@@ -349,6 +422,42 @@ impl Replay<'_> {
             );
         };
         self.settle(Cursor { state: hit.target.clone(), ctx: hit.ctx.clone() }, path, step)
+    }
+
+    /// the variables a step's effects set from the pressed row, each with the row's value: read from the transition
+    /// the step takes (`<state>|<event>|<alternative>`)
+    fn set_from_row(
+        &self,
+        taken: &Step,
+        p: &Pressed<'_>,
+        step: &str,
+    ) -> std::result::Result<Vec<(usize, Value)>, Fail> {
+        let flow = self.g.flow();
+        let mut parts = taken.taken.rsplitn(3, '|');
+        let (alt, event, state) = (parts.next(), parts.next(), parts.next());
+        let way = state
+            .and_then(|s| flow.state(s))
+            .and_then(|st| st.on_event(event.unwrap_or("")))
+            .and_then(|spec| alternatives(spec).get(alt.and_then(|a| a.parse::<usize>().ok())?).copied());
+        let mut out: Vec<(usize, Value)> = Vec::new();
+        for name in way.map(|w| w.effect()).unwrap_or_default() {
+            for (var, v) in flow.effect(name).and_then(|e| e.set()).into_iter().flat_map(|o| o.iter()) {
+                let Some(field) = v.as_str().and_then(row_field) else { continue };
+                let Some(i) = self.m.vars.iter().position(|x| x == var) else { continue };
+                let Some(value) = p.row.get(field) else {
+                    return stop(
+                        p.at.clone(),
+                        format!(
+                            "{step}: row {} of {} has no {field}, which the effect {name} reads (row.{field})",
+                            p.n, p.node
+                        ),
+                    );
+                };
+                out.retain(|(j, _)| *j != i);
+                out.push((i, value.clone()));
+            }
+        }
+        Ok(out)
     }
 
     // a step with no screen passes on its own along its normal way (a transition with no event, then DONE); one with no
@@ -532,7 +641,13 @@ impl Replay<'_> {
                 let Some(emits) = n.and_then(|n| n.get("emits")) else {
                     return stop(where_, format!("{step}: press {press}, which sends no event"));
                 };
-                cur = self.take(&cur, emits, &where_, &step)?;
+                // the row pressed, which the names were held to: the node's sample rows have it
+                let rows = n.and_then(|n| n.repeat()).and_then(|r| ui.rows(r));
+                let pressed = s.get("row").and_then(Value::as_f64).and_then(|r| {
+                    let row = rows?.get((r as usize).checked_sub(1)?)?.as_object()?;
+                    Some(Pressed { node: press, n: r as usize, row, at: path_with(&path, &["row"]) })
+                });
+                cur = self.take_row(&cur, emits, pressed.as_ref(), &where_, &step)?;
             }
             for (j, e) in names(s.get("after")).into_iter().enumerate() {
                 let where_ = if listed("after") {
@@ -625,5 +740,81 @@ impl Replay<'_> {
             hops += 1;
         }
         Ok(cur)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::explore;
+    use crate::wireframe::tests::exam;
+
+    fn said(g: &Graph, steps: &str) -> Vec<String> {
+        let m = Model::new(g.flow.clone());
+        let ex = explore(&m, None, None).expect("explored");
+        let text = format!("schema: delurio-graph/0\nkind: tutorial\nflow: exam.take\ntitle: Answer\nsteps:\n{steps}");
+        let problems = check_tutorial(g, &m, &ex, &text).expect("checked");
+        problems.into_iter().map(|p| format!("{}: {}", p.path.join("."), p.message)).collect()
+    }
+
+    const PRESS: &str =
+        "  - { show: answering }\n  - { press: option, row: ROW }\n  - { press: finish }\n  - { end: done }\n";
+
+    #[test]
+    fn a_press_with_a_row_takes_the_case_the_row_gives() {
+        let g = exam("ListItem", &|u| u);
+        let then =
+            |row: &str, answer: &str| PRESS.replace("row: ROW", &format!("row: {row}, then: {{ answer: {answer} }}"));
+        assert_eq!(said(&g, &then("2", "b")), Vec::<String>::new());
+        assert_eq!(said(&g, &then("1", "a")), Vec::<String>::new());
+        assert_eq!(said(&g, &then("2", "a")), ["steps.1.then.answer: step 2: no case of this step has answer = \"a\""]);
+        // without a row, the first case, as before
+        let first = PRESS.replace(", row: ROW", ", then: { answer: none }");
+        assert_eq!(said(&g, &first), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_row_is_held_to_the_rows_the_samples_give() {
+        let g = exam("ListItem", &|u| u);
+        let row = |r: &str| said(&g, &PRESS.replace("ROW", r));
+        assert_eq!(
+            row("3"),
+            ["steps.1.row: step 2: press option with row 3, and the samples give 2 rows for question.options"]
+        );
+        assert_eq!(row("0"), ["steps.1.row: step 2: row is the number of a row, from 1, not 0"]);
+        assert_eq!(row("'2'"), ["steps.1.row: step 2: row is the number of a row, from 1, not \"2\""]);
+        let other = PRESS.replace("{ press: option, row: ROW }", "{ show: answering, row: 1 }");
+        assert_eq!(
+            said(&g, &other),
+            ["steps.1.row: step 2: row says which row of the pressed node is pressed, and the step presses none"]
+        );
+        let finish = "  - { press: finish, row: 1 }\n";
+        assert_eq!(
+            said(&g, finish),
+            ["steps.0.row: step 1: press finish with row 1, and finish is not drawn once per item (repeat)"]
+        );
+        let none = exam("ListItem", &|u| {
+            u.replace("  question.options: [ { id: a, text: Eight }, { id: b, text: Six } ]\n", "  option: Any\n")
+        });
+        assert_eq!(
+            said(&none, &PRESS.replace("ROW", "1")),
+            [
+                "steps.1.row: step 2: press option with row 1, and the samples give no rows for its data, question.options (SPEC.md §4)"
+            ]
+        );
+        // a row whose value the variable does not have, and one without the field the effect reads
+        let c = exam("ListItem", &|u| u.replace("{ id: b, text: Six }", "{ id: c, text: Six }"));
+        assert_eq!(
+            said(&c, &PRESS.replace("ROW", "2")),
+            [
+                "steps.1.row: step 2: row 2 of option gives answer = \"c\", which is not a value of answer (\"none\", \"a\", \"b\")"
+            ]
+        );
+        let bare = exam("ListItem", &|u| u.replace("{ id: b, text: Six }", "{ text: Six }"));
+        assert_eq!(
+            said(&bare, &PRESS.replace("ROW", "2")),
+            ["steps.1.row: step 2: row 2 of option has no id, which the effect choose reads (row.id)"]
+        );
+        assert_eq!(said(&bare, &PRESS.replace("ROW", "1")), Vec::<String>::new());
     }
 }
