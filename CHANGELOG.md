@@ -2,6 +2,10 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
+## 0.13.1 (unreleased)
+
+- `renderCheckScreens` in `@delurio/cli/wireframe` gives each expectation's `native` again: 0.13.0's JavaScript module dropped the kind the addon returns, so a replay or `kit check` built on the module could not find a `native` control among the controls of its kind. The command line was not affected.
+
 ## 0.13.0 (2026-11-21)
 
 - A variant of a flow's binding written beside it, `binding.<variant>.yaml` (`binding.noSessions.yaml`, `binding.common.yaml`), is a binding (SPEC.md §7): `check` holds it to the binding schema, as it holds `binding.yaml` and a shared `<name>.binding.yaml`. Before, it was read as no graph file at all, and a value the schema refuses passed unseen; Medaris had 271 such files.

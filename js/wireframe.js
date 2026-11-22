@@ -19,7 +19,7 @@ export function renderCheckScreens(g, kit, warn) {
   const out = JSON.parse(call(t, () => native.renderCheckScreens(nativeGraph(g), nativeKit(kit), t.warner(warn))));
   return {
     html: out.html,
-    expected: out.expected.map((e) => ({ state: e.state, id: e.id, index: e.index, role: e.role, ...('roleGiven' in e ? { roleGiven: e.roleGiven } : {}), name: e.name, disabled: e.disabled })),
+    expected: out.expected.map((e) => ({ state: e.state, id: e.id, index: e.index, role: e.role, ...('roleGiven' in e ? { roleGiven: e.roleGiven } : {}), ...('native' in e ? { native: e.native } : {}), name: e.name, disabled: e.disabled })),
   };
 }
 
