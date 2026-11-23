@@ -79,6 +79,11 @@ states:
 nodes:
   memberItem: { count: "{seed.members}" }
   removeButton: { role: button, name: Remove, within: { css: "#members" }, nth: 0, before: [{ click: { testId: menu } }] }
+  moveUp:
+    role: button
+    name: Move up
+    before: { listPage: [{ click: { role: button, name: Actions } }], rowPage: [] }
+  saveButton: { before: [{ click: { role: button, name: Dismiss }, optional: true }, { fill: { label: Note, value: x }, optional: true }] }
   avatar: { skip: drawn on a canvas }
   newestRow: { role: row, within: { role: table, name: Weeks }, nth: -1 }
   stepBox: { near: { role: button, name: Order } }
@@ -161,6 +166,9 @@ nodes:
   approve: { role: button, name: Approve, exact: true }
   part: { draws: { flow: ../cafe/order, state: done } }
   box: { near: { nth: 1 } }
+  moved: { before: { listPage: { click: { role: button } } } }
+  kept: { before: {} }
+  left: { before: [{ goto: "{app}/", optional: true }] }
 effects:
   sendInvitation: [{ attach: { label: File, run: [node, gen.mjs] } }]
 pageErrors: warn
@@ -172,9 +180,9 @@ mask: [secret, credential, credential]
         found[0].1,
         [
             r#"3:1 the file: "scenarious" is not a key here; did you mean "scenarios"?"#,
-            r#"29:8 mask.0: must be "credential", "personal" or "internal""#,
-            r#"29:7 mask: must NOT have duplicate items (items ## 1 and 2 are identical)"#,
-            r#"28:13 pageErrors: must be "fail" or "report""#,
+            r#"32:8 mask.0: must be "credential", "personal" or "internal""#,
+            r#"32:7 mask: must NOT have duplicate items (items ## 1 and 2 are identical)"#,
+            r#"31:13 pageErrors: must be "fail" or "report""#,
             r#"8:13 scenarios.owner.setup.0: "run" is missing (only commands run here: there is no page)"#,
             r#"9:11 scenarios.member: "open" is missing"#,
             r#"10:41 scenarios.next.then.next: must be a list"#,
@@ -196,7 +204,10 @@ mask: [secret, credential, credential]
             ),
             r#"24:41 nodes.part.draws: "state" is not a key here; did you mean "states"?"#,
             r#"25:16 nodes.box.near: "role" or "text" or "label" or "testId" or "css" is missing"#,
-            r#"27:30 effects.sendInvitation.0.attach: "fileName" is missing (run gives a file of the name fileName)"#,
+            r#"26:32 nodes.moved.before.listPage: must be a list"#,
+            r#"27:19 nodes.kept.before: needs at least 1 key"#,
+            r#"28:20 nodes.left.before.0: "click" or "fill" or "attach" is missing (optional goes with click, fill or attach)"#,
+            r#"30:30 effects.sendInvitation.0.attach: "fileName" is missing (run gives a file of the name fileName)"#,
         ]
     );
 }
