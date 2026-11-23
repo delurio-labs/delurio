@@ -273,8 +273,8 @@
         "disabledIn": { "$ref": "#/$defs/states", "description": "The states where the node is shown but disabled." },
         "disabledWhen": {
           "$ref": "#/$defs/expression",
-          "description": "An expression over the flow's context (SPEC.md §3): where it holds, the node is shown but disabled, in any state that shows it, such as a button that waits until a VAT number is typed or a box is ticked. Beside disabledIn, the node is disabled where either says so. A replay compares it in each situation it stops in.",
-          "examples": ["not vatGiven", "not accepted"]
+          "description": "An expression over the flow's context (SPEC.md §3): where it holds, the node is shown but disabled, in any state that shows it, such as a button that waits until a VAT number is typed or a box is ticked. Beside disabledIn, the node is disabled where either says so. A replay compares it in each situation it stops in. A repeat node's may also read its row's place among the rows it draws: repeat.first, repeat.last and repeat.index (from 1), such as the first row's Move up (proposed on 23 Nov 2026).",
+          "examples": ["not vatGiven", "not accepted", "repeat.first", "saving or repeat.last"]
         },
         "emits": {
           "type": "string",
