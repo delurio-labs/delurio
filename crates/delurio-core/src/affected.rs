@@ -16,7 +16,8 @@
 //!   policy or invariant names;
 //! - a binding (any file `is_binding_name` names, anywhere in the repository): its graph; a base binding, every binding
 //!   that extends it; a helper of a binding (a file its commands or data name, a file of its folder, a file of the
-//!   folder its commands run from): its graph; a binding that enters through a graph whose files changed: its graph;
+//!   folder its commands run from): its graph; a binding that enters through a graph whose files changed, or one of
+//!   whose nodes draws a flow whose files changed: its graph;
 //! - the graphs' shared files: a catalog or a kit a graph names outside its own folder touches every graph naming it.
 //!
 //! Anything unknown touches every graph, and says why: no merge base, a list of changed files that was cut short, a
@@ -161,6 +162,7 @@ pub enum Rule {
     Binding,
     Helper,
     Entered,
+    Drawn,
     Shared,
     All,
 }
@@ -174,6 +176,7 @@ impl Rule {
             Rule::Binding => "binding",
             Rule::Helper => "helper",
             Rule::Entered => "entered",
+            Rule::Drawn => "drawn",
             Rule::Shared => "shared",
             Rule::All => "all",
         }
@@ -728,6 +731,8 @@ struct BindingInfo {
     refs: HashSet<String>,
     /// graph folders and binding files its scenarios enter through
     enters: Vec<String>,
+    /// flow folders and binding files whose screens its nodes draw (`draws`)
+    draws: Vec<String>,
 }
 
 fn root_of(raw: &IndexMap<String, Value>, file: &str, seen: &mut Vec<String>) -> String {
@@ -747,6 +752,7 @@ struct Refs<'a> {
     root: &'a str,
     refs: HashSet<String>,
     enters: Vec<String>,
+    draws: Vec<String>,
 }
 
 impl Refs<'_> {
@@ -788,6 +794,11 @@ impl Refs<'_> {
                                 self.enters.push(normalize(&join2(self.dir, to)));
                             }
                         }
+                        ("draws", Value::Object(d)) => {
+                            for to in ["flow", "bind"].iter().filter_map(|n| d.get(n).and_then(Value::as_str)) {
+                                self.draws.push(normalize(&join2(self.dir, to)));
+                            }
+                        }
                         _ => self.walk(x, Some(k)),
                     }
                 }
@@ -816,9 +827,9 @@ fn load_bindings(tree: &dyn Tree) -> Vec<BindingInfo> {
         .map(|(file, doc)| {
             let dir = dirname(file);
             let root = root_of(&raw, file, &mut Vec::new());
-            let mut refs = Refs { dir: &dir, root: &root, refs: HashSet::new(), enters: Vec::new() };
+            let mut refs = Refs { dir: &dir, root: &root, refs: HashSet::new(), enters: Vec::new(), draws: Vec::new() };
             refs.walk(doc, None);
-            let (refs, enters) = (refs.refs, refs.enters);
+            let (refs, enters, draws) = (refs.refs, refs.enters, refs.draws);
             BindingInfo {
                 file: file.clone(),
                 graph: doc.get_str("flow").or_else(|| doc.get_str("nav")).map(str::to_string),
@@ -827,6 +838,7 @@ fn load_bindings(tree: &dyn Tree) -> Vec<BindingInfo> {
                 root,
                 refs,
                 enters,
+                draws,
             }
         })
         .collect();
@@ -1318,17 +1330,23 @@ fn select(change: &Change<'_>) -> Affected {
         }
     }
 
-    // a binding that enters through a graph whose own files changed walks those files too
+    // a binding that enters through a graph whose own files changed walks those files too, and one whose node draws
+    // a flow's screen checks that flow's nodes
     for b in &bindings {
         let Some(g) = graph_of(b.graph.as_deref()) else { continue };
-        for e in &b.enters {
-            let entered = by_dir.get(e.as_str()).map(|&i| &model.graphs[i]);
-            let entered_changed =
-                entered.is_some_and(|x| files_touched.contains(x.dir.as_str()) && x.dir != model.graphs[g].dir);
+        let ties = b
+            .enters
+            .iter()
+            .map(|e| (e, Rule::Entered, "enters through"))
+            .chain(b.draws.iter().map(|d| (d, Rule::Drawn, "draws")));
+        for (e, rule, how) in ties {
+            let other = by_dir.get(e.as_str()).map(|&i| &model.graphs[i]);
+            let other_changed =
+                other.is_some_and(|x| files_touched.contains(x.dir.as_str()) && x.dir != model.graphs[g].dir);
             let bind_changed = files.iter().any(|f| f.path == *e || f.from.as_deref() == Some(e));
-            if entered_changed || bind_changed {
-                let say = format!("its binding {} enters through {e}, whose files changed", b.file);
-                run.touch(Some(g), Reason::new(Rule::Entered, None, say));
+            if other_changed || bind_changed {
+                let say = format!("its binding {} {how} {e}, whose files changed", b.file);
+                run.touch(Some(g), Reason::new(rule, None, say));
             }
         }
     }

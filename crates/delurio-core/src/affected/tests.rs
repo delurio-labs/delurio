@@ -544,6 +544,43 @@ fn a_binding_that_enters_through_the_navigation_graph_is_touched_when_the_graphs
     assert_eq!(a.graphs[1].bindings, ["e2e/bindings/refund.binding.yaml"]);
 }
 
+// A node that draws another flow's screen (SPEC.md §7, `draws`), such as a guide that draws the app's form in a
+// dialog of its own, is checked against that flow's nodes: a change to the drawn flow's files touches the binding's
+// flow, and so does a change to the binding `draws` names. Proposed on 23 Nov 2026.
+#[test]
+fn a_binding_whose_node_draws_a_flow_is_touched_when_that_flows_files_change() {
+    let drawing = "schema: delurio-graph/0
+kind: binding
+extends: base.binding.yaml
+flow: shop.browse
+nodes:
+  payPart: { role: dialog, name: Pay, draws: { flow: ../../graphs/shop/pay, bind: ../../graphs/shop/pay/binding.yaml } }
+";
+    let mut base = shop();
+    put(&mut base, "e2e/bindings/browse.binding.yaml", drawing);
+    let run = |edit: &dyn Fn(&mut BTreeMap<String, String>)| {
+        let mut head = base.clone();
+        edit(&mut head);
+        let files = diff(&base, &head);
+        let (h, b) = (MapTree::new(head), MapTree::new(base.clone()));
+        affected(&Change::new("graphs", &h, Some(&b), Some(files)))
+    };
+    let ui = run(&|f| replace(f, "graphs/shop/pay/ui.yaml", "src/PayForm.tsx:5", "src/PayForm.tsx:4"));
+    assert_eq!(ids(&ui), ["shop.browse", "shop.pay"]);
+    assert_eq!(
+        why(&ui, "shop.browse"),
+        ["drawn: its binding e2e/bindings/browse.binding.yaml draws graphs/shop/pay, whose files changed"]
+    );
+    let bind = run(&|f| replace(f, "graphs/shop/pay/binding.yaml", "flow: shop.pay", "flow: shop.pay\nmask: []"));
+    assert_eq!(
+        why(&bind, "shop.browse"),
+        [
+            "drawn: its binding e2e/bindings/browse.binding.yaml draws graphs/shop/pay, whose files changed",
+            "drawn: its binding e2e/bindings/browse.binding.yaml draws graphs/shop/pay/binding.yaml, whose files changed",
+        ]
+    );
+}
+
 #[test]
 fn a_renamed_or_deleted_file_an_anchor_names_is_held_at_file_level() {
     let base = shop();
