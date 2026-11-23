@@ -377,8 +377,16 @@ impl Replay<'_> {
         Ok(())
     }
 
-    fn take(&self, cur: &Cursor, event: &Value, path: &[String], step: &str) -> std::result::Result<Cursor, Fail> {
-        self.take_row(cur, event, None, path, step)
+    // `next`: the event the step gives after this one (SPEC.md §7: a failure taken at a server step the step passes)
+    fn take(
+        &self,
+        cur: &Cursor,
+        event: &Value,
+        next: Option<&Value>,
+        path: &[String],
+        step: &str,
+    ) -> std::result::Result<Cursor, Fail> {
+        self.take_row(cur, event, None, next, path, step)
     }
 
     // a press with a row takes the case in which each variable its effects set from the row (`row.<field>`) has the
@@ -388,6 +396,7 @@ impl Replay<'_> {
         cur: &Cursor,
         event: &Value,
         pressed: Option<&Pressed<'_>>,
+        next: Option<&Value>,
         path: &[String],
         step: &str,
     ) -> std::result::Result<Cursor, Fail> {
@@ -421,7 +430,7 @@ impl Replay<'_> {
                 format!("{step}: the flow is in {}, which does not handle {}", cur.state, js::to_js_string(event)),
             );
         };
-        self.settle(Cursor { state: hit.target.clone(), ctx: hit.ctx.clone() }, path, step)
+        self.settle_for(Cursor { state: hit.target.clone(), ctx: hit.ctx.clone() }, next, path, step)
     }
 
     /// the variables a step's effects set from the pressed row, each with the row's value: read from the transition
@@ -462,11 +471,25 @@ impl Replay<'_> {
 
     // a step with no screen passes on its own along its normal way (a transition with no event, then DONE); one with no
     // such way waits for an event the tutorial gives with `after`
-    fn settle(&self, cur: Cursor, path: &[String], step: &str) -> std::result::Result<Cursor, Fail> {
+    // `wait_for`: an event the step gives next; a server step that handles it otherwise than by its normal way is where
+    // the walk waits for it (settle_for)
+    fn settle(
+        &self,
+        cur: Cursor,
+        wait_for: Option<&str>,
+        path: &[String],
+        step: &str,
+    ) -> std::result::Result<Cursor, Fail> {
         let mut c = cur;
         let mut hops = 0;
         while hops < 50 && kind_of(self.g, &c.state) == NodeKind::Server {
             let ways = self.m.steps(&c.state, &c.ctx)?;
+            if let Some(e) = wait_for
+                && e != "DONE"
+                && ways.iter().any(|x| x.event.as_deref() == Some(e))
+            {
+                return Ok(c);
+            }
             let next = self.pick(ways.iter().filter(|x| x.event.as_deref().is_none_or(|e| e == "DONE")).collect());
             match next {
                 None if !ways.is_empty() => return Ok(c),
@@ -483,6 +506,33 @@ impl Replay<'_> {
         Ok(c)
     }
 
+    fn handles(&self, c: &Cursor, event: &str) -> std::result::Result<bool, Fail> {
+        Ok(self.m.steps(&c.state, &c.ctx)?.iter().any(|x| x.event.as_deref() == Some(event)))
+    }
+
+    // Where the event the step gives next (`next`) is one the screen the server steps lead to does not handle, but one
+    // of those server steps does, another way than its normal one (a failure, a refusal), the walk stops at that server
+    // step and the event is taken there, so a tutorial can show the screen a failure leads to; a way the screen handles
+    // is taken as before (SPEC.md §7)
+    fn settle_for(
+        &self,
+        from: Cursor,
+        next: Option<&Value>,
+        path: &[String],
+        step: &str,
+    ) -> std::result::Result<Cursor, Fail> {
+        let end = self.settle(from.clone(), None, path, step)?;
+        if let Some(event) = next.and_then(Value::as_str)
+            && !self.handles(&end, event)?
+        {
+            let at = self.settle(from, Some(event), path, step)?;
+            if self.handles(&at, event)? {
+                return Ok(at);
+            }
+        }
+        Ok(end)
+    }
+
     fn screens(mut self, steps: &[Value], scenario: &Object) -> std::result::Result<(), Fail> {
         let g = self.g;
         let ui = g.ui();
@@ -490,7 +540,12 @@ impl Replay<'_> {
         let has_screen = |state: &str| ui.nodes().any(|(_, n)| shown_in(n, state));
         let node_get = |id: &str, k: &str| ui.node(id).and_then(|n| n.get(k).cloned());
         let start = self.start(scenario)?;
-        let mut cur = self.settle(start, &["scenario".to_string()], "the start")?;
+        // an opening card's first event may come before the first screen: a failure at a server step the start passes
+        let opening = steps
+            .first()
+            .filter(|s| s.get("intro") == Some(&Value::Bool(true)))
+            .and_then(|s| names(s.get("after")).first().copied());
+        let mut cur = self.settle_for(start, opening, &["scenario".to_string()], "the start")?;
         for (i, s) in steps.iter().enumerate() {
             if !s.is_object() {
                 continue;
@@ -500,13 +555,14 @@ impl Replay<'_> {
             self.then = Replay::then_of(self.m, s);
             let listed = |key: &str| s.get(key).is_some_and(Value::is_array);
             if s.get("intro") == Some(&Value::Bool(true)) {
-                for (j, e) in names(s.get("after")).into_iter().enumerate() {
+                let events = names(s.get("after"));
+                for (j, e) in events.iter().enumerate() {
                     let where_ = if listed("after") {
                         path_with(&path, &["after", &j.to_string()])
                     } else {
                         path_with(&path, &["after"])
                     };
-                    cur = self.take(&cur, e, &where_, &step)?;
+                    cur = self.take(&cur, e, events.get(j + 1).copied(), &where_, &step)?;
                 }
                 self.then_holds(&cur, &path, &step)?;
                 continue;
@@ -647,15 +703,17 @@ impl Replay<'_> {
                     let row = rows?.get((r as usize).checked_sub(1)?)?.as_object()?;
                     Some(Pressed { node: press, n: r as usize, row, at: path_with(&path, &["row"]) })
                 });
-                cur = self.take_row(&cur, emits, pressed.as_ref(), &where_, &step)?;
+                let next = names(s.get("after")).first().copied();
+                cur = self.take_row(&cur, emits, pressed.as_ref(), next, &where_, &step)?;
             }
-            for (j, e) in names(s.get("after")).into_iter().enumerate() {
+            let events = names(s.get("after"));
+            for (j, e) in events.iter().enumerate() {
                 let where_ = if listed("after") {
                     path_with(&path, &["after", &j.to_string()])
                 } else {
                     path_with(&path, &["after"])
                 };
-                cur = self.take(&cur, e, &where_, &step)?;
+                cur = self.take(&cur, e, events.get(j + 1).copied(), &where_, &step)?;
             }
             self.then_holds(&cur, &path, &step)?;
         }
@@ -759,6 +817,88 @@ mod tests {
 
     const PRESS: &str =
         "  - { show: answering }\n  - { press: option, row: ROW }\n  - { press: finish }\n  - { end: done }\n";
+
+    // a page that loads its data, then a message sent: two server steps, each with a failure beside its normal way
+    const SEND_FLOW: &str = "schema: delurio-graph/0
+kind: flow
+id: demo.send
+status: proposed
+title: Send a message
+initial: loading
+states:
+  loading: { title: Loading, on: { DONE: writing, FAIL.network: offline } }
+  offline: { title: Offline, on: { RELOAD: loading } }
+  writing: { title: Writing, on: { SEND: sending } }
+  sending: { title: Sending, on: { DONE: sent, FAIL.network: failed } }
+  sent: { title: Sent, on: { NEW: writing } }
+  failed: { title: Not sent, on: { RETRY: sending } }
+";
+    const SEND_UI: &str = "schema: delurio-graph/0
+kind: ui
+id: demo.send
+flow: demo.send
+status: proposed
+catalog: catalog/en.json
+locales: [en]
+nodes:
+  offlineText: { type: text, component: Text, role: status, text: { literal: You are offline }, in: [offline] }
+  send: { type: action, component: Button, role: button, text: { literal: Send }, in: [writing], emits: SEND }
+  sentText: { type: text, component: Text, role: status, text: { literal: Sent }, in: [sent] }
+  failedText: { type: text, component: Text, role: alert, text: { literal: Not sent }, in: [failed] }
+  retry: { type: action, component: Button, role: button, text: { literal: Try again }, in: [failed], emits: RETRY }
+";
+
+    fn said_on_send(steps: &str) -> Vec<String> {
+        let read = |f: &str| -> crate::error::Result<String> {
+            Ok(match f {
+                "flow.yaml" => SEND_FLOW.to_string(),
+                "ui.yaml" => SEND_UI.to_string(),
+                _ => "{}".to_string(),
+            })
+        };
+        let g = crate::graph::load_with("send", &read, &|f| f != "tutorial.yaml").expect("the flow loads");
+        let m = Model::new(g.flow.clone());
+        let ex = explore(&m, None, None).expect("explored");
+        let text = format!("schema: delurio-graph/0\nkind: tutorial\nflow: demo.send\ntitle: Send\nsteps:\n{steps}");
+        let problems = check_tutorial(&g, &m, &ex, &text).expect("checked");
+        problems.into_iter().map(|p| format!("{}: {}", p.path.join("."), p.message)).collect()
+    }
+
+    // SPEC.md §7: a step's `after` may give a failure that a server step it passes takes, where the screen its normal
+    // way leads to does not handle it
+    #[test]
+    fn a_failure_is_taken_at_the_server_step_the_step_passes() {
+        let ok = Vec::<String>::new();
+        // the normal way, as before
+        assert_eq!(said_on_send("  - { show: writing, press: send }\n  - { show: sent }\n"), ok);
+        // the failure, taken at sending, which the press passes on its way to sent
+        assert_eq!(said_on_send("  - { show: writing, press: send, after: FAIL.network }\n  - { show: failed }\n"), ok);
+        // and again from the screen the failure leads to
+        let again = "  - { show: writing, press: send, after: FAIL.network }\n  - { show: failed, press: retry, after: [FAIL.network] }\n  - { show: failed }\n";
+        assert_eq!(said_on_send(again), ok);
+        // an opening card's failure comes before the first screen, at the server step the start passes
+        assert_eq!(said_on_send("  - { intro: true, after: [FAIL.network] }\n  - { show: offline }\n"), ok);
+        assert_eq!(said_on_send("  - { intro: true }\n  - { show: writing }\n"), ok);
+    }
+
+    #[test]
+    fn a_failure_no_server_step_the_step_passes_handles_still_stops_it() {
+        // an event no server step on the way handles: only failed does, which the press does not reach
+        assert_eq!(
+            said_on_send("  - { show: writing, press: send, after: RETRY }\n"),
+            ["steps.0.after: step 1: the flow is in sent, which does not handle RETRY"]
+        );
+        // a step that passes no server step: writing is a screen, and does not handle it
+        assert_eq!(
+            said_on_send("  - { show: writing, after: FAIL.network }\n"),
+            ["steps.0.after: step 1: the flow is in writing, which does not handle FAIL.network"]
+        );
+        // without an opening card, the start passes loading along its normal way
+        assert_eq!(
+            said_on_send("  - { show: offline }\n"),
+            ["steps.0.show: step 1: shows offline, and the flow is in writing here"]
+        );
+    }
 
     #[test]
     fn a_press_with_a_row_takes_the_case_the_row_gives() {
