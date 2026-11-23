@@ -214,6 +214,67 @@ pub fn evaluate(e: &Expr, lookup: &dyn Fn(&str) -> Value) -> Value {
     }
 }
 
+/// the expression written out again in the language it was read from, every compound part in parentheses, so that
+/// `parse_expr` reads back the same tree
+pub fn source(e: &Expr) -> String {
+    let part = |x: &Expr| match x {
+        Expr::Lit { .. } | Expr::Id { .. } | Expr::List { .. } => source(x),
+        _ => format!("({})", source(x)),
+    };
+    match e {
+        Expr::Lit { v: Value::String(s) } if s.contains('\'') => format!("\"{s}\""),
+        Expr::Lit { v: Value::String(s) } => format!("'{s}'"),
+        Expr::Lit { v } => js::to_js_string(v),
+        Expr::Id { name } => name.clone(),
+        Expr::List { items } => format!("[{}]", items.iter().map(part).collect::<Vec<_>>().join(", ")),
+        Expr::Not { e } => format!("not {}", part(e)),
+        Expr::And { l, r } => format!("{} and {}", part(l), part(r)),
+        Expr::Or { l, r } => format!("{} or {}", part(l), part(r)),
+        Expr::Cmp { op, l, r } => {
+            let op = match op {
+                Op::Eq => "==",
+                Op::Ne => "!=",
+                Op::In => "in",
+                Op::NotIn => "not in",
+            };
+            format!("{} {op} {}", part(l), part(r))
+        }
+    }
+}
+
+/// An expression that holds where `e` comes out `want` whatever the names that `unknown` picks out hold. Those names
+/// are read as unknown, as in Kleene's three-valued logic: a part that reads one decides nothing, and `not`, `and`
+/// and `or` keep what the rest decides. With no such name in it, the result is `e` itself (or `not e`). So a repeat
+/// node's `disabledWhen` that reads its place among the rows (SPEC.md §4) disables it in a situation only where it
+/// holds in every row.
+pub fn surely(e: &Expr, unknown: &dyn Fn(&str) -> bool, want: bool) -> Expr {
+    if !identifiers(e).iter().any(|n| unknown(n)) {
+        return if want { e.clone() } else { Expr::Not { e: Box::new(e.clone()) } };
+    }
+    let both = |l: &Expr, r: &Expr, w: bool| (Box::new(surely(l, unknown, w)), Box::new(surely(r, unknown, w)));
+    match e {
+        Expr::Not { e } => surely(e, unknown, !want),
+        Expr::And { l, r } if want => {
+            let (l, r) = both(l, r, true);
+            Expr::And { l, r }
+        }
+        Expr::And { l, r } => {
+            let (l, r) = both(l, r, false);
+            Expr::Or { l, r }
+        }
+        Expr::Or { l, r } if want => {
+            let (l, r) = both(l, r, true);
+            Expr::Or { l, r }
+        }
+        Expr::Or { l, r } => {
+            let (l, r) = both(l, r, false);
+            Expr::And { l, r }
+        }
+        // a name, a comparison or a list that reads an unknown name: neither surely true nor surely false
+        _ => Expr::Lit { v: Value::Bool(false) },
+    }
+}
+
 /// every name the expression reads, in the order it reads them
 pub fn identifiers(e: &Expr) -> IndexSet<String> {
     let mut out = IndexSet::new();
@@ -269,5 +330,43 @@ mod tests {
         assert_eq!(parse_expr("(a").unwrap_err(), "expected \")\" in: (a");
         assert_eq!(parse_expr("and").unwrap_err(), "unexpected \"and\" in: and");
         assert_eq!(parse_expr("a   ").unwrap(), Rc::new(Expr::Id { name: "a".into() }));
+    }
+
+    #[test]
+    fn written_out_it_reads_back_the_same() {
+        for src in [
+            "a == 'x' and not (n in [1, 3]) or t",
+            "n not in [2, 'b'] and \"it's\" != a",
+            "not not t or (a and (b or c))",
+            "-2.5 == n and null == a and false",
+        ] {
+            let e = parse_expr(src).unwrap();
+            assert_eq!(parse_expr(&source(&e)).unwrap(), e, "{src}: {}", source(&e));
+        }
+    }
+
+    #[test]
+    fn surely_reads_the_unknown_names_as_deciding_nothing() {
+        let place = |n: &str| n.starts_with("repeat.");
+        let s = |src: &str, want: bool| source(&surely(&parse_expr(src).unwrap(), &place, want));
+        // without an unknown name: the expression, or its negation
+        assert_eq!(s("busy", true), "busy");
+        assert_eq!(s("busy", false), "not busy");
+        // a part that reads one decides nothing
+        assert_eq!(s("repeat.first", true), "false");
+        assert_eq!(s("repeat.index == 1", false), "false");
+        assert_eq!(s("busy or repeat.first", true), "busy or false");
+        assert_eq!(s("busy and repeat.last", true), "busy and false");
+        assert_eq!(s("busy and repeat.last", false), "(not busy) or false");
+        assert_eq!(s("not (busy or repeat.first)", true), "(not busy) and false");
+        let holds = |src: &str, busy: bool| {
+            let e = surely(&parse_expr(src).unwrap(), &place, true);
+            evaluate(&e, &|n| if n == "busy" { Value::Bool(busy) } else { Value::Null }).truthy()
+        };
+        assert!(holds("busy or repeat.first", true));
+        assert!(!holds("busy or repeat.first", false));
+        assert!(!holds("busy and repeat.first", true));
+        assert!(holds("not (not busy and repeat.first)", true));
+        assert!(!holds("not (not busy and repeat.first)", false));
     }
 }

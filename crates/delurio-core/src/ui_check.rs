@@ -13,7 +13,8 @@ use indexmap::IndexSet;
 use regex::Regex;
 use serde::Serialize;
 
-use crate::graph::{Graph, Label, OPENER, State, UiNode, alternatives, is_dialog, shown_in};
+use crate::expr::{identifiers, parse_expr, source, surely};
+use crate::graph::{Graph, Label, OPENER, State, UiNode, alternatives, is_dialog, is_row_place, shown_in};
 use crate::js::{self, Object, Value};
 use crate::model::{Exploration, Model, PathResult, path_to};
 use crate::nodepath;
@@ -407,6 +408,16 @@ struct Pending<'a> {
     marked: bool,
 }
 
+/// A repeat node's `disabledWhen` that reads the node's place among the rows (`repeat.first`, `repeat.last`,
+/// `repeat.index`; SPEC.md §4), as it holds in every row. The rows are the app's: however many it draws, a press may
+/// come from any row, so the node is disabled in a situation only where its `disabledWhen` holds whatever the row's
+/// place (`surely`). Returns None for any other node or expression, which is read as it is.
+fn every_row(n: UiNode<'_>, disabled_when: Option<&str>) -> Option<String> {
+    let src = disabled_when.filter(|_| n.repeat().is_some())?;
+    let e = parse_expr(src).ok()?;
+    identifiers(&e).iter().any(|name| is_row_place(name)).then(|| source(&surely(&e, &is_row_place, true)))
+}
+
 /// An expression a node gives under `key`: Some(None) when it gives none, None when it is no string (the schema's to
 /// report, and not read here)
 fn expression<'a>(n: UiNode<'a>, key: &str) -> Option<Option<&'a str>> {
@@ -586,9 +597,15 @@ pub fn check_events(g: &Graph, m: &Model, ex: &Exploration) -> Vec<Unhandled> {
     if pending.is_empty() {
         return Vec::new();
     }
+    // a repeat node's disabledWhen that reads its place among the rows disables it only where it holds in every row:
+    // the flow does not know how many rows the app draws, so a row in which it does not hold may always be there
+    let disabled_srcs: Vec<Option<String>> = pending.iter().map(|p| every_row(p.n, p.disabled_when)).collect();
     // each one's expressions made ready once; one that does not parse is passed over
-    let testers: Vec<_> =
-        pending.iter().map(|p| (p.when.map(|s| m.tester(s)), p.disabled_when.map(|s| m.tester(s)))).collect();
+    let testers: Vec<_> = pending
+        .iter()
+        .zip(&disabled_srcs)
+        .map(|(p, every)| (p.when.map(|s| m.tester(s)), every.as_deref().or(p.disabled_when).map(|s| m.tester(s))))
+        .collect();
     let mut open: Vec<bool> = testers
         .iter()
         .map(|(w, d)| w.as_ref().is_none_or(Result::is_ok) && d.as_ref().is_none_or(Result::is_ok))
@@ -656,11 +673,13 @@ pub fn check_events(g: &Graph, m: &Model, ex: &Exploration) -> Vec<Unhandled> {
     for ((p, h), l) in pending.iter().zip(hit).zip(lands) {
         let Some(h) = h else { continue };
         let Pending { node, state, event, when, disabled_when, .. } = *p;
+        // a disabledWhen read in every row (every_row) does not hold in some row the app may draw
+        let rows = if every_row(p.n, disabled_when).is_some() { " in every row" } else { "" };
         let cond = match (when, disabled_when) {
             (None, None) => String::new(),
             (Some(w), None) => format!(" (where its when, {w}, holds)"),
-            (None, Some(d)) => format!(" (where its disabledWhen, {d}, does not hold)"),
-            (Some(w), Some(d)) => format!(" (where its when, {w}, holds and its disabledWhen, {d}, does not)"),
+            (None, Some(d)) => format!(" (where its disabledWhen, {d}, does not hold{rows})"),
+            (Some(w), Some(d)) => format!(" (where its when, {w}, holds and its disabledWhen, {d}, does not{rows})"),
         };
         let in_step = g.flow().state(state).is_some_and(runs_step);
         let (message, reached, lands) = match l {
@@ -817,6 +836,53 @@ states:
         let reached = found[0].reached.as_ref().expect("the way there is given");
         assert_eq!(reached.events, ["SAVE"]);
         assert_eq!(js::stringify(&Value::Object(reached.start.clone())), r#"{"ready":true}"#);
+    }
+
+    #[test]
+    fn a_repeat_node_disabled_by_its_place_among_the_rows_is_held_in_every_row() {
+        // the first row's button is disabled, the others are not: saving, which does not handle SAVE, shows it enabled
+        let found = found_for("emits: SAVE, in: [editing, saving], repeat: items, disabledWhen: repeat.first");
+        assert_eq!(found.iter().map(|u| u.state.as_str()).collect::<Vec<_>>(), ["saving"]);
+        assert!(
+            found[0]
+                .message
+                .contains("saving shows it enabled (where its disabledWhen, repeat.first, does not hold in every row)"),
+            "{}",
+            found[0].message
+        );
+        // what the context decides still decides: busy in every situation of saving disables it in every row
+        assert!(
+            states_for("emits: SAVE, in: [editing, saving], repeat: items, disabledWhen: \"busy or repeat.last\"")
+                .is_empty()
+        );
+        assert_eq!(
+            states_for(
+                "emits: SAVE, in: [editing, saving], repeat: items, disabledWhen: \"busy and repeat.index == 1\""
+            ),
+            ["saving"]
+        );
+        assert!(
+            states_for(
+                "emits: SAVE, in: [editing, saving], repeat: items, disabledWhen: \"not (not busy and repeat.first)\""
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn only_a_repeat_node_reads_its_place_among_the_rows() {
+        let Err(e) = load_for(FLOW, "emits: SAVE, in: [editing], disabledWhen: repeat.first") else {
+            panic!("a node without repeat that reads repeat.first loads");
+        };
+        assert!(
+            e.message.contains("names repeat.first, which is not a variable or a guard of the flow: a node reads its place among the rows (repeat.first, repeat.last, repeat.index) only when it has repeat"),
+            "{}",
+            e.message
+        );
+        let Err(e) = load_for(FLOW, "emits: SAVE, in: [editing], repeat: items, disabledWhen: row.locked") else {
+            panic!("a disabledWhen that reads a field of the row loads");
+        };
+        assert!(e.message.contains("not its fields"), "{}", e.message);
     }
 
     #[test]

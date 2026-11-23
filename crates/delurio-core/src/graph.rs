@@ -549,6 +549,16 @@ pub fn row_field(name: &str) -> Option<&str> {
     name.strip_prefix("row.").filter(|f| !f.is_empty() && !f.contains('.'))
 }
 
+/// the places among the rows a repeat node's `disabledWhen` may read (SPEC.md §4): the first row, the last, and the
+/// row's number, from 1
+pub const ROW_PLACES: [&str; 3] = ["repeat.first", "repeat.last", "repeat.index"];
+
+/// whether a name reads the place of the row a repeat node is drawn for among the rows it draws (`repeat.first`,
+/// `repeat.last`, `repeat.index`; SPEC.md §4)
+pub fn is_row_place(name: &str) -> bool {
+    ROW_PLACES.contains(&name)
+}
+
 /// a page node drawn over another page, whose closing `returnsFocus` may give the focus back (SPEC.md §4)
 pub fn is_dialog(n: Option<UiNode<'_>>) -> bool {
     n.is_some_and(|n| n.kind() == Some("page") && matches!(n.role(), Some("dialog" | "alertdialog")))
@@ -970,17 +980,26 @@ fn tone_reads(flow: Flow<'_>, ui: Ui<'_>) -> Result<()> {
 }
 
 /// a node's `disabledWhen` is an expression over the context (SPEC.md §3, §4), read where the node is shown: one that
-/// does not parse, or names what is not a variable, a guard or `state`, keeps the graph from loading, as `checked` does
+/// does not parse, or names what is not a variable, a guard or `state`, keeps the graph from loading, as `checked` does.
+/// A repeat node's may also read its place among the rows (`repeat.first`, `repeat.last`, `repeat.index`).
 fn disabled_when_reads(flow: Flow<'_>, ui: Ui<'_>) -> Result<()> {
     for (id, node) in ui.nodes() {
         let Some(Value::String(expr)) = node.get("disabledWhen") else { continue };
+        let repeat = node.repeat().is_some();
         match names_outside(flow, expr) {
             Err(message) => return Err(Error::graph(format!("ui node {id}: disabledWhen: {message}"), None)),
             Ok(outside) => {
-                if let Some(n) = outside.first() {
+                if let Some(n) = outside.iter().find(|n| !repeat || !is_row_place(n)) {
+                    let why = if is_row_place(n) {
+                        ": a node reads its place among the rows (repeat.first, repeat.last, repeat.index) only when it has repeat"
+                    } else if repeat && row_field(n).is_some() {
+                        ": a disabledWhen reads the row's place among the rows (repeat.first, repeat.last, repeat.index), not its fields, which only the app's data holds"
+                    } else {
+                        ""
+                    };
                     return Err(Error::graph(
                         format!(
-                            "ui node {id}: disabledWhen: {expr} names {n}, which is not a variable or a guard of the flow"
+                            "ui node {id}: disabledWhen: {expr} names {n}, which is not a variable or a guard of the flow{why}"
                         ),
                         None,
                     ));
