@@ -868,11 +868,28 @@
                 "description": "Of what the rest finds, this one: from 0, the first; a negative one counts from the end, -1 the last."
               },
               "before": {
-                "type": "array",
-                "description": "Done before the node is pressed, such as opening the menu it sits in.",
-                "items": {
-                  "$ref": "#/$defs/action"
-                }
+                "description": "Done before the node is pressed, such as opening the menu it sits in: a list of actions, done in every state, or a map from states to lists, where the node is reached another way in another state; in a state the map leaves out, nothing is done. Proposed on 23 Nov 2026 (the map).",
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/action"
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "minProperties": 1,
+                    "propertyNames": {
+                      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                    },
+                    "additionalProperties": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/$defs/action"
+                      }
+                    }
+                  }
+                ]
               },
               "skip": {
                 "type": "string",
@@ -2044,9 +2061,13 @@
         "as": {
           "type": "string",
           "description": "Done in this account's own browser context, opened and signed in on first use: a step another person takes."
+        },
+        "optional": {
+          "const": true,
+          "description": "On a click, a fill or an attach: one the app may not ask for, such as a notice shown on some visits only. Once the page is still, its element is looked for once: where it is not there, the action is passed over, and the step's report says so. Proposed on 23 Nov 2026."
         }
       },
-      "description": "One thing the replay does: one of goto, reload, click, fill, attach, key, waitUrl, waitText, waitResponse, download, resize and run, which may carry `as`.",
+      "description": "One thing the replay does: one of goto, reload, click, fill, attach, key, waitUrl, waitText, waitResponse, download, resize and run, which may carry `as`; a click, a fill or an attach may be optional.",
       "anyOf": [
         {
           "required": [
@@ -2319,6 +2340,33 @@
           "then": {
             "required": [
               "run"
+            ]
+          }
+        },
+        {
+          "$comment": "optional goes with click, fill or attach",
+          "if": {
+            "required": [
+              "optional"
+            ]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": [
+                  "click"
+                ]
+              },
+              {
+                "required": [
+                  "fill"
+                ]
+              },
+              {
+                "required": [
+                  "attach"
+                ]
+              }
             ]
           }
         }
