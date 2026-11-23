@@ -401,6 +401,41 @@
                 },
                 "description": "Values for the sample placeholders of the graph's texts, over the binding's samples."
               },
+              "then": {
+                "type": "object",
+                "description": "How the steps that leave a variable to chance (havoc) come out on this scenario's walks, by the effect: a list read in order, one entry each time the walk takes a transition that applies the effect, each entry a value for some of the variables the effect's havoc lists. A variable an entry leaves out, and every variable once the list has run out, keeps its value. Proposed on 23 Nov 2026.",
+                "examples": [
+                  {
+                    "next": [
+                      {
+                        "lastStep": false
+                      },
+                      {
+                        "lastStep": true
+                      }
+                    ]
+                  }
+                ],
+                "propertyNames": {
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                },
+                "additionalProperties": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
+                    }
+                  }
+                }
+              },
               "setup": {
                 "type": "array",
                 "description": "Commands run before the walk, such as seeding the database: run only.",
@@ -523,7 +558,7 @@
                 "description": "A scenario whose shortest drivable path reaches this state, for a tutorial's `cut`."
               },
               "call": {
-                "description": "The server call the state makes: its URL glob, or { url, method, action, code, returns }. Held while the state's own screen is checked, and its HTTP status compared with the refusal's on a FAIL.<class> walk.",
+                "description": "The server call the state makes: its URL glob, or { url, method, action, code, returns, status }. Held while the state's own screen is checked, and its HTTP status compared with the refusal's on a FAIL.<class> walk. On a state that invokes none of the flow's actions, a request the page makes while the state is shown, such as one to another server; status is then the HTTP status its answer has.",
                 "anyOf": [
                   {
                     "type": "string",
@@ -588,11 +623,73 @@
                           },
                           "minProperties": 1
                         }
+                      },
+                      "status": {
+                        "description": "On a state that invokes none of the flow's actions: the HTTP status the call's answer has, or a list of those it may have. Proposed on 23 Nov 2026.",
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 100,
+                            "maximum": 599
+                          },
+                          {
+                            "type": "array",
+                            "minItems": 1,
+                            "uniqueItems": true,
+                            "items": {
+                              "type": "integer",
+                              "minimum": 100,
+                              "maximum": 599
+                            }
+                          }
+                        ],
+                        "examples": [
+                          404
+                        ]
                       }
                     },
                     "required": [
                       "url"
                     ]
+                  }
+                ]
+              },
+              "storage": {
+                "type": "object",
+                "description": "What the page's storage holds when the state is checked: session (sessionStorage) and local (localStorage), of the origin of the page the state is shown on, in the browser whose screen it is. Proposed on 23 Nov 2026.",
+                "additionalProperties": false,
+                "minProperties": 1,
+                "properties": {
+                  "session": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "description": "By key glob (* any run of characters): absent, no key it matches is there; any other value, a key it matches is there and each it matches holds that value (a text with {placeholders}, or a regular expression between slashes).",
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean"
+                      ]
+                    }
+                  },
+                  "local": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "description": "By key glob (* any run of characters): absent, no key it matches is there; any other value, a key it matches is there and each it matches holds that value (a text with {placeholders}, or a regular expression between slashes).",
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean"
+                      ]
+                    }
+                  }
+                },
+                "examples": [
+                  {
+                    "session": {
+                      "rehber:*": "absent"
+                    }
                   }
                 ]
               },
@@ -793,9 +890,91 @@
                     "pattern": "^(?:\\{[^{}]+\\}|[0-9]+)$"
                   }
                 ]
+              },
+              "near": {
+                "$ref": "#/$defs/locator",
+                "description": "The element this node is drawn beside: in every state that shows the node, each element its locator finds is at most 24 CSS pixels from the one element this locator finds (0 where they overlap). Proposed on 23 Nov 2026."
+              },
+              "draws": {
+                "type": "object",
+                "description": "Another flow's screen that this node holds, drawn by something other than that flow's own page: the node's locator finds the one element that holds it, and the replay checks the drawn flow's nodes inside it, for the state that `states` maps each state to, or its first screen. Paths are relative to the binding's file. Proposed on 23 Nov 2026.",
+                "additionalProperties": false,
+                "properties": {
+                  "flow": {
+                    "type": "string",
+                    "description": "The drawn flow's folder.",
+                    "minLength": 1
+                  },
+                  "bind": {
+                    "type": "string",
+                    "description": "Its binding, where its nodes are found by its own `nodes`."
+                  },
+                  "given": {
+                    "type": "object",
+                    "description": "The drawn flow's context, for the variables its screens read that start from any value.",
+                    "additionalProperties": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
+                    }
+                  },
+                  "states": {
+                    "type": "object",
+                    "description": "By state of this flow that shows the node: the state of the drawn flow whose screen it holds.",
+                    "additionalProperties": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                },
+                "required": [
+                  "flow"
+                ]
               }
             },
-            "description": "Where the replay finds a node that its role and name cannot find, what it does before pressing it, how many elements it finds, or that it is skipped."
+            "description": "Where the replay finds a node that its role and name cannot find, what it does before pressing it, how many elements it finds, what it is drawn beside, another flow's screen it holds, or that it is skipped.",
+            "allOf": [
+              {
+                "$comment": "draws finds the element that holds the drawn screen by the node's own locator",
+                "if": {
+                  "required": [
+                    "draws"
+                  ]
+                },
+                "then": {
+                  "anyOf": [
+                    {
+                      "required": [
+                        "role"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "text"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "label"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "testId"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "css"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
           }
         },
         "effects": {

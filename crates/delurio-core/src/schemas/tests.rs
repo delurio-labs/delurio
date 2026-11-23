@@ -60,6 +60,7 @@ scenarios:
     vars: { invitee: "ada@example.test" }
     setup: [{ run: [node, seed.mjs, 3] }]
     viewport: { width: 390, height: 844 }
+    then: { next: [{ lastStep: false }, { lastStep: true, found: null }] }
   entered:
     given: { role: owner, taken: false }
     open: "{app}/"
@@ -72,11 +73,19 @@ states:
     call: { url: "{app}/api/invite", method: POST, code: error.code, returns: { DONE: { path: ok, equals: true } } }
     fail: { FAIL.network: abort, FAIL.unavailable: { status: 503, body: '{"detail":"{message}"}' }, FAIL.timeout: hang }
   left: { url: "{app}/elsewhere", before: [{ waitResponse: { url: "{app}/api/*", status: 200 } }] }
+  filled: { storage: { session: { "rehber:*": absent }, local: { theme: /^(dark|light)$/, visits: 3 } } }
+  sending: { call: { url: "{shop}/orders", method: POST, status: [201, 409] } }
+  inert: { call: { url: "{embed}/rehber/v1/*/guides*", status: 404 } }
 nodes:
   memberItem: { count: "{seed.members}" }
   removeButton: { role: button, name: Remove, within: { css: "#members" }, nth: 0, before: [{ click: { testId: menu } }] }
   avatar: { skip: drawn on a canvas }
   newestRow: { role: row, within: { role: table, name: Weeks }, nth: -1 }
+  stepBox: { near: { role: button, name: Order } }
+  screenPart:
+    role: dialog
+    name: Order a coffee
+    draws: { flow: ../cafe/order, bind: ../cafe/order/binding.yaml, given: { oat: true }, states: { sentPage: done } }
 effects:
   sendInvitation:
     - { run: [node, mail.mjs], expect: sent }
@@ -136,6 +145,7 @@ scenarios:
     open: "{app}/team"
     setup: [{ click: { role: button, name: Reset } }]
   member: { given: { role: member } }
+  next: { open: "{app}/", then: { next: { lastStep: true } } }
 events:
   NAVIGATE:
     - { goto: "{app}/x", click: { role: link, name: Away } }
@@ -144,8 +154,13 @@ events:
 states:
   inviting: { fail: { FAIL.network: abort } }
   sent: { call: { url: "{app}/api", methd: POST } }
+  kept: { storage: { cookie: { a: b } } }
+  posted: { call: { url: "{app}/x", status: 99 } }
+  shown: { storage: { session: {} } }
 nodes:
   approve: { role: button, name: Approve, exact: true }
+  part: { draws: { flow: ../cafe/order, state: done } }
+  box: { near: { nth: 1 } }
 effects:
   sendInvitation: [{ attach: { label: File, run: [node, gen.mjs] } }]
 pageErrors: warn
@@ -157,21 +172,31 @@ mask: [secret, credential, credential]
         found[0].1,
         [
             r#"3:1 the file: "scenarious" is not a key here; did you mean "scenarios"?"#,
-            r#"23:8 mask.0: must be "credential", "personal" or "internal""#,
-            r#"23:7 mask: must NOT have duplicate items (items ## 1 and 2 are identical)"#,
-            r#"22:13 pageErrors: must be "fail" or "report""#,
+            r#"29:8 mask.0: must be "credential", "personal" or "internal""#,
+            r#"29:7 mask: must NOT have duplicate items (items ## 1 and 2 are identical)"#,
+            r#"28:13 pageErrors: must be "fail" or "report""#,
             r#"8:13 scenarios.owner.setup.0: "run" is missing (only commands run here: there is no page)"#,
             r#"9:11 scenarios.member: "open" is missing"#,
-            r#"12:33 events.NAVIGATE.0.click: is not allowed here (an action does one thing: give each its own item)"#,
-            r#"13:7 events.NAVIGATE.1: "run" is missing (expect goes with run)"#,
+            r#"10:41 scenarios.next.then.next: must be a list"#,
+            r#"13:33 events.NAVIGATE.0.click: is not allowed here (an action does one thing: give each its own item)"#,
+            r#"14:7 events.NAVIGATE.1: "run" is missing (expect goes with run)"#,
             concat!(
-                r#"14:7 events.NAVIGATE.2: "goto" or "reload" or "click" or "fill" or "attach" or "key" or "waitUrl" or "#,
+                r#"15:7 events.NAVIGATE.2: "goto" or "reload" or "click" or "fill" or "attach" or "key" or "waitUrl" or "#,
                 r#""waitText" or "waitResponse" or "download" or "resize" or "run" is missing"#
             ),
-            r#"16:13 states.inviting: "call" is missing (fail makes the state's call fail, so it needs call)"#,
-            r#"17:37 states.sent.call: "methd" is not a key here; did you mean "method"?"#,
-            r#"19:43 nodes.approve: "exact" is not a key here"#,
-            r#"21:30 effects.sendInvitation.0.attach: "fileName" is missing (run gives a file of the name fileName)"#,
+            r#"17:13 states.inviting: "call" is missing (fail makes the state's call fail, so it needs call)"#,
+            r#"18:37 states.sent.call: "methd" is not a key here; did you mean "method"?"#,
+            r#"19:22 states.kept.storage: "cookie" is not a key here"#,
+            r#"20:45 states.posted.call.status: must be >= 100"#,
+            r#"21:32 states.shown.storage.session: needs at least 1 key"#,
+            r#"23:43 nodes.approve: "exact" is not a key here"#,
+            concat!(
+                r#"24:9 nodes.part: "role" or "text" or "label" or "testId" or "css" is missing (draws finds the element "#,
+                r#"that holds the drawn screen by the node's own locator)"#
+            ),
+            r#"24:41 nodes.part.draws: "state" is not a key here; did you mean "states"?"#,
+            r#"25:16 nodes.box.near: "role" or "text" or "label" or "testId" or "css" is missing"#,
+            r#"27:30 effects.sendInvitation.0.attach: "fileName" is missing (run gives a file of the name fileName)"#,
         ]
     );
 }
