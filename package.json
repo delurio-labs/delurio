@@ -1,6 +1,6 @@
 {
   "name": "@delurio/cli",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "The open checker and page of delurio-graph/0: check every graph in a project's own CI, offline, with GNU error lines and SARIF.",
   "license": "Apache-2.0",
   "type": "module",
@@ -47,12 +47,12 @@
     "elkjs": "0.12.1"
   },
   "optionalDependencies": {
-    "@delurio/cli-linux-x64-gnu": "0.14.0",
-    "@delurio/cli-linux-x64-musl": "0.14.0",
-    "@delurio/cli-linux-arm64-gnu": "0.14.0",
-    "@delurio/cli-linux-arm64-musl": "0.14.0",
-    "@delurio/cli-darwin-arm64": "0.14.0",
-    "@delurio/cli-win32-x64-msvc": "0.14.0"
+    "@delurio/cli-linux-x64-gnu": "0.15.0",
+    "@delurio/cli-linux-x64-musl": "0.15.0",
+    "@delurio/cli-linux-arm64-gnu": "0.15.0",
+    "@delurio/cli-linux-arm64-musl": "0.15.0",
+    "@delurio/cli-darwin-arm64": "0.15.0",
+    "@delurio/cli-win32-x64-msvc": "0.15.0"
   },
   "devDependencies": {
     "@napi-rs/cli": "3.10.12"
