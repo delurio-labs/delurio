@@ -29,7 +29,7 @@ use crate::nodepath::{self, basename, dirname, join2, relative, resolve1};
 use crate::schemas::{SchemaKind, schema_kind_of, validate_file};
 use crate::starts::check_starts;
 use crate::story::steps_by_events;
-use crate::tutorial_check::check_tutorial;
+use crate::tutorial_check::{PROSE_PLACEHOLDER, check_tutorial, prose_gaps};
 use crate::ui_check::{EVENT_UNHANDLED, check_events, check_ui};
 use crate::wireframe::render_screens;
 use crate::yaml::{key_at, parsing_once, read_yaml};
@@ -153,6 +153,7 @@ const RULES: &[Rule] = &[
     rule("state-no-way-out", "A state that is not an exit has no way out (SPEC.md §2)", E),
     rule("state-unreachable", "No situation the flow starts in reaches the state (SPEC.md §2)", E),
     rule("tutorial-mismatch", "A tutorial no longer matches its flow (SPEC.md §7)", E),
+    rule("prose-placeholder", "A {name} in the flow's title, a state's title or a transition's say is neither a sample value nor a node, and a tutorial planned from the graph says it as the bare name (SPEC.md §7)", W),
     rule("evidence-unresolved", "A need's evidence names what is not there (SPEC.md §13)", E),
     rule("need-no-evidence", "A need that is not missing names no evidence outside the graph (SPEC.md §13)", E),
     rule("need-names-built", "A missing need names a state that is built as its evidence (SPEC.md §13)", W),
@@ -614,6 +615,10 @@ fn check_flow(dir: &str, domains: &mut DomainsSeen, kits: &mut IndexSet<String>)
         for p in holds {
             out.push(result(HOLDS_UNKNOWN, &ui, key_at(&text, &p.path), p.message, &id, p.element));
         }
+    }
+    // a {name} in the words a tutorial planned from the graph says, which nothing fills (SPEC.md §7)
+    for p in prose_gaps(&g) {
+        out.push(result(PROSE_PLACEHOLDER, &file, key_at(&flow_text, &p.path), p.message, &id, p.element));
     }
     let tutorial = join2(dir, "tutorial.yaml");
     if exists(&tutorial) {
