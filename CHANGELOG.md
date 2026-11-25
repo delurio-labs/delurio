@@ -2,9 +2,9 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
-## Unreleased
+## 0.16.0 (2026-11-25)
 
-Proposed on 25 Nov 2026, not decided: what a pilot met when it planned tutorials for a whole panel's flows and filmed one video per flow (SPEC.md §7). The engine's tutorial planner and recorder changed with it; `check` replays a tutorial as the video does, so it changes the same way.
+This release takes in what a pilot met when it planned tutorials for a whole panel's flows and filmed one video per flow (SPEC.md §7). The engine's tutorial planner and recorder changed with it; `check` replays a tutorial as the video does, so it changes the same way.
 
 - A tutorial passes a state that moves on at once (`always`) as it passes a server step, along the first of its transitions whose guard holds, whatever the state shows: a form whose fields are checked while its Save is still drawn. Before, such a state was read as a screen where the walk stopped, so a tutorial whose next step showed the state after it got `tutorial-mismatch`, and the video plan could get no further.
 - Where a step's event is handled both by the screen its way ends on and by server steps on the way, or by several server steps, such as a page that reads a registry and then a saved value and fails each to a screen of its own, the walk takes it at the first of them from which the step's events lead to the state the next step shows (`show` or `end`). Before, it took it at the first server step that handled it, whatever the next step showed; where none leads there, it still does.
