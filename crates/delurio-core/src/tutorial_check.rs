@@ -91,6 +91,97 @@ fn path_with(path: &[String], rest: &[&str]) -> Vec<String> {
 
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\{([A-Za-z0-9_]+)\}").expect("the word pattern compiles"));
 
+pub const PROSE_PLACEHOLDER: &str = "prose-placeholder";
+
+/// A `{name}` in the graph's own words that a tutorial planned from the graph says (the flow's title, a state's
+/// title, a transition's `say`), and that neither a sample value nor a node of ui.yaml gives: the tutorial says it as
+/// its bare name (SPEC.md §7). `path` is where in flow.yaml.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProseGap {
+    pub path: Vec<String>,
+    pub message: String,
+    pub element: String,
+}
+
+/// Each `{name}` of the graph's own words that no sample value and no node gives, at the title or the transition
+/// that says it, once per text (SPEC.md §7)
+pub fn prose_gaps(g: &Graph) -> Vec<ProseGap> {
+    let ui = g.ui();
+    let given = |name: &str| ui.sample(name).is_some_and(Value::is_string) || ui.node(name).is_some();
+    let mut out = Vec::new();
+    let mut look = |path: Vec<String>, what: &str, text: Option<&str>| {
+        let mut seen: Vec<&str> = Vec::new();
+        for c in WORD.captures_iter(text.unwrap_or("")) {
+            let name = c.get(1).map_or("", |m| m.as_str());
+            if given(name) || seen.contains(&name) {
+                continue;
+            }
+            seen.push(name);
+            out.push(ProseGap {
+                element: format!("prose/{}/{name}", path.join("/")),
+                path: path.clone(),
+                message: format!(
+                    "{what} says {{{name}}}, which is neither a sample value nor a node of ui.yaml: a tutorial planned from the graph says it as the word {name}; give it a sample value, such as samples: {{ {name}: ... }} (SPEC.md §7)"
+                ),
+            });
+        }
+    };
+    let p = |parts: &[&str]| -> Vec<String> { parts.iter().map(|s| s.to_string()).collect() };
+    look(p(&["title"]), "the flow's title", g.flow().title());
+    for (name, st) in g.flow().states() {
+        look(p(&["states", name, "title"]), &format!("the title of {name}"), st.title());
+        for (k, t) in st.always().iter().enumerate() {
+            look(p(&["states", name, "always", &k.to_string()]), &format!("{name}'s always {}", k + 1), t.say());
+        }
+        for (event, spec) in st.on() {
+            let ways = alternatives(spec);
+            let listed = spec.is_array();
+            for (k, t) in ways.iter().enumerate() {
+                let path = if listed {
+                    p(&["states", name, "on", event, &k.to_string()])
+                } else {
+                    p(&["states", name, "on", event])
+                };
+                look(path, &format!("{name} on {event}"), t.say());
+            }
+        }
+    }
+    out
+}
+
+/// A state that moves on at once by a rule of its own (`always`, SPEC.md §2): the flow is never left there, so a
+/// tutorial passes it as it passes a server step, along the first way whose guard holds, whatever nodes list it (a
+/// form's Save still drawn while its fields are checked)
+fn moves_at_once(g: &Graph, state: &str) -> bool {
+    g.flow().state(state).is_some_and(|st| !st.always().is_empty())
+}
+
+/// how a tutorial takes a state: as `kind_of` reads it, save that a state that moves on at once is a server step
+fn step_kind(g: &Graph, state: &str) -> NodeKind {
+    if moves_at_once(g, state) { NodeKind::Server } else { kind_of(g, state) }
+}
+
+const CUT_KEYS: [&str; 3] = ["state", "scenario", "given"];
+
+/// a step's `cut`: the state it jumps to, and the values its `given` names there (SPEC.md §7). Its `scenario` is the
+/// binding's, which a tutorial is not checked against: it narrows nothing here.
+fn cut_of(s: &Value) -> Option<(&str, Option<&Object>)> {
+    match s.get("cut")? {
+        Value::String(c) => Some((c.as_str(), None)),
+        c => Some((c.get_str("state")?, c.get_object("given"))),
+    }
+}
+
+/// the state the step after step `i` says the flow is in, its `show` or its `end`; None where it names none (a cut, a
+/// card, a step that stays where the flow is)
+fn next_shows(steps: &[Value], i: usize) -> Option<&str> {
+    let n = steps.get(i + 1).filter(|n| n.is_object())?;
+    if n.get("cut").is_some() {
+        return None;
+    }
+    n.get_str("show").or_else(|| n.get_str("end"))
+}
+
 pub fn check_tutorial(g: &Graph, m: &Model, ex: &Exploration, text: &str) -> Result<Vec<TutorialProblem>> {
     let t = match read_yaml(text) {
         Ok(t) => t,
@@ -241,6 +332,41 @@ pub fn check_tutorial(g: &Graph, m: &Model, ex: &Exploration, text: &str) -> Res
                 problem(&mut out, at(&[key]), format!("{step}: {key} {v}, which is not a state of {flow_id}"));
             }
         }
+        // a cut that names its situation: { state, scenario, given }
+        match s.get("cut") {
+            None | Some(Value::String(_)) => {}
+            Some(Value::Object(c))
+                if c.get("state").is_some_and(Value::is_string) && c.keys().all(|k| CUT_KEYS.contains(&k.as_str())) =>
+            {
+                if let Some(v) = c.get("state").and_then(Value::as_str)
+                    && !flow.has_state(v)
+                {
+                    problem(
+                        &mut out,
+                        at(&["cut", "state"]),
+                        format!("{step}: cut {v}, which is not a state of {flow_id}"),
+                    );
+                }
+                if let Some(scenario) = c.get("scenario")
+                    && !scenario.is_string()
+                {
+                    problem(
+                        &mut out,
+                        at(&["cut", "scenario"]),
+                        format!(
+                            "{step}: cut's scenario is the name of a scenario of the binding, not {}",
+                            shown(scenario)
+                        ),
+                    );
+                }
+                values(&mut out, at(&["cut", "given"]), c.get("given"), &format!("{step}: cut's given"));
+            }
+            Some(other) => problem(
+                &mut out,
+                at(&["cut"]),
+                format!("{step}: cut is a state, or {{ state, scenario, given }}, not {}", shown(other)),
+            ),
+        }
         for key in ["press", "reveal", "focus"] {
             let listed = s.get(key).is_some_and(Value::is_array);
             for (j, id) in names(s.get(key)).into_iter().enumerate() {
@@ -377,26 +503,30 @@ impl Replay<'_> {
         Ok(())
     }
 
-    // `next`: the event the step gives after this one (SPEC.md §7: a failure taken at a server step the step passes)
+    // `rest`: the events the step gives after this one, in order, and `wanted`: the state the next step shows (SPEC.md
+    // §7: a failure taken at a server step the step passes)
     fn take(
         &self,
         cur: &Cursor,
         event: &Value,
-        next: Option<&Value>,
+        rest: &[&Value],
+        wanted: Option<&str>,
         path: &[String],
         step: &str,
     ) -> std::result::Result<Cursor, Fail> {
-        self.take_row(cur, event, None, next, path, step)
+        self.take_row(cur, event, None, rest, wanted, path, step)
     }
 
     // a press with a row takes the case in which each variable its effects set from the row (`row.<field>`) has the
     // row's value, as the row is what was pressed (SPEC.md §4, §7)
+    #[allow(clippy::too_many_arguments)]
     fn take_row(
         &self,
         cur: &Cursor,
         event: &Value,
         pressed: Option<&Pressed<'_>>,
-        next: Option<&Value>,
+        rest: &[&Value],
+        wanted: Option<&str>,
         path: &[String],
         step: &str,
     ) -> std::result::Result<Cursor, Fail> {
@@ -430,7 +560,7 @@ impl Replay<'_> {
                 format!("{step}: the flow is in {}, which does not handle {}", cur.state, js::to_js_string(event)),
             );
         };
-        self.settle_for(Cursor { state: hit.target.clone(), ctx: hit.ctx.clone() }, next, path, step)
+        self.settle_for(Cursor { state: hit.target.clone(), ctx: hit.ctx.clone() }, rest, wanted, path, step)
     }
 
     /// the variables a step's effects set from the pressed row, each with the row's value: read from the transition
@@ -469,28 +599,23 @@ impl Replay<'_> {
         Ok(out)
     }
 
-    // a step with no screen passes on its own along its normal way (a transition with no event, then DONE); one with no
-    // such way waits for an event the tutorial gives with `after`
-    // `wait_for`: an event the step gives next; a server step that handles it otherwise than by its normal way is where
-    // the walk waits for it (settle_for)
-    fn settle(
-        &self,
-        cur: Cursor,
-        wait_for: Option<&str>,
-        path: &[String],
-        step: &str,
-    ) -> std::result::Result<Cursor, Fail> {
+    // the case the normal way takes from a step with no screen: a transition with no event, then DONE
+    fn normal_way(&self, c: &Cursor) -> std::result::Result<(Vec<Step>, Option<Cursor>), Fail> {
+        let ways = self.m.steps(&c.state, &c.ctx)?;
+        let next = self
+            .pick(ways.iter().filter(|x| x.event.as_deref().is_none_or(|e| e == "DONE")).collect())
+            .map(|n| Cursor { state: n.target.clone(), ctx: n.ctx.clone() });
+        Ok((ways, next))
+    }
+
+    // a step with no screen passes on its own along its normal way (a transition with no event, then DONE), and so does
+    // a state that moves on at once (always), whatever it shows; one with no such way waits for an event the tutorial
+    // gives with `after`
+    fn settle(&self, cur: Cursor, path: &[String], step: &str) -> std::result::Result<Cursor, Fail> {
         let mut c = cur;
         let mut hops = 0;
-        while hops < 50 && kind_of(self.g, &c.state) == NodeKind::Server {
-            let ways = self.m.steps(&c.state, &c.ctx)?;
-            if let Some(e) = wait_for
-                && e != "DONE"
-                && ways.iter().any(|x| x.event.as_deref() == Some(e))
-            {
-                return Ok(c);
-            }
-            let next = self.pick(ways.iter().filter(|x| x.event.as_deref().is_none_or(|e| e == "DONE")).collect());
+        while hops < 50 && step_kind(self.g, &c.state) == NodeKind::Server {
+            let (ways, next) = self.normal_way(&c)?;
             match next {
                 None if !ways.is_empty() => return Ok(c),
                 None => {
@@ -499,7 +624,7 @@ impl Replay<'_> {
                         format!("{step}: the flow stops in {}, which has no screen and no way on", c.state),
                     );
                 }
-                Some(next) => c = Cursor { state: next.target.clone(), ctx: next.ctx.clone() },
+                Some(next) => c = next,
             }
             hops += 1;
         }
@@ -510,27 +635,84 @@ impl Replay<'_> {
         Ok(self.m.steps(&c.state, &c.ctx)?.iter().any(|x| x.event.as_deref() == Some(event)))
     }
 
-    // Where the event the step gives next (`next`) is one the screen the server steps lead to does not handle, but one
-    // of those server steps does, another way than its normal one (a failure, a refusal), the walk stops at that server
-    // step and the event is taken there, so a tutorial can show the screen a failure leads to; a way the screen handles
-    // is taken as before (SPEC.md §7)
+    // each server step on the normal way from `from` that handles `event` (not DONE, which is the normal way), in order
+    fn stops_for(&self, from: Cursor, event: &str) -> std::result::Result<Vec<Cursor>, Fail> {
+        let mut out = Vec::new();
+        if event == "DONE" {
+            return Ok(out);
+        }
+        let mut c = from;
+        let mut hops = 0;
+        while hops < 50 && step_kind(self.g, &c.state) == NodeKind::Server {
+            let (ways, next) = self.normal_way(&c)?;
+            if ways.iter().any(|x| x.event.as_deref() == Some(event)) {
+                out.push(c.clone());
+            }
+            let Some(next) = next else { break };
+            c = next;
+            hops += 1;
+        }
+        Ok(out)
+    }
+
+    // whether the events `rest`, given from `c`, bring the flow to `wanted`: looking ahead, nothing kept
+    fn reaches(
+        &self,
+        c: &Cursor,
+        rest: &[&Value],
+        wanted: &str,
+        path: &[String],
+        step: &str,
+    ) -> std::result::Result<bool, Fail> {
+        let mut x = c.clone();
+        for (k, e) in rest.iter().enumerate() {
+            let steps = self.m.steps(&x.state, &x.ctx)?;
+            let Some(hit) = self
+                .pick(steps.iter().filter(|s| s.event.as_deref().is_some_and(|ev| Some(ev) == e.as_str())).collect())
+            else {
+                return Ok(false);
+            };
+            let moved = Cursor { state: hit.target.clone(), ctx: hit.ctx.clone() };
+            match self.settle_for(moved, &rest[k + 1..], Some(wanted), path, step) {
+                Ok(next) => x = next,
+                Err(Fail::Stop(..)) => return Ok(false),
+                Err(err) => return Err(err),
+            }
+        }
+        Ok(&*x.state == wanted)
+    }
+
+    // Where the event the step gives next (the first of `rest`) is one that a server step on the way handles another
+    // way than its normal one (a failure, a refusal), the walk may stop at that server step and take the event there, so
+    // a tutorial can show the screen a failure leads to. Where the way's end handles the event, it may be taken there,
+    // as before. Of these, the walk takes the first from which the step's events lead to the state the next step shows
+    // (`wanted`): two server steps in a row may both handle a failure, each to its own screen. Where none leads there, or
+    // the next step names no state, the first (SPEC.md §7).
     fn settle_for(
         &self,
         from: Cursor,
-        next: Option<&Value>,
+        rest: &[&Value],
+        wanted: Option<&str>,
         path: &[String],
         step: &str,
     ) -> std::result::Result<Cursor, Fail> {
-        let end = self.settle(from.clone(), None, path, step)?;
-        if let Some(event) = next.and_then(Value::as_str)
-            && !self.handles(&end, event)?
+        let end = self.settle(from.clone(), path, step)?;
+        let Some(event) = rest.first().and_then(|e| e.as_str()) else { return Ok(end) };
+        let mut options = Vec::new();
+        if self.handles(&end, event)? {
+            options.push(end.clone());
+        }
+        options.extend(self.stops_for(from, event)?);
+        if let Some(wanted) = wanted
+            && options.len() > 1
         {
-            let at = self.settle(from, Some(event), path, step)?;
-            if self.handles(&at, event)? {
-                return Ok(at);
+            for o in &options {
+                if self.reaches(o, rest, wanted, path, step)? {
+                    return Ok(o.clone());
+                }
             }
         }
-        Ok(end)
+        Ok(options.into_iter().next().unwrap_or(end))
     }
 
     fn screens(mut self, steps: &[Value], scenario: &Object) -> std::result::Result<(), Fail> {
@@ -541,11 +723,15 @@ impl Replay<'_> {
         let node_get = |id: &str, k: &str| ui.node(id).and_then(|n| n.get(k).cloned());
         let start = self.start(scenario)?;
         // an opening card's first event may come before the first screen: a failure at a server step the start passes
-        let opening = steps
-            .first()
-            .filter(|s| s.get("intro") == Some(&Value::Bool(true)))
-            .and_then(|s| names(s.get("after")).first().copied());
-        let mut cur = self.settle_for(start, opening, &["scenario".to_string()], "the start")?;
+        let opening =
+            steps.first().filter(|s| s.get("intro") == Some(&Value::Bool(true))).map(|s| names(s.get("after")));
+        let mut cur = self.settle_for(
+            start,
+            opening.as_deref().unwrap_or_default(),
+            next_shows(steps, 0),
+            &["scenario".to_string()],
+            "the start",
+        )?;
         for (i, s) in steps.iter().enumerate() {
             if !s.is_object() {
                 continue;
@@ -562,7 +748,7 @@ impl Replay<'_> {
                     } else {
                         path_with(&path, &["after"])
                     };
-                    cur = self.take(&cur, e, events.get(j + 1).copied(), &where_, &step)?;
+                    cur = self.take(&cur, e, &events[j + 1..], next_shows(steps, i), &where_, &step)?;
                 }
                 self.then_holds(&cur, &path, &step)?;
                 continue;
@@ -577,45 +763,10 @@ impl Replay<'_> {
             }
             // the state whose screen the step shows; None for a card
             let mut state: Option<Rc<str>> = Some(cur.state.clone());
-            let cut = s.get_str("cut");
+            let cut = cut_of(s);
             let show = s.get_str("show");
-            if let Some(wanted) = cut {
-                let mut hit = None;
-                let mut ctx = Vec::new();
-                for i in 0..self.ex.len() {
-                    if self.ex.state(i) != wanted {
-                        continue;
-                    }
-                    self.ex.ctx_into(i, &mut ctx);
-                    let mut all = true;
-                    for id in &reveal {
-                        let when = node_get(id, "when");
-                        if when.is_none() {
-                            continue;
-                        }
-                        match self.m.test_value(when.as_ref(), wanted, &ctx) {
-                            Ok(true) => {}
-                            Ok(false) => {
-                                all = false;
-                                break;
-                            }
-                            Err(err) => return stop(path_with(&path, &["reveal"]), format!("{step}: {}", err.message)),
-                        }
-                    }
-                    if all {
-                        hit = self.ex.config(i);
-                        break;
-                    }
-                }
-                let Some(hit) = hit else {
-                    let shows =
-                        if reveal.is_empty() { String::new() } else { format!(" and shows {}", reveal.join(", ")) };
-                    return stop(
-                        path_with(&path, &["cut"]),
-                        format!("{step}: no situation the flow reaches is in {wanted}{shows}"),
-                    );
-                };
-                cur = Cursor { state: hit.state, ctx: hit.ctx };
+            if let Some((wanted, given)) = cut {
+                cur = self.cut_to(wanted, given, &reveal, &path, &step)?;
                 state = Some(cur.state.clone());
             } else if let Some(end) = s.get("end") {
                 if let Value::String(end) = end
@@ -703,8 +854,8 @@ impl Replay<'_> {
                     let row = rows?.get((r as usize).checked_sub(1)?)?.as_object()?;
                     Some(Pressed { node: press, n: r as usize, row, at: path_with(&path, &["row"]) })
                 });
-                let next = names(s.get("after")).first().copied();
-                cur = self.take_row(&cur, emits, pressed.as_ref(), next, &where_, &step)?;
+                let rest = names(s.get("after"));
+                cur = self.take_row(&cur, emits, pressed.as_ref(), &rest, next_shows(steps, i), &where_, &step)?;
             }
             let events = names(s.get("after"));
             for (j, e) in events.iter().enumerate() {
@@ -713,7 +864,7 @@ impl Replay<'_> {
                 } else {
                     path_with(&path, &["after"])
                 };
-                cur = self.take(&cur, e, events.get(j + 1).copied(), &where_, &step)?;
+                cur = self.take(&cur, e, &events[j + 1..], next_shows(steps, i), &where_, &step)?;
             }
             self.then_holds(&cur, &path, &step)?;
         }
@@ -735,16 +886,8 @@ impl Replay<'_> {
             if s.get("intro") == Some(&Value::Bool(true)) {
                 continue;
             }
-            if let Some(wanted) = s.get_str("cut") {
-                let Some(hit) =
-                    (0..self.ex.len()).find(|&i| self.ex.state(i) == wanted).and_then(|i| self.ex.config(i))
-                else {
-                    return stop(
-                        path_with(&path, &["cut"]),
-                        format!("{step}: no situation the flow reaches is in {wanted}"),
-                    );
-                };
-                cur = Cursor { state: hit.state, ctx: hit.ctx };
+            if let Some((wanted, given)) = cut_of(s) {
+                cur = self.cut_to(wanted, given, &[], &path, &step)?;
             } else if let Some(end) = s.get_str("end") {
                 cur = self.walk_to(cur, end, &path_with(&path, &["end"]), &step)?;
                 if !flow.state(end).is_some_and(|st| st.is_final()) {
@@ -772,6 +915,62 @@ impl Replay<'_> {
             self.then_holds(&cur, &path, &step)?;
         }
         Ok(())
+    }
+
+    // The situation a cut jumps to: the first the flow reaches in its state, with each variable its `given` names at
+    // that value and each node the step reveals shown. A cut that names a scenario is reached through that scenario of
+    // the binding; the binding is not read here, so it narrows nothing (SPEC.md §7).
+    fn cut_to(
+        &self,
+        wanted: &str,
+        given: Option<&Object>,
+        reveal: &[String],
+        path: &[String],
+        step: &str,
+    ) -> std::result::Result<Cursor, Fail> {
+        let ui = self.g.ui();
+        // the names were held to the flow before the walk: each a variable
+        let given: Vec<(usize, &String, &Value)> = given
+            .into_iter()
+            .flat_map(|o| o.iter())
+            .filter_map(|(name, v)| self.m.vars.iter().position(|x| x == name).map(|i| (i, name, v)))
+            .collect();
+        let mut ctx = Vec::new();
+        for i in 0..self.ex.len() {
+            if self.ex.state(i) != wanted {
+                continue;
+            }
+            self.ex.ctx_into(i, &mut ctx);
+            if !given.iter().all(|(j, _, v)| self.m.holds(&ctx, *j, v)) {
+                continue;
+            }
+            let mut all = true;
+            for id in reveal {
+                let when = ui.node(id).and_then(|n| n.get("when").cloned());
+                if when.is_none() {
+                    continue;
+                }
+                match self.m.test_value(when.as_ref(), wanted, &ctx) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        all = false;
+                        break;
+                    }
+                    Err(err) => return stop(path_with(path, &["reveal"]), format!("{step}: {}", err.message)),
+                }
+            }
+            if all && let Some(hit) = self.ex.config(i) {
+                return Ok(Cursor { state: hit.state, ctx: hit.ctx });
+            }
+        }
+        let with = if given.is_empty() {
+            String::new()
+        } else {
+            let values: Vec<String> = given.iter().map(|(_, name, v)| format!("{name} = {}", shown(v))).collect();
+            format!(" with {}", values.join(", "))
+        };
+        let shows = if reveal.is_empty() { String::new() } else { format!(" and shows {}", reveal.join(", ")) };
+        stop(path_with(path, &["cut"]), format!("{step}: no situation the flow reaches is in {wanted}{with}{shows}"))
     }
 
     fn walk_to(&self, cur: Cursor, wanted: &str, path: &[String], step: &str) -> std::result::Result<Cursor, Fail> {
@@ -848,20 +1047,285 @@ nodes:
   retry: { type: action, component: Button, role: button, text: { literal: Try again }, in: [failed], emits: RETRY }
 ";
 
-    fn said_on_send(steps: &str) -> Vec<String> {
+    fn graph_of(flow: &str, ui: &str) -> Graph {
         let read = |f: &str| -> crate::error::Result<String> {
             Ok(match f {
-                "flow.yaml" => SEND_FLOW.to_string(),
-                "ui.yaml" => SEND_UI.to_string(),
+                "flow.yaml" => flow.to_string(),
+                "ui.yaml" => ui.to_string(),
                 _ => "{}".to_string(),
             })
         };
-        let g = crate::graph::load_with("send", &read, &|f| f != "tutorial.yaml").expect("the flow loads");
+        crate::graph::load_with("flow", &read, &|f| f != "tutorial.yaml").expect("the flow loads")
+    }
+
+    // the problems of a tutorial (`head`: its keys before `steps`) on a flow and its ui
+    fn said_on(flow: &str, ui: &str, head: &str, steps: &str) -> Vec<String> {
+        let g = graph_of(flow, ui);
         let m = Model::new(g.flow.clone());
         let ex = explore(&m, None, None).expect("explored");
-        let text = format!("schema: delurio-graph/0\nkind: tutorial\nflow: demo.send\ntitle: Send\nsteps:\n{steps}");
+        let text = format!("schema: delurio-graph/0\nkind: tutorial\n{head}\nsteps:\n{steps}");
         let problems = check_tutorial(&g, &m, &ex, &text).expect("checked");
         problems.into_iter().map(|p| format!("{}: {}", p.path.join("."), p.message)).collect()
+    }
+
+    fn said_on_send(steps: &str) -> Vec<String> {
+        said_on(SEND_FLOW, SEND_UI, "flow: demo.send\ntitle: Send", steps)
+    }
+
+    // a form whose fields are checked as it is saved (checking moves on at once, though it still draws Save), then a
+    // call that may fail
+    const FORM_FLOW: &str = "schema: delurio-graph/0
+kind: flow
+id: demo.form
+status: proposed
+title: Create a user
+initial: editing
+states:
+  editing: { title: The form, on: { SAVE: checking } }
+  checking: { title: The fields are checked, always: [ { target: creating } ] }
+  creating: { title: Create the user, on: { DONE: created, FAIL.down: failed } }
+  failed: { title: Not created, on: { RETRY: checking } }
+  created: { type: final, title: Created }
+";
+    const FORM_UI: &str = "schema: delurio-graph/0
+kind: ui
+id: demo.form
+flow: demo.form
+status: proposed
+catalog: catalog/en.json
+locales: [en]
+nodes:
+  save: { type: action, component: Button, role: button, text: { literal: Save }, in: [editing, checking], emits: SAVE }
+  failedText: { type: text, component: Text, role: alert, text: { literal: Not created }, in: [failed] }
+  retry: { type: action, component: Button, role: button, text: { literal: Try again }, in: [failed], emits: RETRY }
+  createdText: { type: text, component: Text, role: status, text: { literal: Created }, in: [created] }
+";
+
+    fn said_on_form(steps: &str) -> Vec<String> {
+        said_on(FORM_FLOW, FORM_UI, "flow: demo.form\ntitle: Create a user", steps)
+    }
+
+    // SPEC.md §7: a state that moves on at once (always) is passed as a server step is, whatever it shows
+    #[test]
+    fn a_state_that_moves_on_at_once_is_passed_as_a_server_step() {
+        let ok = Vec::<String>::new();
+        assert_eq!(said_on_form("  - { show: editing, press: save }\n  - { show: created }\n"), ok);
+        // a failure of the call after it, taken at the server step the press passes
+        assert_eq!(said_on_form("  - { show: editing, press: save, after: FAIL.down }\n  - { show: failed }\n"), ok);
+        assert_eq!(
+            said_on_form(
+                "  - { show: editing, press: save, after: FAIL.down }\n  - { show: failed, press: retry }\n  - { end: created }\n"
+            ),
+            ok
+        );
+        // and it is no screen a step stops on
+        assert_eq!(
+            said_on_form("  - { show: editing, press: save }\n  - { show: checking }\n"),
+            ["steps.1.show: step 2: shows checking, and the flow is in created here"]
+        );
+    }
+
+    // two server steps in a row, each handling the same failure, each to its own screen
+    const SETTING_FLOW: &str = "schema: delurio-graph/0
+kind: flow
+id: demo.setting
+status: proposed
+title: A setting
+initial: loading
+states:
+  loading: { title: Read the registry, on: { DONE: readingSaved, FAIL.refused: failed } }
+  readingSaved: { title: Read the saved value, on: { DONE: form, FAIL.refused: unreadable } }
+  form: { title: The setting, on: { RELOAD: loading } }
+  failed: { title: No registry, on: { RELOAD: loading } }
+  unreadable: { title: No saved value, on: { RELOAD: loading } }
+";
+    const SETTING_UI: &str = "schema: delurio-graph/0
+kind: ui
+id: demo.setting
+flow: demo.setting
+status: proposed
+catalog: catalog/en.json
+locales: [en]
+nodes:
+  field: { type: field, component: TextField, role: textbox, text: { literal: Value }, in: [form] }
+  failedText: { type: text, component: Text, role: alert, text: { literal: No registry }, in: [failed] }
+  unreadableText: { type: text, component: Text, role: alert, text: { literal: No saved value }, in: [unreadable] }
+  reload: { type: action, component: Button, role: button, text: { literal: Reload }, in: [form, failed, unreadable], emits: RELOAD }
+";
+
+    fn said_on_setting(steps: &str) -> Vec<String> {
+        said_on(SETTING_FLOW, SETTING_UI, "flow: demo.setting\ntitle: A setting", steps)
+    }
+
+    // SPEC.md §7: a failure is taken at the server step from which the step's events lead to the screen the next step
+    // shows, not always at the first that handles it
+    #[test]
+    fn a_failure_is_taken_where_the_next_step_says_it_leads() {
+        let ok = Vec::<String>::new();
+        assert_eq!(said_on_setting("  - { intro: true, after: [FAIL.refused] }\n  - { show: unreadable }\n"), ok);
+        assert_eq!(said_on_setting("  - { intro: true, after: [FAIL.refused] }\n  - { show: failed }\n"), ok);
+        let pressed = "  - { show: form, press: reload, after: FAIL.refused }\n  - { show: unreadable, press: reload }\n  - { show: form }\n";
+        assert_eq!(said_on_setting(pressed), ok);
+        // a next step that names no state: the first, as before
+        assert_eq!(
+            said_on_setting("  - { intro: true, after: [FAIL.refused] }\n  - { focus: [unreadableText] }\n"),
+            ["steps.1.focus.0: step 2: focus unreadableText, which failed does not show"]
+        );
+    }
+
+    // a list, a filter the scenario gives, and a progress dialog while the users are turned passive
+    const LIST_FLOW: &str = "schema: delurio-graph/0
+kind: flow
+id: demo.list
+status: proposed
+title: Turn users passive
+context:
+  filter: { values: [all, passive], initial: any }
+initial: listed
+states:
+  listed: { title: The users, on: { APPLY: updating } }
+  updating: { title: Turn them passive, invoke: { action: setActive }, on: { DONE: done, CANCEL: listed } }
+  done: { type: final, title: Done }
+";
+    const LIST_UI: &str = "schema: delurio-graph/0
+kind: ui
+id: demo.list
+flow: demo.list
+status: proposed
+catalog: catalog/en.json
+locales: [en]
+nodes:
+  users: { type: text, component: Text, text: { literal: Users }, in: [listed, updating] }
+  passiveNote: { type: text, component: Text, role: status, text: { literal: Only the passive ones }, in: [listed], when: \"filter == 'passive'\" }
+  apply: { type: action, component: Button, role: button, text: { literal: Turn passive }, in: [listed], emits: APPLY }
+  progress: { type: page, component: Page, role: dialog, name: { literal: Working }, in: [updating] }
+  cancel: { type: action, component: Button, role: button, text: { literal: Stop }, in: [updating], emits: CANCEL }
+";
+
+    fn said_on_list(steps: &str) -> Vec<String> {
+        said_on(LIST_FLOW, LIST_UI, "flow: demo.list\ntitle: Users\nscenario: { filter: all }", steps)
+    }
+
+    // SPEC.md §7: a cut may name its situation, { state, scenario, given }
+    #[test]
+    fn a_cut_names_its_situation() {
+        let ok = Vec::<String>::new();
+        let cut =
+            |c: &str| said_on_list(&format!("  - {{ show: listed }}\n  - {{ cut: {c}, reveal: [passiveNote] }}\n"));
+        assert_eq!(cut("listed"), ok);
+        assert_eq!(cut("{ state: listed, given: { filter: passive } }"), ok);
+        // a scenario is the binding's, which check does not read: it narrows nothing
+        assert_eq!(cut("{ state: listed, scenario: passiveOnly }"), ok);
+        assert_eq!(
+            cut("{ state: listed, given: { filter: all } }"),
+            [
+                "steps.1.cut: step 2: no situation the flow reaches is in listed with filter = \"all\" and shows passiveNote"
+            ]
+        );
+        assert_eq!(
+            said_on_list(
+                "  - { cut: { state: listed, given: { filter: passive } }, focus: [apply] }\n  - { press: apply }\n  - { show: updating }\n"
+            ),
+            ok
+        );
+    }
+
+    #[test]
+    fn a_cut_that_is_no_state_and_no_situation_is_named() {
+        let cut = |c: &str| said_on_list(&format!("  - {{ cut: {c} }}\n"));
+        assert_eq!(
+            cut("{ state: nowhere }"),
+            ["steps.0.cut.state: step 1: cut nowhere, which is not a state of demo.list"]
+        );
+        assert_eq!(
+            cut("{ given: { filter: all } }"),
+            [
+                "steps.0.cut: step 1: cut is a state, or { state, scenario, given }, not {\"given\":{\"filter\":\"all\"}}"
+            ]
+        );
+        assert_eq!(
+            cut("{ state: listed, scenaro: passiveOnly }"),
+            [
+                "steps.0.cut: step 1: cut is a state, or { state, scenario, given }, not {\"state\":\"listed\",\"scenaro\":\"passiveOnly\"}"
+            ]
+        );
+        assert_eq!(
+            cut("[listed]"),
+            ["steps.0.cut: step 1: cut is a state, or { state, scenario, given }, not [\"listed\"]"]
+        );
+        assert_eq!(
+            cut("{ state: listed, scenario: 3 }"),
+            ["steps.0.cut.scenario: step 1: cut's scenario is the name of a scenario of the binding, not 3"]
+        );
+        assert_eq!(
+            cut("{ state: listed, given: { colour: red } }"),
+            ["steps.0.cut.given.colour: step 1: cut's given names colour, which is not a variable of demo.list"]
+        );
+        assert_eq!(
+            cut("{ state: listed, given: { filter: some } }"),
+            ["steps.0.cut.given.filter: step 1: cut's given: \"some\" is not a value of filter (\"all\", \"passive\")"]
+        );
+        assert_eq!(
+            cut("{ state: listed, given: all }"),
+            ["steps.0.cut.given: step 1: cut's given is a map of variables to values"]
+        );
+    }
+
+    // SPEC.md §7: a {name} in the graph's own words is said as its sample value, or else as its bare name, of which
+    // check warns
+    #[test]
+    fn a_name_in_the_graphs_own_words_that_nothing_fills_is_named() {
+        let flow = "schema: delurio-graph/0
+kind: flow
+id: demo.users
+status: proposed
+title: The user's form opens at form/{pk}
+initial: listed
+states:
+  listed: { title: '{n} users, {n} at a time', on: { OPEN: { target: opened, say: 'they open {label}, the user {pk}' } } }
+  opened: { title: 'The form of {user}', always: [ { target: shown, say: 'it moves on to {pk}' } ] }
+  shown: { title: '{label}', on: { BACK: [ { target: listed, say: 'they go back from {save}' } ] } }
+";
+        let ui = "schema: delurio-graph/0
+kind: ui
+id: demo.users
+flow: demo.users
+status: proposed
+catalog: catalog/en.json
+locales: [en]
+samples: { user: Ada, rows: [ { id: a } ] }
+nodes:
+  label: { type: text, component: Text, text: { literal: Name }, in: [listed, shown] }
+  save: { type: action, component: Button, role: button, text: { literal: Save }, in: [shown], emits: BACK }
+";
+        let gaps = prose_gaps(&graph_of(flow, ui));
+        let said: Vec<String> = gaps.iter().map(|p| format!("{}: {}", p.path.join("."), p.element)).collect();
+        assert_eq!(
+            said,
+            [
+                "title: prose/title/pk",
+                "states.listed.title: prose/states/listed/title/n",
+                "states.listed.on.OPEN: prose/states/listed/on/OPEN/pk",
+                "states.opened.always.0: prose/states/opened/always/0/pk",
+            ]
+        );
+        assert_eq!(
+            gaps[0].message,
+            "the flow's title says {pk}, which is neither a sample value nor a node of ui.yaml: a tutorial planned from the graph says it as the word pk; give it a sample value, such as samples: { pk: ... } (SPEC.md §7)"
+        );
+        assert!(gaps[3].message.starts_with("opened's always 1 says {pk}"), "{}", gaps[3].message);
+    }
+
+    // a server step that shows something (a progress dialog while its call runs) is a screen a step may show, and its
+    // Cancel may be pressed there: a recording holds the call while that step is on screen (SPEC.md §7)
+    #[test]
+    fn a_step_shows_a_server_step_that_shows_something() {
+        let steps = "  - { show: listed, press: apply }\n  - { show: updating, focus: [progress], press: cancel }\n  - { show: listed }\n";
+        assert_eq!(said_on_list(steps), Vec::<String>::new());
+        assert_eq!(
+            said_on_list("  - { show: listed, press: apply, after: [DONE] }\n  - { end: done }\n"),
+            Vec::<String>::new()
+        );
     }
 
     // SPEC.md §7: a step's `after` may give a failure that a server step it passes takes, where the screen its normal
