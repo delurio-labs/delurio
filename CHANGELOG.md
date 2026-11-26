@@ -2,6 +2,12 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
+## Unreleased
+
+Proposed on 26 Nov 2026: how long a binding's commands may run (SPEC.md §7). That a binding may say it was decided that day; its range and its words are proposed. The binding schema takes the new key, and `check` holds a binding to it (rule `schema`).
+
+- `commands: { timeout: <seconds> }` in a binding, of a flow or of a navigation graph, says how long each of its commands may run: a `run` action wherever it is, and an `attach`'s helper. Left out, it is 180 seconds, the time a replay already gave every command. It is more than 0 and at most 1800 (30 minutes); `check` refuses any other value (`must be > 0`, `must be <= 1800`), so a time written in milliseconds is not waited for. A command that runs past it is stopped with every process it started (SIGTERM, then SIGKILL 5 seconds later) and fails as a command that exits with an error does. Before, a setup that honestly took 4 minutes, such as a seed, could not pass. A binding without the key is judged as before.
+
 ## 0.16.0 (2026-11-25)
 
 This release takes in what a pilot met when it planned tutorials for a whole panel's flows and filmed one video per flow (SPEC.md §7). The engine's tutorial planner and recorder changed with it; `check` replays a tutorial as the video does, so it changes the same way.
