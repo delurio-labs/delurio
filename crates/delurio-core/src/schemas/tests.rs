@@ -43,6 +43,7 @@ fn a_binding_of_a_flow_of_a_navigation_graph_and_a_shared_one_follow_the_schema(
 kind: binding
 flow: demo.team
 extends: ../replay.base.binding.yaml
+commands: { timeout: 240 }
 apps: { app: "http://127.0.0.1:3000" }
 browser: { width: 390, height: 844, locale: tr-TR, timeout: 20, ignoreHTTPSErrors: true }
 data: { seed: { json: .work/seed.json }, env: { dotenv: .work/replay.env } }
@@ -107,6 +108,7 @@ pageErrors: report
 "##;
     let nav = r#"kind: binding
 nav: demo.panel
+commands: { timeout: 1800 }
 apps: { panel: "http://panel.test" }
 accounts: { owner: { address: owner@example.test } }
 setup: [{ run: [psql, -c, "select 1"] }]
@@ -137,6 +139,50 @@ session: { check: { open: "{app}/", find: { role: main } } }
     for (file, said) in found {
         assert_eq!(said, Vec::<String>::new(), "{file}");
     }
+}
+
+// a binding's commands get 180 s each unless `commands.timeout` says otherwise: more than 0 and at most 1800 s, so a
+// time written in milliseconds (180000) is refused rather than read as two days
+#[test]
+fn a_command_s_time_is_more_than_0_and_at_most_1800_seconds() {
+    let good = findings_of(
+        "commands-good",
+        &[
+            ("binding.yaml", "kind: binding\nflow: demo.team\ncommands: { timeout: 1800 }\n"),
+            ("binding.quick.yaml", "kind: binding\nflow: demo.team\ncommands: { timeout: 0.5 }\n"),
+            ("binding.left.yaml", "kind: binding\nflow: demo.team\ncommands: {}\n"),
+            ("panel.nav.binding.yaml", "kind: binding\nnav: demo.panel\ncommands: { timeout: 600 }\n"),
+        ],
+    );
+    for (file, said) in good {
+        assert_eq!(said, Vec::<String>::new(), "{file}");
+    }
+    let bad = findings_of(
+        "commands-bad",
+        &[
+            ("binding.yaml", "kind: binding\nflow: demo.team\ncommands: { timeout: 0 }\n"),
+            ("binding.below.yaml", "kind: binding\nflow: demo.team\ncommands: { timeout: -30 }\n"),
+            ("binding.ms.yaml", "kind: binding\nflow: demo.team\ncommands: { timeout: 180000 }\n"),
+            ("binding.text.yaml", "kind: binding\nflow: demo.team\ncommands: { timeout: 3m }\n"),
+            ("binding.key.yaml", "kind: binding\nflow: demo.team\ncommands: { timeot: 240 }\n"),
+            ("binding.flat.yaml", "kind: binding\nflow: demo.team\ncommands: 240\n"),
+            ("panel.nav.binding.yaml", "kind: binding\nnav: demo.panel\ncommands: { timeout: 3600 }\n"),
+        ],
+    );
+    let said: Vec<(&str, Vec<&str>)> =
+        bad.iter().map(|(f, s)| (f.as_str(), s.iter().map(String::as_str).collect())).collect();
+    assert_eq!(
+        said,
+        [
+            ("binding.yaml", vec!["3:22 commands.timeout: must be > 0"]),
+            ("binding.below.yaml", vec!["3:22 commands.timeout: must be > 0"]),
+            ("binding.ms.yaml", vec!["3:22 commands.timeout: must be <= 1800"]),
+            ("binding.text.yaml", vec!["3:22 commands.timeout: must be a number"]),
+            ("binding.key.yaml", vec![r#"3:13 commands: "timeot" is not a key here; did you mean "timeout"?"#]),
+            ("binding.flat.yaml", vec!["3:11 commands: must be an object"]),
+            ("panel.nav.binding.yaml", vec!["3:22 commands.timeout: must be <= 1800"]),
+        ]
+    );
 }
 
 #[test]
