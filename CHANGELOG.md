@@ -2,6 +2,10 @@
 
 While the version is 0.x, a release that can judge the same graphs differently (a new check, a stricter schema) bumps the minor; a fix that judges nothing differently bumps the patch.
 
+## Unreleased
+
+- A page node may say the path it opens at: `route`, written as a navigation graph writes a page's route, `{name}` or `:name` for one segment and `{...name}` for any number (SPEC.md §4, §6), such as `route: /w/:workspace/plan`. Rehber takes a person to the page a step is on by it; before, it could match a flow's page to a navigation page only when the page's heading had the words of the navigation page's title. The schema refuses `route` on a node that is not a page, on a dialog (role `dialog` or `alertdialog`), and where it does not start with `/`. New warning of `check`, which fails nothing: `page-route-unknown`, at a page's `route` that no page of the navigation graphs under the folders it is given has, the names of their parameters aside; with no navigation graph, no route is held. Graphs without `route` are judged as before. Proposed on 28 Nov 2026.
+
 ## 0.16.0 (2026-11-25)
 
 This release takes in what a pilot met when it planned tutorials for a whole panel's flows and filmed one video per flow (SPEC.md §7). The engine's tutorial planner and recorder changed with it; `check` replays a tutorial as the video does, so it changes the same way.
