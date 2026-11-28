@@ -100,6 +100,8 @@ export interface UiNode {
     /** Drawn once per item of this data: once per row the samples give it, else once. */
     repeat?: string;
     frame?: string;
+    /** On a page that is no dialog: the path it opens at, as a navigation graph writes a page's route (SPEC.md §4, §6). */
+    route?: string;
     value?: Label;
     holds?: string;
     /** Whether it is checked: an expression over the context (on a repeat node, also over its row, `row.<field>`), or true or false. */

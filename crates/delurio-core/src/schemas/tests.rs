@@ -211,3 +211,34 @@ mask: [secret, credential, credential]
         ]
     );
 }
+
+#[test]
+fn a_page_says_the_route_it_opens_at_and_no_other_node_does() {
+    let ui = r#"schema: delurio-graph/0
+kind: ui
+id: demo.plan
+catalog: catalog/en.json
+nodes:
+  plan: { type: page, role: main, route: "/w/:workspace/plan" }
+  docs: { type: page, route: "/docs/{...slug}" }
+  title: { type: text, role: heading, route: /w/x/plan }
+  confirm: { type: page, role: alertdialog, route: /w/x/plan/confirm }
+  usage: { type: page, route: w/x/usage }
+"#;
+    // a page's route is accepted, written either way (plan, docs); a text's, a dialog's and one that is no path are not
+    let found = findings_of("route", &[("ui.yaml", ui)]);
+    assert_eq!(
+        found[0].1,
+        [
+            concat!(
+                r#"8:46 nodes.title.route: is not allowed here (route is only on a page that is not a dialog: a dialog "#,
+                r#"is drawn over another page, at that page's route)"#
+            ),
+            concat!(
+                r#"9:52 nodes.confirm.route: is not allowed here (route is only on a page that is not a dialog: a "#,
+                r#"dialog is drawn over another page, at that page's route)"#
+            ),
+            r#"10:31 nodes.usage.route: "w/x/usage" does not match ^/"#,
+        ]
+    );
+}

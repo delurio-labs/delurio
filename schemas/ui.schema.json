@@ -287,6 +287,12 @@
           "description": "For a page: whether it may be framed; `never` (served with CSP frame-ancestors 'none').",
           "const": "never"
         },
+        "route": {
+          "type": "string",
+          "pattern": "^/",
+          "description": "For a page: the path it opens at, as a navigation graph writes a page's route (SPEC.md §6): `{name}` or `:name` for one segment, `{...name}` for any number of them. Rehber links to the page by it. Where the graphs hold a navigation graph, check warns of a route that none of its pages has (page-route-unknown). A dialog is drawn over another page and has none (proposed on 28 Nov 2026).",
+          "examples": ["/w/:workspace/plan", "/notes/{id}/edit"]
+        },
         "value": { "$ref": "#/$defs/value", "description": "On a field: what it holds when it is shown, until someone types in it. A replay reads the field's value and compares it." },
         "holds": {
           "type": "string",
@@ -328,6 +334,11 @@
           "$comment": "initialFocus, frame and script are only on a page",
           "if": { "not": { "properties": { "type": { "const": "page" } } } },
           "then": { "properties": { "initialFocus": false, "frame": false, "script": false } }
+        },
+        {
+          "$comment": "route is only on a page that is not a dialog: a dialog is drawn over another page, at that page's route",
+          "if": { "not": { "properties": { "type": { "const": "page" }, "role": { "not": { "enum": ["dialog", "alertdialog"] } } } } },
+          "then": { "properties": { "route": false } }
         },
         {
           "$comment": "value is only on a field: what the field holds",
