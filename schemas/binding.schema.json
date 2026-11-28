@@ -71,6 +71,19 @@
           "type": "string",
           "description": "The folder commands run in, relative to the binding's file; its folder when left out."
         },
+        "commands": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "timeout": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1800,
+              "description": "How many seconds each command may run at most (180), up to 1800. One that runs past it is stopped with every process it started, and fails as a command that exits with an error does. Proposed on 26 Nov 2026."
+            }
+          },
+          "description": "How the binding's commands run: every `run` action, wherever it is (a setup, a teardown, a snapshot's, an effect's check), and an attach's helper."
+        },
         "apps": {
           "type": "object",
           "description": "Each app's base address, used as {<app>} in addresses.",
@@ -1029,6 +1042,19 @@
         "root": {
           "type": "string",
           "description": "The folder commands run in, relative to the binding's file; its folder when left out."
+        },
+        "commands": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "timeout": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1800,
+              "description": "How many seconds each command may run at most (180), up to 1800. One that runs past it is stopped with every process it started, and fails as a command that exits with an error does. Proposed on 26 Nov 2026."
+            }
+          },
+          "description": "How the binding's commands run: every `run` action, wherever it is (the setup, a persona's), and an attach's helper."
         },
         "apps": {
           "type": "object",
