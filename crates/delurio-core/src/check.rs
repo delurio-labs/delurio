@@ -26,6 +26,7 @@ use crate::model::{Model, check_assertions, explore};
 use crate::nav::{LoadedNav, check_goals, findings, load_nav, view_of};
 use crate::needs::{check_needs, planned, read_needs};
 use crate::nodepath::{self, basename, dirname, join2, relative, resolve1};
+use crate::page_route::{NavRoutes, PAGE_ROUTE_UNKNOWN, page_routes, unknown_routes};
 use crate::schemas::{SchemaKind, schema_kind_of, validate_file};
 use crate::starts::check_starts;
 use crate::story::steps_by_events;
@@ -150,6 +151,7 @@ const RULES: &[Rule] = &[
     rule("event-unhandled", "A node sends an event that a state showing it enabled does not handle (SPEC.md §4)", E),
     rule("during-step-unused", "A node is marked duringStep where no state that runs a step shows it enabled, or it sends NAVIGATE (SPEC.md §4)", W),
     rule("role-missing", "A field or an action gives no role, by which a screen reader finds it (SPEC.md §4)", W),
+    rule("page-route-unknown", "A page's route is the route of no page of the navigation graphs (SPEC.md §4, §6)", W),
     rule("state-no-way-out", "A state that is not an exit has no way out (SPEC.md §2)", E),
     rule("state-unreachable", "No situation the flow starts in reaches the state (SPEC.md §2)", E),
     rule("tutorial-mismatch", "A tutorial no longer matches its flow (SPEC.md §7)", E),
@@ -483,7 +485,19 @@ fn kit_findings(kit: &Kit) -> Vec<CheckResult> {
         .collect()
 }
 
-fn check_flow(dir: &str, domains: &mut DomainsSeen, kits: &mut IndexSet<String>) -> Result<Vec<CheckResult>> {
+/// the page nodes of a flow that say their route (node, route), held to the navigation graphs once every graph is read
+struct RoutedPages {
+    ui: String,
+    graph: String,
+    pages: Vec<(String, String)>,
+}
+
+fn check_flow(
+    dir: &str,
+    domains: &mut DomainsSeen,
+    kits: &mut IndexSet<String>,
+    routed: &mut Vec<RoutedPages>,
+) -> Result<Vec<CheckResult>> {
     let file = join2(dir, "flow.yaml");
     let mut g = load(dir)?;
     let kit = match resolve_kit(dir, g.ui().kit(), None) {
@@ -654,6 +668,10 @@ fn check_flow(dir: &str, domains: &mut DomainsSeen, kits: &mut IndexSet<String>)
                 format!("states/{name}"),
             ));
         }
+    }
+    let pages = page_routes(&g);
+    if !pages.is_empty() {
+        routed.push(RoutedPages { ui: join2(dir, "ui.yaml"), graph: id, pages });
     }
     Ok(out)
 }
@@ -877,9 +895,10 @@ fn check_domains(files: &[String]) -> Vec<CheckResult> {
     out
 }
 
-fn check_nav(dir: &str) -> Result<Vec<CheckResult>> {
+fn check_nav(dir: &str, navs: &mut Vec<NavRoutes>) -> Result<Vec<CheckResult>> {
     let file = join2(dir, "nav.yaml");
     let LoadedNav { g, warnings } = load_nav(dir, None)?;
+    navs.push(NavRoutes { id: g.id.clone(), routes: g.pages.values().map(|p| p.route.clone()).collect() });
     let views = g.personas.iter().map(|p| view_of(&g, p)).collect::<Result<Vec<_>>>()?;
     let found = findings(&g, &views, &check_goals(&g, &views))?;
     let start = At { line: 1, column: 1 };
@@ -1150,13 +1169,15 @@ fn check_run(args: &[String]) -> i32 {
     let mut results: Vec<CheckResult> = Vec::new();
     let mut domains: DomainsSeen = IndexMap::new(); // the domains found, for every flow that names one
     let mut kits: IndexSet<String> = IndexSet::new(); // the kits whose own findings are given
+    let mut routed: Vec<RoutedPages> = Vec::new(); // the pages that say their route
+    let mut navs: Vec<NavRoutes> = Vec::new(); // the routes of the navigation graphs' pages
     let mut broken = false;
     for d in &dirs_of_graphs {
         let file = if exists(&join2(d, "flow.yaml")) { join2(d, "flow.yaml") } else { join2(d, "nav.yaml") };
         let checked = newer_format(&file).and_then(|newer| match newer {
             Some(newer) => Ok(Err(newer)),
-            None if file.ends_with("flow.yaml") => check_flow(d, &mut domains, &mut kits).map(Ok),
-            None => check_nav(d).map(Ok),
+            None if file.ends_with("flow.yaml") => check_flow(d, &mut domains, &mut kits, &mut routed).map(Ok),
+            None => check_nav(d, &mut navs).map(Ok),
         });
         match checked {
             Ok(Ok(found)) => results.extend(found),
@@ -1177,6 +1198,13 @@ fn check_run(args: &[String]) -> i32 {
                 let (at_file, at) = load_place(d, &file, &err);
                 results.push(result("load", &at_file, at, err.first_line(), &rel(d), "load"));
             }
+        }
+    }
+    // a page's route that no page of the navigation graphs has, once there is one (SPEC.md §4, §6)
+    for r in &routed {
+        let text = read_text(&r.ui).unwrap_or_default();
+        for p in unknown_routes(&r.pages, &navs) {
+            results.push(result(PAGE_ROUTE_UNKNOWN, &r.ui, key_at(&text, &p.path), p.message, &r.graph, p.element));
         }
     }
     // every graph file against its kind's schema: what an editor with the schemas marks, check reports

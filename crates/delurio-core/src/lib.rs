@@ -26,6 +26,7 @@ pub mod model;
 pub mod nav;
 pub mod needs;
 pub mod nodepath;
+pub mod page_route;
 pub mod schemas;
 pub mod starts;
 pub mod story;
